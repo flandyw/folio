@@ -176,6 +176,8 @@ internal fun StudyTimeline(
     onStartPlanned: (String) -> Unit, onStartFocus: (String?) -> Unit, onEditPlan: (String) -> Unit,
     /** Landscape tablet: the timeline spans the page above the timer, so it trades height for width. */
     compact: Boolean = false,
+    /** A day (epoch day) another part of the screen asked to show, e.g. a tapped history row. */
+    requestedDay: Long? = null, onDayShown: () -> Unit = {},
 ) {
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val scheme = MaterialTheme.colorScheme
@@ -183,6 +185,13 @@ internal fun StudyTimeline(
     val zone = remember { ZoneId.systemDefault() }
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     var epochDay by rememberSaveable { mutableLongStateOf(today.toEpochDay()) }
+    // Left open past midnight on "today", the strip moves on to the new today rather than staying on yesterday.
+    var lastToday by rememberSaveable { mutableLongStateOf(today.toEpochDay()) }
+    LaunchedEffect(today) {
+        if (epochDay == lastToday) epochDay = today.toEpochDay()
+        lastToday = today.toEpochDay()
+    }
+    LaunchedEffect(requestedDay) { requestedDay?.let { epochDay = it; onDayShown() } }
     val date = LocalDate.ofEpochDay(epochDay)
     val isToday = date == today
     // ponytail: minutes are wall-clock offsets from local midnight; a DST changeover day is out by an hour.
@@ -253,7 +262,16 @@ internal fun StudyTimeline(
     var picks by remember { mutableStateOf(emptySet<String>()) }
     var merging by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(epochDay) { view = null; draft = null; selected = null; message = null; cut = null; picks = emptySet() }
+    LaunchedEffect(epochDay) {
+        view = null; draft = null; draftOrigin = null; drag = null; adjust = null; selected = null; confirmRemove = false
+        message = null; cut = null; razor = false; picking = false; picks = emptySet()
+    }
+    // Results ("Moved to 4pm–5pm") fade after a few seconds; a tool's instructions stay while it is on.
+    LaunchedEffect(message, razor, picking) {
+        if (message != null && !razor && !picking) { kotlinx.coroutines.delay(5_000); message = null }
+    }
+    // "Remove for good?" is a second tap, not a state the block is left in.
+    LaunchedEffect(confirmRemove, selected) { if (confirmRemove) { kotlinx.coroutines.delay(4_000); confirmRemove = false } }
 
     fun reveal(range: Span) {
         if (range.start >= window.start && range.end <= window.end) return
@@ -334,9 +352,13 @@ internal fun StudyTimeline(
         val restStart = millisAt(cut)
         val restEnd = millisAt(block.end)
         val made = if (entry.completed) manager.logBlock(entry.subjectId, entry.title, restStart, restEnd)
-        else runCatching { manager.savePlan(FocalStudyEntry(id = UUID.randomUUID().toString(), notebookId = null, title = "",
-            subjectId = entry.subjectId, kind = "study", startedAt = now, endedAt = now, activeMillis = 0L, completed = false, planned = true),
-            entry.title, entry.subjectId, "", emptyList(), listOf(FocalStudyInterval(restStart, restEnd))) }.getOrDefault(false)
+        else runCatching {
+            // The second half is the same plan continued, so it keeps the notes and topics too.
+            val (description, topics) = focalPlanDetails(entry)
+            manager.savePlan(FocalStudyEntry(id = UUID.randomUUID().toString(), notebookId = null, title = "",
+                subjectId = entry.subjectId, kind = "study", startedAt = now, endedAt = now, activeMillis = 0L, completed = false, planned = true),
+                entry.title, entry.subjectId, description, topics, listOf(FocalStudyInterval(restStart, restEnd)))
+        }.getOrDefault(false)
         if (!made) { message = "Could not split that block."; return }
         // Keep the block's own start to the millisecond rather than a round trip through float minutes.
         val firstStart = focalSessionBlocks(entry).getOrNull(block.index)?.startAt ?: millisAt(block.start)
@@ -370,8 +392,14 @@ internal fun StudyTimeline(
     val rowHeight = if (compact) COMPACT_ROW else ROW
     val blockHeight = if (compact) COMPACT_BLOCK else BLOCK
     val trackPad = (rowHeight - blockHeight) / 2 + if (compact) 2.dp else 4.dp
+    val context = LocalContext.current
+    fun pickDate() {
+        android.app.DatePickerDialog(context, { _, year, month, day -> epochDay = LocalDate.of(year, month + 1, day).toEpochDay() },
+            date.year, date.monthValue - 1, date.dayOfMonth).show()
+    }
     val dayTitle: @Composable () -> Unit = {
-        Column {
+        Column(Modifier.clip(FolioShapes.small).clickable(onClickLabel = "Choose a day") { pickDate() }
+            .padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2)) {
             if (!compact) Text("Study timeline", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
             val relative = when (date) { today -> "Today · "; today.minusDays(1) -> "Yesterday · "; today.plusDays(1) -> "Tomorrow · "; else -> "" }
             Text(relative + date.format(DateTimeFormatter.ofPattern(if (compact) "EEE d MMM" else "EEEE d MMMM", Locale.getDefault())),
@@ -387,7 +415,7 @@ internal fun StudyTimeline(
     }
     val stats: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Surface(shape = FolioShapes.small, color = scheme.primaryContainer) {
+            if (date <= today) Surface(shape = FolioShapes.small, color = scheme.primaryContainer) {
                 Text("${duration(studied)} studied", Modifier.padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp6),
                     style = MaterialTheme.typography.labelLarge, color = scheme.onPrimaryContainer)
             }
@@ -715,8 +743,10 @@ internal fun StudyTimeline(
                                 Text(listOfNotNull(subject?.name, "${clock(picked.start)}–${clock(picked.end)}", duration(picked.end - picked.start),
                                     when { picked.tone == Tone.LIVE -> "Studying now"; missed(picked) -> "Missed"; picked.tone == Tone.TODO -> "Planned"
                                         entry.kind == "exam" -> "Exam"; else -> "Done" },
-                                    if (picked.count > 1) "${picked.count} intervals" else null).joinToString(" · "),
+                                    if (picked.count > 1) "Block ${picked.index + 1} of ${picked.count}" else null).joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                                val about = if (entry.planned) focalPlanDetails(entry).first else entry.notes
+                                if (about.isNotBlank()) Text(about.trim(), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (!compact) IconButton({ selected = null }) { Icon(Icons.Rounded.Close, "Close details") }
                         }
@@ -741,13 +771,16 @@ internal fun StudyTimeline(
                                 persist(picked, Span(start, start + length))
                             }) { Text("Move to now") }
                             if (entry.subjectId != null && entry.kind == "study") OutlinedButton({
-                                val tomorrow = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                                val next = date.plusDays(1)
+                                val nextStart = next.atStartOfDay(zone).toInstant().toEpochMilli()
                                 val copy = FocalStudyEntry(notebookId = null, title = "", subjectId = entry.subjectId, kind = "study",
                                     startedAt = now, endedAt = now, activeMillis = 0L, completed = false, planned = true)
-                                val ok = runCatching { manager.savePlan(copy, entry.title, entry.subjectId, "", emptyList(),
-                                    listOf(FocalStudyInterval(millisAt(picked.start, tomorrow), millisAt(picked.end, tomorrow)))) }.getOrDefault(false)
-                                message = if (ok) "Planned again for ${clock(picked.start)} tomorrow" else "Could not plan that again."
-                            }) { Text("Repeat tomorrow") }
+                                val (description, topics) = if (entry.planned) focalPlanDetails(entry) else entry.notes.trim() to emptyList()
+                                val ok = runCatching { manager.savePlan(copy, entry.title, entry.subjectId, description, topics,
+                                    listOf(FocalStudyInterval(millisAt(picked.start, nextStart), millisAt(picked.end, nextStart)))) }.getOrDefault(false)
+                                message = if (!ok) "Could not plan that again."
+                                    else "Planned again for ${clock(picked.start)} ${if (next == today.plusDays(1)) "tomorrow" else next.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}"
+                            }) { Text(if (isToday) "Repeat tomorrow" else "Repeat next day") }
                             if (!timing && entry.kind == "study") Button({
                                 if (entry.planned) onStartPlanned(entry.id) else onStartFocus(entry.subjectId)
                             }, enabled = canStart) { Text(if (entry.planned) "Start" else "Study again") }
@@ -789,8 +822,10 @@ internal fun StudyTimeline(
                         }
                         OutlinedTextField(title, { title = it.take(512) }, Modifier.fillMaxWidth(), singleLine = true,
                             label = { Text("Title") }, placeholder = { Text("${subjectName ?: "Study"} study") })
+                        if (subjectName == null) Text("Choose a subject to ${if (done) "log" else "schedule"} this block.",
+                            style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                         Button({
-                            val name = subjectName ?: run { message = "Choose a subject."; return@Button }
+                            val name = subjectName ?: return@Button
                             val label = title.trim().ifBlank { "$name study" }
                             val ok = if (done) manager.logBlock(subjectId, label, millisAt(range.start), millisAt(range.end))
                             else runCatching { manager.savePlan(FocalStudyEntry(id = UUID.randomUUID().toString(), notebookId = null, title = "",
@@ -798,7 +833,7 @@ internal fun StudyTimeline(
                                 label, subjectId, "", emptyList(), listOf(FocalStudyInterval(millisAt(range.start), millisAt(range.end)))) }.getOrDefault(false)
                             message = if (ok) "${if (done) "Logged" else "Scheduled"} ${duration(range.end - range.start)} of $name" else "Could not save. Try again."
                             if (ok) { draft = null; title = "" }
-                        }, Modifier.fillMaxWidth(), enabled = range.end > range.start) {
+                        }, Modifier.fillMaxWidth(), enabled = range.end > range.start && subjectName != null) {
                             Text("${if (done) "Log" else "Schedule"} ${duration(range.end - range.start)}")
                         }
                         } }

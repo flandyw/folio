@@ -168,6 +168,7 @@ import com.folio.notes.*
         topBar = {
             BoxWithConstraints {
                 val roomyHeader = maxWidth >= 600.dp * density.fontScale
+                Column {
                 TopAppBar(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = colors.surface, scrolledContainerColor = colors.surface),
@@ -179,7 +180,7 @@ import com.folio.notes.*
                                 state.saveFailed -> "Save failed · retry before rating"
                                 state.saving -> "Saving your response…"
                                 typing && imeVisible -> m.question
-                                queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize · +$sessionXP XP"
+                                queuePos != null && queueSize != null && queueSize > 1 -> "Card $queuePos of $queueSize" + if (sessionXP > 0) " · +$sessionXP XP" else ""
                                 dueLeft > 1 -> "${dueLeft - 1} more due after this"
                                 else -> "Practise at your own pace"
                             },
@@ -238,6 +239,19 @@ import com.folio.notes.*
                         }
                     }
                 )
+                // How far through the session: a quiet hairline rather than another line of text.
+                if (queuePos != null && queueSize != null && queueSize > 1) {
+                    val sessionProgress by androidx.compose.animation.core.animateFloatAsState(
+                        ((queuePos - 1).toFloat() / queueSize).coerceIn(0f, 1f), label = "session")
+                    LinearProgressIndicator(
+                        progress = { sessionProgress },
+                        modifier = Modifier.fillMaxWidth().height(3.dp).semantics { contentDescription = "Card $queuePos of $queueSize" },
+                        trackColor = colors.surfaceContainerHighest,
+                        drawStopIndicator = {},
+                        gapSize = 0.dp,
+                    )
+                }
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -303,7 +317,7 @@ import com.folio.notes.*
                                     val preview = remember(m, rating, reviewPreferences, mistakesState.cache.mistakes, now) {
                                         runCatching { MistakeScheduler.previewMistakeReview(m, rating, now, reviewPreferences, mistakesState.cache.mistakes.values.toList()) }.getOrNull()
                                     }
-                                    val label = preview?.let { intervalLabel(it.copy(intervalDays = (timestamp(it.dueAt) - timestamp(now)).toDouble() / 86_400_000), rating) } ?: ""
+                                    val label = preview?.let { intervalLabel(it.copy(intervalDays = (timestamp(it.dueAt) - timestamp(now)).toDouble() / 86_400_000)) } ?: ""
                                     // Autosave runs after each edit. Rating waits for it in the
                                     // handler, so drawing must not pulse the buttons' enabled state.
                                     val canRate = !busy && !state.saveFailed
@@ -314,7 +328,8 @@ import com.folio.notes.*
                                         ReviewRating.GOOD -> "recalled it"
                                         else -> "confident"
                                     }
-                                    val modifier = Modifier.weight(1f).semantics { contentDescription = "$ratingName, $meaning${if (label.isNotBlank()) ", next review $label" else ""}" }
+                                    val shortcut = rating.ordinal + 1
+                                    val modifier = Modifier.weight(1f).semantics { contentDescription = "$ratingName, $meaning${if (label.isNotBlank()) ", next review $label" else ""}, shortcut $shortcut" }
                                     val content: @Composable RowScope.() -> Unit = {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text(ratingName, style = MaterialTheme.typography.labelLarge)
@@ -480,22 +495,8 @@ import com.folio.notes.*
     if (showPrevious && previousAttempts.isNotEmpty()) {
         PreviousAttemptDialog(attempts = previousAttempts, folio = folio, onClose = { showPrevious = false })
     }
-    if (showDelete) {
-        AlertDialog(
-            onDismissRequest = { if (!busy) showDelete = false },
-            icon = { Icon(Icons.Rounded.DeleteOutline, null) },
-            title = { Text("Delete this card?") },
-            text = { Text("“${m.question}” leaves your review list on all devices. Your responses on this device are kept.") },
-            dismissButton = { TextButton({ showDelete = false }, enabled = !busy, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
-            confirmButton = {
-                Button(
-                    { showDelete = false; onDelete() },
-                    enabled = !busy,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    shapes = ButtonDefaults.shapes(),
-                ) { Text("Delete card") }
-            },
-        )
+    if (showDelete) DeleteCardDialog(m.question, busy, onDismiss = { showDelete = false }) {
+        showDelete = false; onDelete()
     }
 }
 

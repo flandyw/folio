@@ -25,12 +25,16 @@ import com.folio.notes.guardUiTouches
 import com.folio.notes.longPressAction
 import com.folio.notes.rememberLongPressGuard
 
-@Composable internal fun MistakeFilterOptions(title: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
+/** One labelled chip group; [allowAll] adds an "All" chip and lets a second tap clear the choice. */
+@Composable internal fun MistakeFilterOptions(title: String, options: List<String>, selected: String, allowAll: Boolean = true, onSelect: (String) -> Unit) {
     if (options.isEmpty()) return
     Text(title, style = MaterialTheme.typography.titleSmall)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        FilterChip(selected.isBlank(), { onSelect("") }, { Text("All") })
-        options.forEach { option -> FilterChip(selected == option, { onSelect(if (selected == option) "" else option) }, { Text(option) }) }
+        if (allowAll) FilterChip(selected.isBlank(), { onSelect("") }, { Text("All") })
+        options.forEach { option ->
+            FilterChip(selected == option, { onSelect(if (allowAll && selected == option) "" else option) }, { Text(option) },
+                leadingIcon = if (selected == option) { { Icon(Icons.Rounded.Check, null, Modifier.size(FilterChipDefaults.IconSize)) } } else null)
+        }
     }
 }
 
@@ -55,13 +59,15 @@ import com.folio.notes.rememberLongPressGuard
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(mistake.question, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            RichText(mistake.questionText.orEmpty(), style = previewStyle,
-                modifier = Modifier.fillMaxWidth())
+            // A preview, not the whole question: long prompts would turn the list into a wall of text.
+            if (!mistake.questionText.isNullOrBlank()) RichText(mistake.questionText, style = previewStyle,
+                modifier = Modifier.fillMaxWidth(), maxLines = 3, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(FolioSpacing.dp8))
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = FolioShapes.small,
-                    color = if (overdue) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = if (overdue) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurface) {
+                    // Same urgency colours as Today's overdue queue.
+                    color = if (overdue) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = if (overdue) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface) {
                     Text(dueText, Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -72,8 +78,8 @@ import com.folio.notes.rememberLongPressGuard
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(buildList {
                     mistake.marksLost?.let { add("−${trimMark(it)} ${if (it == 1.0) "mark" else "marks"}") }
-                    if (attempts > 0) add("$attempts ${if (attempts == 1) "attempt" else "attempts"}")
-                    if (mistake.attachments.isNotEmpty()) add("${mistake.attachments.size} ${if (mistake.attachments.size == 1) "attachment" else "attachments"}")
+                    if (attempts > 0) add(countLabel(attempts, "attempt"))
+                    if (mistake.attachments.isNotEmpty()) add(countLabel(mistake.attachments.size, "attachment"))
                 }.joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!mistake.suspended) TextButton(hold.click(onPractice), enabled = !working, shapes = ButtonDefaults.shapes()) {

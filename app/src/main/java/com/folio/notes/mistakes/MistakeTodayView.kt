@@ -64,6 +64,9 @@ internal val TodaySessionSizes = listOf(5, 10, 20, Int.MAX_VALUE)
 /** Everything Today shows. The due lists are already narrowed to [focus] and ordered. */
 internal data class TodayContent(
     val stats: TodayStats,
+    val progress: PracticeProgress,
+    /** Wire names of the ratings given in the session just finished. */
+    val ratings: List<String>,
     val mistakes: List<ExamTrackMistake>,
     val preferences: MistakeReviewPreferences,
     val sessionXP: Int,
@@ -240,7 +243,7 @@ private fun TodayQueueCard(
     val facts = buildList {
         schedule?.let { add(dueLabel(it.dueAt, now)) }
         mistake.marksLost?.let { add("−${trimMark(it)} ${if (it == 1.0) "mark" else "marks"}") }
-        if (attempts > 0) add("$attempts ${if (attempts == 1) "attempt" else "attempts"}")
+        if (attempts > 0) add(countLabel(attempts, "attempt"))
         mistake.category.takeIf { it.isNotBlank() }?.let(::add)
     }.joinToString(" · ")
     Box {
@@ -323,9 +326,9 @@ private fun TodaySessionCard(content: TodayContent, actions: TodayActions, modif
     Box {
     Surface(Modifier.fillMaxWidth(), shape = FolioShapes.panel, color = scheme.primaryContainer, contentColor = scheme.onPrimaryContainer) {
         Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-            content.completed?.let { SessionDone(it, content.pending, actions.onDismissSummary) }
+            content.completed?.let { SessionDone(it, ratingTally(content.ratings), content.pending, actions.onDismissSummary) }
             if (content.completed != null) {
-                Text("+${content.sessionXP} XP this session", style = MaterialTheme.typography.titleMedium)
+                if (content.sessionXP > 0) Text("+${content.sessionXP} XP this session", style = MaterialTheme.typography.titleMedium)
                 content.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
@@ -333,6 +336,7 @@ private fun TodaySessionCard(content: TodayContent, actions: TodayActions, modif
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     Text(
                         when {
+                            content.completed != null && content.due > 0 -> "Ready for another round?"
                             content.completed != null -> "A round well spent"
                             content.totalCards == 0 -> "Turn mistakes into understanding"
                             content.due == 0 -> "You're all caught up"
@@ -409,7 +413,7 @@ private fun TodaySessionCard(content: TodayContent, actions: TodayActions, modif
 @Composable
 private fun TodayRing(content: TodayContent) {
     val scheme = MaterialTheme.colorScheme
-    val done = MistakePracticeProgress.get(content.mistakes, content.now).todayCount
+    val done = content.progress.todayCount
     val goal = content.preferences.practiceTarget
     val target = (done.toFloat() / goal).coerceAtMost(1f)
     val progress by animateFloatAsState(target, MaterialTheme.motionScheme.slowSpatialSpec(), label = "today")
@@ -443,7 +447,7 @@ private fun TodayRing(content: TodayContent) {
 }
 
 @Composable
-private fun SessionDone(completed: Int, pending: Int, onDismiss: () -> Unit) {
+private fun SessionDone(completed: Int, tally: String, pending: Int, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Surface(shape = FolioShapes.extraLarge, color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer) {
         Row(
@@ -457,10 +461,11 @@ private fun SessionDone(completed: Int, pending: Int, onDismiss: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text("Session complete", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "$completed ${if (completed == 1) "question" else "questions"} reviewed · " +
+                    "${countLabel(completed, "question")} reviewed · " +
                         if (pending > 0) "$pending waiting to sync" else "everything is saved",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (tally.isNotEmpty()) Text(tally, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             }
             IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Dismiss") }
         }
@@ -507,7 +512,7 @@ private fun <T> ConnectedChoice(
 private fun TodayStatsRow(stats: TodayStats, total: Int, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         StatTile(Icons.Rounded.TaskAlt, "${stats.reviewedToday}", "Reviewed today", Modifier.weight(1f).fillMaxHeight())
-        StatTile(Icons.Rounded.LocalFireDepartment, "${stats.streak}", if (stats.streak == 1) "Day streak" else "Days streak",
+        StatTile(Icons.Rounded.LocalFireDepartment, "${stats.streak}", "Day streak",
             Modifier.weight(1f).fillMaxHeight())
         StatTile(Icons.Rounded.Style, "$total", "In library", Modifier.weight(1f).fillMaxHeight())
     }

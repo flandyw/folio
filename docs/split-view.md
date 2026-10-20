@@ -7,8 +7,8 @@ it, a chooser that appears in the new pane, and no modes to pick.
 
 - **Open:** the split button in the editor toolbar, *Split view…* in the notebook
   menu, Ctrl + \ or the command palette, or in the tab strip hold a tab and pull it down out of the
-  strip: it lifts off as a chip (the document's current page and name) under your finger, a dashed
-  *Drop to open beside* outline marks the pane it will fill, and letting go there opens it
+  strip: it lifts off as a chip (the document's current page and name) under your finger, the screen
+  shows a left and a right half (see *Drop side*), and letting go opens it on that side
   (`TabDrag`/`LocalTabDrag`, drawn by `TabDragChip` and `SplitDropZone`). Dragging back up into the
   strip cancels and returns to reordering. The screen splits at once
   and the new pane shows a chooser: search, **This notebook** (opens on the page being edited, so two pages
@@ -26,10 +26,14 @@ it, a chooser that appears in the new pane, and no modes to pick.
   `SplitTabGroup`). The frame follows the animated slots as a separate decoration, so grouping never
   recreates a held tab. The half being worked on carries the accent line. Tapping the other half's
   tab works there.
-- **Closing (`WorkspaceManager.closeTab`):** closing the other half's tab closes its pane; closing the
-  tab being worked on leaves the other document as the editor, on its own; when both panes show one
-  notebook, closing it closes the split too. A split parked behind a closed tab is forgotten. Closing
-  the split itself (button, menu, divider) keeps both tabs open, like a browser.
+- **Closing:** a background tab has no close button (tap selects it, then its close shows), so a tap
+  never closes by accident. The split pair's capsule has one close, which ends the split and keeps both
+  tabs open; after that each tab closes on its own (`WorkspaceManager.closeTab`: closing the tab being
+  worked on leaves the other document as the editor). A split parked behind a closed tab is forgotten.
+- **Drop side:** a tab pulled onto the page opens on the half it is dropped on (left/right, or
+  top/bottom when stacked; `SplitPanes.dropsAtStart`), and the editor takes the other side.
+  `SplitDropZone` shows both halves, lighting the one under the finger with "Release to open on the …".
+  The tab's accessibility actions offer *Open on the left* / *Open on the right*.
 - **Write in both at once:** with a pen, highlighter, eraser, shape or laser selected, the pen writes
   straight into the other pane (`LocalSharedInk`). The toolbar's Undo/Redo takes back whichever pane's
   edit is newest (`DocumentEngine.undo` compares the other page's stack sequence).

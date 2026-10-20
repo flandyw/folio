@@ -65,6 +65,8 @@ internal fun <T> folioSpring() = spring<T>(dampingRatio = .76f, stiffness = 380f
 /** Keep only the modal alive until its exit finishes; never retain a document surface. */
 @Composable internal fun FolioAnimatedDialog(
     onDismissRequest: () -> Unit,
+    /** Asked before Back or Close dismisses; return false to stay open (e.g. to confirm unsaved changes). */
+    canDismiss: () -> Boolean = { true },
     content: @Composable (progress: State<Float>, dismiss: () -> Unit) -> Unit,
 ) {
     val visibility = remember { MutableTransitionState(false).apply { targetState = true } }
@@ -74,7 +76,8 @@ internal fun <T> folioSpring() = spring<T>(dampingRatio = .76f, stiffness = 380f
         transitionSpec = { tween(if (targetState) 240 else 180, easing = FastOutSlowInEasing) },
         label = "modalProgress",
     ) { if (it) 1f else 0f }
-    val dismiss = { visibility.targetState = false }
+    val allowDismiss by rememberUpdatedState(canDismiss)
+    val dismiss = { if (allowDismiss()) visibility.targetState = false }
     LaunchedEffect(visibility.isIdle, visibility.currentState, visibility.targetState) {
         if (visibility.isIdle && !visibility.currentState && !visibility.targetState) latestDismiss()
     }

@@ -37,6 +37,14 @@ object SplitPanes {
     /** Magnet radius around a snap point on release; outside it the value stands. */
     const val SNAP_THRESHOLD = 0.08f
 
+    /**
+     * Whether a tab dropped at ([x], [y]) over the panes' area belongs in the start pane (left, or
+     * top when [stacked]; right in a right-to-left layout). The halves split the area evenly.
+     */
+    fun dropsAtStart(x: Float, y: Float, left: Float, top: Float, right: Float, bottom: Float, stacked: Boolean, rightToLeft: Boolean): Boolean =
+        if (stacked) y < (top + bottom) / 2f
+        else (x < (left + right) / 2f) != rightToLeft
+
     fun coerce(fraction: Float): Float =
         if (fraction.isFinite()) fraction.coerceIn(MIN_FRACTION, MAX_FRACTION) else EQUAL
 

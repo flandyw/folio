@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +53,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToLong
 
 private val syncDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()) }
 
@@ -68,6 +71,11 @@ private fun formatSyncedAt(iso: String?): String {
     }.getOrDefault("Last synced ${iso.replace('T', ' ').take(16)} UTC")
 }
 
+/** A stored UTC instant as a local calendar date, e.g. "20 Oct 2026"; never shows raw ISO text. */
+internal fun localDateLabel(iso: String, zone: ZoneId = ZoneId.systemDefault()): String =
+    runCatching { Instant.ofEpochMilli(timestamp(iso)).atZone(zone).format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())) }
+        .getOrDefault(iso.take(10))
+
 internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
     val due = runCatching { Instant.ofEpochMilli(timestamp(dueAt)).atZone(zone) }.getOrNull()
         ?: return "Unknown due date"
@@ -82,8 +90,11 @@ internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis(), zon
     }
 }
 
-internal fun intervalLabel(schedule: MistakeSchedule, rating: ReviewRating): String {
-    if (schedule.intervalDays < 1) return "${(schedule.intervalDays * 24 * 60).toLong()} min"
+internal fun intervalLabel(schedule: MistakeSchedule): String {
+    if (schedule.intervalDays < 1) {
+        val minutes = (schedule.intervalDays * 24 * 60).roundToLong()
+        return if (minutes < 60) "${minutes.coerceAtLeast(1)} min" else "${(minutes + 30) / 60} h"
+    }
     val days = schedule.intervalDays.toLong()
     return when {
         days <= 0 -> "today"
@@ -138,6 +149,15 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var sessionTotal by rememberSaveable { mutableIntStateOf(0) }
     var sessionCompleted by rememberSaveable { mutableIntStateOf(0) }
     var showSummary by rememberSaveable { mutableStateOf(false) }
+    // Ratings given in the current session, for the summary's "2 Again · 3 Good" line.
+    var sessionRatings by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var sort by rememberSaveable { mutableStateOf(MistakeLibrarySort.DUE.name) }
+    var confirmDelete by remember { mutableStateOf<ExamTrackMistake?>(null) }
+    // Dismissing the "saved locally" banner hides it until more reviews queue up.
+    var dismissedPending by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(state.cache.pending.size) {
+        if (state.cache.pending.size < dismissedPending) dismissedPending = state.cache.pending.size
+    }
     var clockNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) { clockNow = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
@@ -193,7 +213,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     LaunchedEffect(state.userId) {
         if (previousUser != state.userId) {
             activeReview = null; detail = null; reviewQueue = emptyList(); showSummary = false
-            sessionCompleted = 0; sessionTotal = 0; previousUser = state.userId
+            sessionCompleted = 0; sessionTotal = 0; sessionRatings = emptyList(); previousUser = state.userId
         }
     }
     LaunchedEffect(state.error) {
@@ -205,7 +225,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
     BackHandler {
         if (working) return@BackHandler
-        if (activeReview != null) { activeReview = null; reviewQueue = emptyList(); folio.close() }
+        if (activeReview != null) {
+            activeReview = null; reviewQueue = emptyList(); folio.close()
+            if (sessionCompleted > 0) { showSummary = true; destination = "Today" }
+        }
         else if (detail != null) detail = null else onBack()
     }
     val selected = remember(mistakes, detail) { mistakes.find { it.id == detail } }
@@ -219,7 +242,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         (state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() } + subject)
             .filter { it.isNotBlank() }.distinct().sorted()
     }
-    val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules) {
+    val librarySort = MistakeLibrarySort.parse(sort)
+    val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules, librarySort) {
         val q = debouncedQuery.trim().lowercase()
         // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
         val dueSet = due.toSet()
@@ -240,10 +264,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 ctx?.subject, ctx?.title, ctx?.paper
             ).any { it.lowercase().contains(q) }
             matchesSubject && matchesPaper && matchesCategory && matchesFilter && matchesQuery
-        }.sortedBy { schedules[it.id]?.dueAt ?: it.updatedAt }
+        }.let { librarySort.sorted(it, schedules) }
     }
-    // Review respects the current list filters so "MM · Exam 1" reviews only those due cards.
-    val reviewCandidates = remember(visible, due) { val dueSet = due.toSet(); visible.filter { it in dueSet } }
+    // Review respects the current list filters so "MM · Exam 1" reviews only those due cards,
+    // always oldest-due first whatever order the list is browsed in.
+    val reviewCandidates = remember(visible, due) { val shown = visible.mapTo(HashSet()) { it.id }; due.filter { it.id in shown } }
     // Attempt counts hoisted out of the card list: one O(notes) pass instead of one per card.
     val dueSet = remember(due) { due.toSet() }
     val attemptCountMap = remember(folioState.notes, state.userId) {
@@ -253,7 +278,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             }
         }
     }
-    fun leaveReview() { activeReview = null; reviewQueue = emptyList(); folio.close() }
+    /** Leaving part-way still ends on the summary, so finished work is acknowledged. */
+    fun leaveReview() {
+        activeReview = null; reviewQueue = emptyList(); folio.close()
+        if (sessionCompleted > 0) { showSummary = true; destination = "Today" }
+    }
     // Signing out happens in the shared account panel, so drop any review that belonged to the account.
     LaunchedEffect(state.userId) { if (state.userId == null && activeReview != null) leaveReview() }
     suspend fun openReview(mistake: ExamTrackMistake, user: String): LocalMistakeReviewAttempt {
@@ -272,6 +301,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         if (reviewQueue.isEmpty() || mistake.id !in reviewQueue) {
             reviewQueue = listOf(mistake.id)
             sessionTotal = 1; sessionCompleted = 0; sessionWeek = null; sessionInitialXP = practiceProgress.xp
+            sessionRatings = emptyList()
         }
         showSummary = false
         if (sessionCompleted == 0) actionMessage = null
@@ -294,7 +324,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     fun startSession(candidates: List<ExamTrackMistake>, weekly: Boolean = false, limit: Int = sessionLimit) {
         if (candidates.isEmpty() || working) return
         val ids = (if (shuffle) candidates.shuffled() else candidates).take(limit).map { it.id }
-        sessionTotal = ids.size; sessionCompleted = 0
+        sessionTotal = ids.size; sessionCompleted = 0; sessionRatings = emptyList()
         sessionInitialXP = practiceProgress.xp
         sessionWeek = if (weekly) practiceProgress.week else null
         sessionChallengeSize = if (weekly) practiceProgress.weeklyTarget else 0
@@ -408,6 +438,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     val completed = model.rate(active, rating, confidence, sessionWeek, sessionChallengeSize.takeIf { sessionWeek != null })
                     folio.completeMistakePractice(completed)
                     sessionCompleted++
+                    sessionRatings = sessionRatings + rating.wire
                     val remainingIds = reviewQueue.filterNot { it == finishedId }
                     showTransient(MistakePracticeProgress.feedback(card, rating, confidence))
                     if (haptics) practiceView.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
@@ -461,6 +492,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finally { working = false }
         }
     }
+    confirmDelete?.let { target ->
+        DeleteCardDialog(target.question, working, onDismiss = { confirmDelete = null }) {
+            confirmDelete = null; deleteCard(target.id)
+        }
+    }
     val scopeCount = listOf(subject, paper, category).count { it.isNotBlank() }
     val localNotes = remember(folioState.notes) { folioState.notes.filter { it.mistakePractice }.sortedByDescending { it.updated } }
     val unfinishedByMistake = remember(folioState.notes, state.userId) {
@@ -497,6 +533,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             folio.openAt(note.id, idx)
                             reviewQueue = listOf(attempt.mistakeId)
                             sessionTotal = 1; sessionCompleted = 0; showSummary = false; sessionWeek = null; sessionInitialXP = practiceProgress.xp
+                            sessionRatings = emptyList()
                             detail = null
                             activeReview = attempt.reviewId
                         } catch (e: CancellationException) { throw e }
@@ -513,16 +550,18 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Rounded.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                val trouble = isSyncTrouble(state.status)
                 // M3e contained loading indicator while a sync is actually running.
                 if (state.status == "Syncing…") ContainedLoadingIndicator(Modifier.size(22.dp))
+                else Icon(if (trouble) Icons.Rounded.CloudOff else Icons.Rounded.CloudUpload, null, Modifier.size(20.dp),
+                    tint = if (trouble) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    if (isSyncTrouble(state.status)) state.status
-                    else "${state.cache.pending.size} reviews saved locally · view sync",
+                    if (trouble) state.status
+                    else "${countLabel(state.cache.pending.size, "review")} saved on this device · waiting to sync",
                     Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                TextButton(onClick = model::dismissStatus, shapes = ButtonDefaults.shapes()) {
+                TextButton(onClick = { dismissedPending = state.cache.pending.size; model.dismissStatus() }, shapes = ButtonDefaults.shapes()) {
                     Text("Dismiss")
                 }
             }
@@ -541,7 +580,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         val toolbarClearance = bottomInset + if (showDestinations) toolbarHeight + FolioSpacing.dp32 else 0.dp
         val contentInset = FolioDestinationInset
         val todayView = destination == "Today" && state.userId != null && !standaloneDetail
-        val showSyncBanner = isSyncTrouble(state.status) || state.cache.pending.isNotEmpty()
+        val showSyncBanner = isSyncTrouble(state.status) || state.cache.pending.size > dismissedPending
         Scaffold(
             // The shell consumes the top inset. Draw the body to the bottom edge; navigation/IME
             // clearance belongs to scroll padding and the floating toolbar, never a full-width bar.
@@ -570,6 +609,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         MistakesTodayView(
                             content = TodayContent(
                                 stats = todayStats,
+                                progress = practiceProgress,
+                                ratings = sessionRatings,
                                 mistakes = mistakes,
                                 preferences = state.cache.reviewPreferences,
                                 sessionXP = maxOf(0, practiceProgress.xp - sessionInitialXP),
@@ -612,7 +653,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 onDismissSummary = { showSummary = false },
                                 onOpen = { m -> detail = m.id; destination = "Library" },
                                 onPractice = { m -> reviewQueue = emptyList(); start(m) },
-                                onDelete = { m -> deleteCard(m.id) },
+                                onDelete = { m -> confirmDelete = m },
                             ),
                             wide = layout.splitToday,
                             columns = layout.columns,
@@ -665,14 +706,18 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     }
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${visible.size} questions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                                    Text(countLabel(visible.size, "question") + " · " + librarySort.label.lowercase(),
+                                        Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Box {
                                         TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
                                         if (showFilters) FolioActionPopover("Focus your library", { showFilters = false }) {
+                                            MistakeFilterOptions("Sort by", MistakeLibrarySort.entries.map { it.label }, librarySort.label, allowAll = false) { label ->
+                                                sort = MistakeLibrarySort.entries.firstOrNull { it.label == label }?.name ?: MistakeLibrarySort.DUE.name
+                                            }
                                             MistakeFilterOptions("Subject", subjects, subject) { subject = it }
                                             MistakeFilterOptions("Paper", papers, paper) { paper = it }
                                             MistakeFilterOptions("Category", mistakes.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(), category) { category = it }
-                                            Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${visible.size} questions") }
+                                            Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${countLabel(visible.size, "question")}") }
                                             TextButton({ subject = ""; paper = ""; category = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
                                         }
                                     }
@@ -680,14 +725,16 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 }
                                 if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                                    Text("Review ${minOf(reviewCandidates.size, sessionLimit)} matching due questions")
+                                    Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(FolioSpacing.dp6))
+                                    Text("Review ${countLabel(minOf(reviewCandidates.size, sessionLimit), "matching due question")}")
                                 }
                             }
-                            if (visible.isEmpty()) fullWidthItem { EmptyMistakesCard(mistakes.isNotEmpty(), ::clearFilters) }
+                            if (visible.isEmpty()) fullWidthItem { EmptyMistakesCard(mistakes.isNotEmpty(), filter, scopeCount > 0 || query.isNotBlank(), ::clearFilters) }
                             items(visible, key = { it.id }) { m ->
                                 MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
                                     attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail,
-                                    onDelete = { deleteCard(m.id) }, now = clockNow)
+                                    onDelete = { confirmDelete = m }, now = clockNow)
                             }
                         }
                     }
@@ -717,6 +764,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             MistakesDestinationToolbar(
                 destinations = tabs,
                 selected = tab,
+                badges = mapOf("Today" to due.size),
                 onSelect = { destination = it; detail = null },
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
@@ -737,6 +785,7 @@ private fun MistakesDestinationToolbar(
     selected: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    badges: Map<String, Int> = emptyMap(),
     onHeightChanged: (Dp) -> Unit = {},
 ) {
     val standard = FloatingToolbarDefaults.standardFloatingToolbarColors()
@@ -781,7 +830,12 @@ private fun MistakesDestinationToolbar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.CenterVertically),
                         ) {
-                            Icon(icon, null, Modifier.size(24.dp))
+                            val count = badges[title] ?: 0
+                            // The due count rides on the tab, so it is visible from Library and Responses too.
+                            BadgedBox(badge = { if (count > 0 && !isSelected) Badge { Text(if (count > 99) "99+" else "$count") } },
+                                modifier = Modifier.semantics { if (count > 0) stateDescription = "$count due" }) {
+                                Icon(icon, null, Modifier.size(24.dp))
+                            }
                             Text(if (title == "Handwriting") "Responses" else title, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -959,23 +1013,26 @@ private fun FilterChipWithCount(label: String, count: Int, selected: Boolean, on
 internal fun trimMark(value: Double): String = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 @Composable
-private fun EmptyMistakesCard(hasCards: Boolean, onClear: () -> Unit) {
+private fun EmptyMistakesCard(hasCards: Boolean, status: String, narrowed: Boolean, onClear: () -> Unit) {
+    // A status filter with nothing in it is good news, not a failed search.
+    val (icon, title, body) = when {
+        !hasCards -> Triple(Icons.Rounded.School, "Your library starts here",
+            "New mistakes from Focal will land here. Log one on the web and sync.")
+        !narrowed && status == "Due" -> Triple(Icons.Rounded.DoneAll, "Nothing is due", "Questions return here when their next review is due.")
+        !narrowed && status == "Overdue" -> Triple(Icons.Rounded.DoneAll, "Nothing is overdue", "You're on top of every scheduled review.")
+        !narrowed && status == "Suspended" -> Triple(Icons.Rounded.PauseCircle, "No suspended questions", "Questions you suspend in Focal are listed here.")
+        !narrowed && status == "Upcoming" -> Triple(Icons.Rounded.EventAvailable, "Nothing upcoming", "Every active question is due now.")
+        else -> Triple(Icons.Rounded.SearchOff, "No mistakes match", "Try a different search or clear the filters to see the rest.")
+    }
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                Icon(if (hasCards) Icons.Rounded.SearchOff else Icons.Rounded.School, null, Modifier.padding(FolioSpacing.dp16).size(28.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(icon, null, Modifier.padding(FolioSpacing.dp16).size(28.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
-            Text(
-                if (hasCards) "No mistakes match" else "Your library starts here",
-                style = MaterialTheme.typography.titleLarge
-            )
-            Text(
-                if (hasCards) "Try a different search or clear the filters to see the rest."
-                else "New mistakes from Focal will land here. Log one on the web and sync.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            if (hasCards) TextButton(onClear, shapes = ButtonDefaults.shapes()) { Text("Clear filters") }
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            if (hasCards) TextButton(onClear, shapes = ButtonDefaults.shapes()) { Text(if (narrowed) "Clear filters" else "Show all questions") }
         }
     }
 }

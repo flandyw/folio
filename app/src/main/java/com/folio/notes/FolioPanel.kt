@@ -18,9 +18,10 @@ import androidx.compose.ui.unit.dp
     title: String,
     onDismissRequest: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
+    canDismiss: () -> Boolean = { true },
     content: @Composable ColumnScope.() -> Unit
 ) {
-    FolioAnimatedDialog(onDismissRequest) { progress, dismiss ->
+    FolioAnimatedDialog(onDismissRequest, canDismiss) { progress, dismiss ->
         BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(FolioSpacing.dp16), contentAlignment = Alignment.Center) {
             // Folio is used in both orientations. A narrow, very tall panel is particularly
             // awkward in landscape, so give it a wider canvas there. The slightly taller

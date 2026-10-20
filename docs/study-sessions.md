@@ -87,6 +87,41 @@ Device checks:
 - Reject zero-length/overlapping blocks; preserve drafts and block dates through
   rotation. Check portrait, landscape and phone layouts, midnight and time zones.
 
+## Study page behaviour
+
+Pure rules for the screens live in `StudyTimerRules.kt` (no Android imports) and are
+checked by `StudyTimerRulesTest` (`./gradlew :app:testDebugUnitTest`): duration and
+clock labels, history grouped by local day, this week's total (from Monday), the
+day streak, plan scope/search filters, plan "when" labels and per-block plan problems.
+
+- Start offers the notebook's subject, else the subject studied most recently, and
+  names it on the button. Blocked starts say why (exam timer, another session).
+- A running or paused session can change subject (`changeFocusSubject`): one
+  `save_progress` on the same row; the generated "<subject> Focus" title follows,
+  a plan's own title does not. Recorded time is untouched.
+- The Study page keeps the screen awake while its clock runs (a View flag, released
+  on pause or leaving). The editor stopwatch does not.
+- Saving, logging, discarding and deleting show a short confirmation. Discard and
+  delete confirmations state the time that will be removed.
+- History is grouped by day with daily study totals (exams listed, never counted).
+  Tapping a study row shows its day on the timeline; it can be deleted after
+  confirmation (`deleteSession`, a tombstone, so no undo).
+- Plan filters appear once there are more than three plans. Search matches every
+  word in any order. Plan cards show when they are due ("Starts in 20 min",
+  "Overdue · Yesterday").
+- The plan editor marks the block to fix (backwards, over 24 h, overlapping) and
+  only enables Save when there is none; a blank title saves as "<subject> study";
+  closing with unsaved edits asks first (`FolioPanel(canDismiss)`); a plan changed
+  elsewhere shows a banner and cannot be saved over.
+- The timeline follows today past midnight, opens a date picker from its title,
+  resets tools when the day changes, and lets result messages fade. Split and
+  "Repeat" keep a plan's notes and topics.
+
+Device checks: start/pause/change subject while online and offline and confirm Focal
+shows the new subject with the same time; leave the Study page running and confirm
+the screen stays on, then pause and confirm it can sleep; delete a history session
+and confirm it disappears on Focal; leave the Study page open over midnight.
+
 ## Short session merging
 
 Focal migration `0022_merge_short_study_sessions.sql` combines completed focus

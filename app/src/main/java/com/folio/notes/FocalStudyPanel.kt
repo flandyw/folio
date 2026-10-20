@@ -2,17 +2,25 @@
 package com.folio.notes
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Book
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.Close
@@ -31,6 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -44,8 +56,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import java.text.DateFormat
-import java.util.Calendar
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Date
+import kotlinx.coroutines.launch
 
 @Composable
 fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
@@ -70,19 +84,17 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
     val sharedActive = entries.firstOrNull { it.active && (it.kind != "exam" || it.notebookId == notebookId) }
     val activeElapsed = when {
         focus != null -> focus.elapsed(now)
-        sharedActive != null -> sharedActive.intervals.sumOf { interval ->
-            ((interval.endAt ?: now) - interval.startAt).coerceAtLeast(0L)
-        }.coerceAtLeast(sharedActive.activeMillis)
+        sharedActive != null -> focalEntryElapsed(sharedActive, now)
         else -> 0L
     }
     val label = when {
         examActive && timer.paused -> "Focal · Paused"
         examActive && timer.phase == ExamTimerPhase.READING -> "Focal · Reading"
         examActive -> "Focal · Writing"
-        focus?.resumedAt != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
+        focus?.resumedAt != null -> "Studying · ${formatStudyChipClock(activeElapsed)}"
         focus != null -> "Focal · ${focalFocusStatus(focus)}"
         sharedActive != null && sharedActive.paused -> "Focal · Paused"
-        sharedActive != null -> "Studying · ${formatChipElapsed(activeElapsed)}"
+        sharedActive != null -> "Studying · ${formatStudyChipClock(activeElapsed)}"
         else -> "Focal"
     }
     val syncStatus = state.syncStatus
@@ -103,7 +115,7 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
         if (recording && !examActive) {
             ToolbarSessionPill(
                 icon = if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School,
-                value = formatChipElapsed(activeElapsed),
+                value = formatStudyChipClock(activeElapsed),
                 tone = if (isPaused) SessionTone.PAUSED else SessionTone.RUNNING,
                 description = description,
                 onClick = hold.click(onClick),
@@ -147,23 +159,37 @@ internal fun FocalStudyContent(
     val manager = (LocalContext.current.applicationContext as FolioApplication).focalStudy
     val state by manager.state.collectAsStateWithLifecycle()
     val entries = remember(state.entries, state.userId) { state.visibleEntries }
+    val zone = remember { ZoneId.systemDefault() }
     var notebookId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedNote = if (dedicated) notebooks.firstOrNull { it.id == notebookId } else note
     var notebookMenu by remember { mutableStateOf(false) }
-    var subjectId by rememberSaveable(state.userId, selectedNote?.id) { mutableStateOf(selectedNote?.let { FocalSubjects.suggest(it, state.subjects) }) }
+    // The notebook's subject when it has one, else whatever was studied last, so Start is usually one tap.
+    var subjectId by rememberSaveable(state.userId, selectedNote?.id) {
+        mutableStateOf(selectedNote?.let { FocalSubjects.suggest(it, state.subjects) } ?: focalRecentSubject(entries, state.subjects))
+    }
     var notes by rememberSaveable(state.userId, state.visibleFocus?.sessionId) { mutableStateOf(entries.firstOrNull { it.id == state.visibleFocus?.sessionId }?.notes.orEmpty()) }
     var confidence by rememberSaveable(state.userId, state.visibleFocus?.sessionId) { mutableIntStateOf(entries.firstOrNull { it.id == state.visibleFocus?.sessionId }?.confidence ?: 0) }
     var discardId by rememberSaveable { mutableStateOf<String?>(null) }
+    var deleteHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
     var historyLimit by rememberSaveable { mutableIntStateOf(20) }
     var manualLog by rememberSaveable { mutableStateOf(false) }
     var manualMinutes by rememberSaveable { mutableStateOf("") }
     var planEditorId by rememberSaveable(state.userId) { mutableStateOf<String?>(null) }
     var planSearch by rememberSaveable(state.userId) { mutableStateOf("") }
-    var planScope by rememberSaveable(state.userId) { mutableStateOf("All") }
+    var planScopeName by rememberSaveable(state.userId) { mutableStateOf(PlanScope.ALL.name) }
+    val planScope = PlanScope.entries.firstOrNull { it.name == planScopeName } ?: PlanScope.ALL
     var planSubject by rememberSaveable(state.userId) { mutableStateOf<String?>(null) }
     var plannedLimit by rememberSaveable(state.userId) { mutableIntStateOf(5) }
     var showAllShared by rememberSaveable { mutableStateOf(false) }
     var bulkAction by remember { mutableStateOf<String?>(null) }
+    var subjectMenu by remember { mutableStateOf(false) }
+    // A short confirmation after saving or deleting, so a finished session never just vanishes.
+    var notice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) { if (notice != null) { kotlinx.coroutines.delay(6_000); notice = null } }
+    // A history row asks the timeline to show its day.
+    var timelineDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var now by remember { mutableLongStateOf(manager.now()) }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner, manager) {
@@ -176,14 +202,15 @@ internal fun FocalStudyContent(
         }
     }
     val focus = state.visibleFocus
+    // The study page is often propped up on a desk: keep the screen awake while its clock runs.
+    KeepScreenOn(dedicated && focus?.resumedAt != null)
     val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
-    val today = remember(now / 60_000L, entries) {
-        val start = Calendar.getInstance().apply {
-            timeInMillis = now
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-        (focalStudyMillisBetween(entries, start, now) + 30_000L) / 60_000L
-    }
+    val todayDate = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val dayStart = remember(todayDate) { todayDate.atStartOfDay(zone).toInstant().toEpochMilli() }
+    val dayEnd = remember(todayDate) { todayDate.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() }
+    val today = remember(now / 60_000L, entries) { studyRoundedMinutes(focalStudyMillisBetween(entries, dayStart, now)) }
+    val week = remember(now / 60_000L, entries) { studyRoundedMinutes(focalWeekMillis(entries, now, zone)) }
+    val streak = remember(entries, todayDate, today > 0) { focalStudyStreak(entries, now, zone) }
     val history = remember(entries) {
         entries.filter { it.completed && !focalIsCalendarPlaceholder(it) }.sortedByDescending { it.endedAt }
     }
@@ -191,25 +218,44 @@ internal fun FocalStudyContent(
         entries.filter { it.planned && !it.completed && it.kind == "study" }
             .sortedBy { focalPlannedSlots(it).firstOrNull()?.startAt ?: Long.MAX_VALUE }
     }
-    val dayStart = Calendar.getInstance().apply { timeInMillis = now; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
-    val dayEnd = (dayStart.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+    val plannedSlots = remember(planned) { planned.associate { it.id to focalPlannedSlots(it) } }
+    val scopeCounts = remember(planned, now / 60_000L) {
+        PlanScope.entries.associateWith { scope -> planned.count { focalPlanInScope(plannedSlots[it.id].orEmpty(), scope, now, dayStart, dayEnd) } }
+    }
     val visiblePlans = remember(planned, state.subjects, planSearch, planScope, planSubject, now / 60_000L) {
         planned.filter { entry ->
-            val slots = focalPlannedSlots(entry)
             val details = focalPlanDetails(entry)
             (planSubject == null || entry.subjectId == planSubject) &&
-                listOf(entry.title, state.subjects.firstOrNull { it.id == entry.subjectId }?.name.orEmpty(), details.first, details.second.joinToString(" "))
-                    .joinToString(" ").contains(planSearch.trim(), ignoreCase = true) && when (planScope) {
-                    "Today" -> slots.any { it.startAt < dayEnd && requireNotNull(it.endAt) > dayStart.timeInMillis }
-                    "Overdue" -> slots.lastOrNull()?.endAt?.let { it < now } == true
-                    "Upcoming" -> slots.any { requireNotNull(it.endAt) >= now }
-                    else -> true
-                }
+                focalPlanMatchesQuery(planSearch, entry.title, state.subjects.firstOrNull { it.id == entry.subjectId }?.name.orEmpty(),
+                    details.first, details.second.joinToString(" ")) &&
+                focalPlanInScope(plannedSlots[entry.id].orEmpty(), planScope, now, dayStart, dayEnd)
         }
     }
-    val recent = history.take(if (dedicated) historyLimit else 5)
+    val filtering = planSearch.isNotBlank() || planScope != PlanScope.ALL || planSubject != null
+    val historyDays = remember(history, historyLimit, dedicated) { focalHistoryDays(history.take(if (dedicated) historyLimit else 5), zone) }
     val cardColor = if (dedicated) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHighest
     val anotherRunning = entries.any { it.active && !it.paused }
+    val startBlocked = when {
+        examRecording != null -> "Stop the exam timer to start regular study."
+        anotherRunning -> "Pause or finish your running session before starting another."
+        else -> null
+    }
+    val canStart = startBlocked == null && state.canStartFocus
+    val subjectName = { id: String? -> state.subjects.firstOrNull { it.id == id }?.name }
+    fun startPlan(id: String) {
+        manualLog = false
+        if (!manager.startPlannedFocus(id, selectedNote)) notice = "That plan couldn't start. Refresh and try again."
+    }
+    fun startStudy(subject: String?) {
+        manualLog = false
+        if (!manager.startFocus(selectedNote, subject)) notice = "Couldn't start: another session is already running."
+    }
+    // Where the timeline sits in the context list (−1 when it spans the page above it), for "show on timeline".
+    var timelineIndex by remember { mutableIntStateOf(-1) }
+    fun showOnTimeline(entry: FocalStudyEntry) {
+        timelineDay = Instant.ofEpochMilli(entry.startedAt).atZone(zone).toLocalDate().toEpochDay()
+        if (timelineIndex >= 0) scope.launch { listState.animateScrollToItem(timelineIndex) }
+    }
 
     // ── Timer column: exam notice, the clock with its controls, and the wrap-up form. ──
     val timerBlock: @Composable ColumnScope.() -> Unit = {
@@ -227,8 +273,10 @@ internal fun FocalStudyContent(
                 }
             }
         }
+        FolioExpand(notice != null) { StudyNotice(notice.orEmpty()) { notice = null } }
         if (focus == null) {
-            TimerHero(HeroMode.IDLE, formatElapsed(0L), "Ready when you are", null, dedicated) {
+            TimerHero(HeroMode.IDLE, formatStudyClock(0L), "Ready when you are",
+                if (today > 0) "${formatStudyMinutes(today)} studied today" else null, dedicated) {
                 Text("What are you studying?", style = MaterialTheme.typography.labelLarge)
                 FocalSubjectPicker(state.subjects, subjectId) { subjectId = it }
                 if (dedicated) Box {
@@ -246,13 +294,12 @@ internal fun FocalStudyContent(
                         }
                     }
                 }
-                Button({ manager.startFocus(selectedNote, subjectId) },
-                    enabled = examRecording == null && state.canStartFocus && !anotherRunning,
+                Button({ startStudy(subjectId) }, enabled = canStart,
                     shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Start study")
+                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text(subjectName(subjectId)?.let { "Start $it" } ?: "Start study", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (anotherRunning) Text("Pause or finish your running session before starting another.",
-                    style = MaterialTheme.typography.bodySmall)
+                startBlocked?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 TextButton({ manualLog = !manualLog }, shapes = ButtonDefaults.shapes(), modifier = Modifier.align(Alignment.CenterHorizontally)) {
                     Text(if (manualLog) "Cancel manual entry" else "Log past study without the timer")
                 }
@@ -260,29 +307,46 @@ internal fun FocalStudyContent(
             FolioExpand(manualLog) {
                 Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                        val minutes = manualMinutes.toIntOrNull()
+                        val valid = minutes != null && minutes in 1..1_440
                         Text("Log past study", style = MaterialTheme.typography.titleMedium)
+                        Text("Saved as finished study ending now" + (subjectName(subjectId)?.let { ", under $it." } ?: ", without a subject.") +
+                            if (dedicated) " To place it earlier in the day, drag across the timeline instead." else "",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         fun savePastStudy() {
-                            if (manualMinutes.toIntOrNull()?.let { it in 1..1_440 } != true) return
-                            manager.logManual(selectedNote, subjectId, manualMinutes.toInt(), notes, confidence.takeIf { it > 0 })
+                            val logged = manualMinutes.toIntOrNull()?.takeIf { it in 1..1_440 } ?: return
+                            notice = if (manager.logManual(selectedNote, subjectId, logged, notes, confidence.takeIf { it > 0 }))
+                                "Logged ${formatStudyMinutes(logged.toLong())}" + (subjectName(subjectId)?.let { " of $it" } ?: "")
+                            else "Couldn't save on this device. Check free storage and try again."
                             manualMinutes = ""; notes = ""; confidence = 0; manualLog = false
+                        }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                            listOf(15, 30, 45, 60, 90).forEach { preset ->
+                                FilterChip(minutes == preset, { manualMinutes = "$preset" }, { Text(formatStudyMinutes(preset.toLong())) })
+                            }
                         }
                         OutlinedTextField(manualMinutes, { manualMinutes = it.filter(Char::isDigit).take(4) },
                             Modifier.fillMaxWidth(), label = { Text("Minutes studied") }, singleLine = true,
+                            isError = minutes != null && !valid,
+                            supportingText = { Text(if (minutes != null && !valid) "Enter 1 to 1,440 minutes (up to a day)."
+                                else minutes?.let { formatStudyMinutes(it.toLong()) } ?: "Or type any length, up to a day.") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { savePastStudy() }))
                         ReflectionFields(notes, { notes = it }, confidence, { confidence = it })
-                        Button(::savePastStudy, enabled = manualMinutes.toIntOrNull()?.let { it in 1..1_440 } == true,
-                            shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) { Text("Save past study") }
+                        Button(::savePastStudy, enabled = valid,
+                            shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
+                            Text(if (valid) "Save ${formatStudyMinutes(requireNotNull(minutes).toLong())} of past study" else "Save past study")
+                        }
                     }
                 }
             }
         } else {
             val running = focus.resumedAt != null
-            val detail = listOfNotNull(
-                state.subjects.firstOrNull { it.id == focus.subjectId }?.name, focus.notebookTitle,
-            ).joinToString(" · ").ifBlank { null }
+            val elapsed = focus.elapsed(now)
+            val started = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(focus.startedAt))
+            val detail = listOfNotNull(subjectName(focus.subjectId), focus.notebookTitle, "Started $started").joinToString(" · ")
             TimerHero(
-                if (running) HeroMode.RUNNING else HeroMode.PAUSED, formatElapsed(focus.elapsed(now)),
+                if (running) HeroMode.RUNNING else HeroMode.PAUSED, formatStudyClock(elapsed),
                 focus.title, detail, dedicated,
                 statusOverride = focalFocusStatus(focus),
             ) {
@@ -310,25 +374,45 @@ internal fun FocalStudyContent(
                 }
                 if (examRecording != null && !running) {
                     Text("Resume regular study after the exam timer stops.", style = MaterialTheme.typography.bodySmall)
+                } else if (!running && entries.any { it.active && !it.paused && it.id != focus.sessionId }) {
+                    Text("Another session is running, possibly on another Focal app. Pause it to resume this one.", style = MaterialTheme.typography.bodySmall)
                 } else focalFocusStatusDetail(focus)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 val plannedMillis = entries.firstOrNull { it.id == focus.sessionId }?.let { entry ->
                     focalPlannedSlots(entry).sumOf { requireNotNull(it.endAt) - it.startAt }
                 } ?: 0L
-                if (plannedMillis > 0L) {
-                    Text("${formatStudied(focus.elapsed(now) / 60_000L)} of ${formatStudied(plannedMillis / 60_000L)} planned" +
-                        if (focus.elapsed(now) >= plannedMillis) " · Goal reached" else "", style = MaterialTheme.typography.bodySmall)
-                    LinearProgressIndicator(progress = { (focus.elapsed(now).toFloat() / plannedMillis).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                if (plannedMillis > 0L) PlanGoal(elapsed, plannedMillis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Box {
+                        TextButton({ subjectMenu = true }) { Text("Change subject") }
+                        FolioMenuPopover(subjectMenu, { subjectMenu = false }, title = "Subject for this session") {
+                            FolioMenuItem({ Text("No subject") }, {
+                                subjectMenu = false; manager.changeFocusSubject(null)
+                            }, selected = focus.subjectId == null)
+                            state.subjects.forEach { subject ->
+                                FolioMenuItem({ Text(subject.name) }, {
+                                    subjectMenu = false
+                                    if (!manager.changeFocusSubject(subject.id)) notice = "Couldn't change the subject. Try again."
+                                }, selected = focus.subjectId == subject.id)
+                            }
+                        }
+                    }
                 }
-                Text(state.syncStatus, style = MaterialTheme.typography.labelSmall)
             }
             Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Text("Wrap up", style = MaterialTheme.typography.titleMedium)
                     ReflectionFields(notes, { notes = it }, confidence, { confidence = it })
-                    Button({ manager.finishFocus(notes, confidence.takeIf { it > 0 }); notes = ""; confidence = 0 },
-                        enabled = focus.elapsed(now) >= 1_000L,
+                    val minutes = studyRoundedMinutes(elapsed)
+                    Button({
+                        val saved = "Saved ${formatStudyMinutes(minutes.coerceAtLeast(1L))}" + (subjectName(focus.subjectId)?.let { " of $it" } ?: "")
+                        manager.finishFocus(notes, confidence.takeIf { it > 0 }); notes = ""; confidence = 0
+                        notice = saved
+                    },
+                        enabled = elapsed >= 1_000L,
                         shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                        Icon(Icons.Rounded.Check, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Save session")
+                        Icon(Icons.Rounded.Check, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                        Text(if (minutes >= 1L) "Save ${formatStudyMinutes(minutes)}" else "Save session")
                     }
                 }
             }
@@ -336,10 +420,11 @@ internal fun FocalStudyContent(
     }
 
     val timeline: @Composable (Boolean) -> Unit = { compact ->
-        StudyTimeline(state, now, canStart = examRecording == null && state.canStartFocus && !anotherRunning, cardColor = cardColor,
-            onStartPlanned = { manager.startPlannedFocus(it, selectedNote); manualLog = false },
-            onStartFocus = { manager.startFocus(selectedNote, it) },
-            onEditPlan = { planEditorId = it }, compact = compact)
+        StudyTimeline(state, now, canStart = canStart, cardColor = cardColor,
+            onStartPlanned = ::startPlan,
+            onStartFocus = ::startStudy,
+            onEditPlan = { planEditorId = it }, compact = compact,
+            requestedDay = timelineDay, onDayShown = { timelineDay = null })
     }
     // ── Context column: the day's timeline (when it isn't spanning the page), today's total + sync, other apps' sessions, history. ──
     val contextItems: LazyListScope.(Boolean) -> Unit = { withTimeline ->
@@ -351,19 +436,19 @@ internal fun FocalStudyContent(
                         Icon(Icons.Rounded.School, null, tint = MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text("Studied today", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(formatStudied(today), style = MaterialTheme.typography.headlineMedium)
+                            Text(formatStudyMinutes(today), style = MaterialTheme.typography.headlineMedium)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("This week", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(formatStudyMinutes(week), style = MaterialTheme.typography.titleMedium)
+                            if (streak > 1) Text("$streak-day streak", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                     Text("Active study only — pauses, exams and calendar blocks are excluded.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     HorizontalDivider()
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(when {
-                            state.syncing -> Icons.Rounded.Sync
-                            state.error != null -> Icons.Rounded.ErrorOutline
-                            state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
-                            else -> Icons.Rounded.CloudDone
-                        }, null, Modifier.size(20.dp))
+                        SyncIcon(state, 20.dp)
                         Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         if (state.needsSignIn) {
                             TextButton(onAccount) { Text("Sign in again") }
@@ -397,17 +482,16 @@ internal fun FocalStudyContent(
                     }
                 }
                 sharedActive.take(if (showAllShared) Int.MAX_VALUE else 6).forEach { entry ->
-                    val elapsed = entry.intervals.sumOf { interval ->
-                        ((interval.endAt ?: now) - interval.startAt).coerceAtLeast(0L)
-                    }.coerceAtLeast(entry.activeMillis)
+                    val elapsed = focalEntryElapsed(entry, now)
                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("${if (entry.kind == "exam") "Timed exam" else "Study"} · ${if (entry.paused) "Paused" else "In progress"} · ${formatElapsed(elapsed)}",
+                            Text(listOfNotNull(if (entry.kind == "exam") "Timed exam" else "Study", subjectName(entry.subjectId),
+                                if (entry.paused) "Paused" else "In progress", formatStudyClock(elapsed)).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 OutlinedButton({ manager.controlEntry(entry.id, if (entry.paused) "resume" else "pause") },
-                                    enabled = !entry.paused || entries.none { it.active && !it.paused && it.id != entry.id },
+                                    enabled = !entry.paused || (examRecording == null && entries.none { it.active && !it.paused && it.id != entry.id }),
                                     shapes = ButtonDefaults.shapes()) {
                                     Icon(if (entry.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
                                     Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (entry.paused) "Resume" else "Pause")
@@ -426,73 +510,79 @@ internal fun FocalStudyContent(
             }
         }
         item(key = "planned-heading") {
-            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Planned study${if (planned.isNotEmpty()) " · ${planned.size}" else ""}",
                         modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                     if (state.userId != null && state.configured) TextButton({ manager.retry() }, enabled = !state.syncing) {
                         Text(if (state.syncing) "Refreshing…" else "Refresh")
                     }
+                    FilledTonalButton({ planEditorId = "new:${java.util.UUID.randomUUID()}" }, shapes = ButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Plan")
+                    }
                 }
                 Text(when {
-                    state.userId == null -> "Connect Focal to start sessions planned on the website."
-                    planned.isEmpty() -> "Sessions planned on Focal will appear here."
+                    state.userId == null && planned.isEmpty() -> "Plan study here, or connect Focal to start sessions planned on the website."
+                    planned.isEmpty() -> "Nothing planned. Plan study here or on Focal and it will appear here."
                     focus != null -> "Finish or discard your current session before starting a plan."
                     examRecording != null -> "Stop the exam timer before starting a plan."
                     anotherRunning -> "Pause or finish your running session before starting a plan."
                     else -> "Start whenever you’re ready. Only time spent studying is recorded."
                 }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton({ planEditorId = "new:${java.util.UUID.randomUUID()}" }, modifier = Modifier.fillMaxWidth()) { Text("Plan study") }
-                if (planned.isNotEmpty()) {
+                // Filters only earn their space once there is a list to sift.
+                if (planned.size > 3 || filtering) {
                     OutlinedTextField(planSearch, { planSearch = it; plannedLimit = 5 }, Modifier.fillMaxWidth(),
-                        label = { Text("Search title, subject or topics") }, singleLine = true)
+                        label = { Text("Search title, subject or topics") }, singleLine = true,
+                        trailingIcon = if (planSearch.isNotEmpty()) { { IconButton({ planSearch = "" }) { Icon(Icons.Rounded.Close, "Clear search") } } } else null)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        listOf("All", "Today", "Overdue", "Upcoming").forEach { scope ->
-                            FilterChip(planScope == scope, { planScope = scope; plannedLimit = 5 }, label = { Text(scope) })
+                        PlanScope.entries.forEach { option ->
+                            val count = scopeCounts[option] ?: 0
+                            FilterChip(planScope == option, { planScopeName = option.name; plannedLimit = 5 },
+                                label = { Text(if (option == PlanScope.ALL) option.label else "${option.label} · $count") },
+                                enabled = option == PlanScope.ALL || count > 0 || planScope == option)
                         }
                     }
                     FocalSubjectPicker(state.subjects, planSubject, emptyLabel = "All subjects") { planSubject = it; plannedLimit = 5 }
-                    if (visiblePlans.isEmpty()) Text("No plans match these filters.", style = MaterialTheme.typography.bodySmall)
+                    if (visiblePlans.isEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("No plans match these filters.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        TextButton({ planSearch = ""; planScopeName = PlanScope.ALL.name; planSubject = null }) { Text("Clear filters") }
+                    }
                 }
             }
         }
         items(visiblePlans.take(plannedLimit), key = { "planned:${it.id}" }) { entry ->
-            PlannedStudyCard(entry, state.subjects, cardColor,
-                enabled = examRecording == null && state.canStartFocus && !anotherRunning && !(entry.synced && entry.planDraft != null),
-                onStart = { manager.startPlannedFocus(entry.id, selectedNote); manualLog = false },
+            PlannedStudyCard(entry, state.subjects, cardColor, now,
+                enabled = canStart && !(entry.synced && entry.planDraft != null),
+                onStart = { startPlan(entry.id) },
                 onEdit = { planEditorId = entry.id })
         }
 
         if (visiblePlans.size > plannedLimit) item(key = "more-planned") {
-            TextButton({ plannedLimit += 10 }) { Text("Show more planned sessions") }
+            TextButton({ plannedLimit += 10 }) { Text("Show ${minOf(10, visiblePlans.size - plannedLimit)} more of ${visiblePlans.size - plannedLimit}") }
         }
         item(key = "history-heading") {
-            Text(if (dedicated) "Session history" else "Recent sessions", style = MaterialTheme.typography.titleMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                Text(if (dedicated) "Session history" else "Recent sessions", style = MaterialTheme.typography.titleMedium)
+                if (dedicated && history.isNotEmpty()) Text("Tap a session to see it on the timeline.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        if (recent.isEmpty()) item(key = "empty-history") {
+        if (history.isEmpty()) item(key = "empty-history") {
             EmptyHint("No completed sessions yet. Your saved study will appear here.")
         }
-        items(recent, key = { it.id }) { entry ->
-            val minutes = (focalActiveMillisBetween(entry, entry.startedAt, entry.endedAt) / 60_000L).toInt().coerceAtLeast(1)
-            Surface(shape = FolioShapes.large, color = cardColor) {
-                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                        Text(entry.title, style = MaterialTheme.typography.titleSmall)
-                        val subject = state.subjects.firstOrNull { it.id == entry.subjectId }?.name ?: "No subject"
-                        val details = listOf(if (entry.kind == "exam") "Exam" else "Study", subject,
-                            entry.notebookTitle, DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(entry.endedAt)))
-                            .filterNot { it.isNullOrBlank() }.joinToString(" · ")
-                        Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (dedicated) {
-                            if (entry.notes.isNotBlank()) Text(entry.notes, style = MaterialTheme.typography.bodySmall)
-                            entry.confidence?.let { Text("Confidence $it/5", style = MaterialTheme.typography.labelSmall) }
-                            Text(if (entry.synced) "Synced with Focal" else if (entry.userId == null) "Saved on this device" else "Saved locally · awaiting sync",
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    Text(formatStudied(minutes.toLong()), style = MaterialTheme.typography.titleMedium)
+        historyDays.forEach { day ->
+            item(key = "day:${day.date}") {
+                Row(Modifier.fillMaxWidth().padding(top = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                    Text(studyDayLabel(day.date, todayDate), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (day.studyMinutes > 0) Text(formatStudyMinutes(day.studyMinutes), style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            items(day.entries, key = { it.id }) { entry ->
+                HistoryCard(entry, subjectName(entry.subjectId), cardColor, dedicated,
+                    onShow = if (dedicated && entry.kind == "study") { { showOnTimeline(entry) } } else null,
+                    onDelete = if (dedicated && entry.kind == "study") { { deleteHistoryId = entry.id } } else null)
             }
         }
         if (dedicated && history.size > historyLimit) item(key = "more-history") {
@@ -508,6 +598,7 @@ internal fun FocalStudyContent(
             // Landscape tablet: a time strip wants width, so the timeline spans both columns. It is
             // capped at under half the height (scrolling inside) so the clock and history keep theirs.
             val spanning = dedicated && constraints.hasBoundedHeight
+            SideEffect { timelineIndex = if (spanning || !dedicated) -1 else 0 }
             val timelineMax = maxHeight * 0.45f
             val columnsTop = if (spanning) FolioSpacing.dp12 else top
             Column(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding()) {
@@ -518,13 +609,15 @@ internal fun FocalStudyContent(
                     Column(Modifier.weight(5f).fillMaxHeight().verticalScroll(rememberScrollState())
                         .padding(start = FolioDestinationInset, top = columnsTop, bottom = FolioSpacing.dp16),
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), content = timerBlock)
-                    LazyColumn(Modifier.weight(6f).fillMaxHeight(),
+                    LazyColumn(Modifier.weight(6f).fillMaxHeight(), state = listState,
                         contentPadding = PaddingValues(end = FolioDestinationInset, top = columnsTop, bottom = FolioSpacing.dp16),
                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) { contextItems(!spanning) }
                 }
             }
         } else {
+            SideEffect { timelineIndex = if (dedicated) 1 else -1 }
             LazyColumn((if (dedicated) Modifier.fillMaxWidth() else Modifier.widthIn(max = 680.dp).fillMaxWidth().align(Alignment.TopCenter)).imePadding(),
+                state = listState,
                 contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 item(key = "timer") {
@@ -535,7 +628,8 @@ internal fun FocalStudyContent(
         }
     }
     planEditorId?.let { id ->
-        val existing = entries.firstOrNull { it.id == id }
+        // Only an unstarted plan is editable; one started or finished meanwhile closes the editor below.
+        val existing = entries.firstOrNull { it.id == id && it.planned && !it.completed }
         val copySource = if (id.startsWith("copy:")) entries.firstOrNull { it.id == id.split(":")[1] } else null
         val original = existing ?: copySource?.copy(id = id.substringAfterLast(":"), title = copySource.title + " (copy)",
             revision = 0L, remotePayload = null, planDraft = copySource.planDraft ?: copySource.remotePayload,
@@ -544,24 +638,50 @@ internal fun FocalStudyContent(
             kind = "study", startedAt = now, endedAt = now, activeMillis = 0L, completed = false, planned = true) else null
         if (original != null) FocalPlanEditor(original, state.subjects, now,
             onDismiss = { planEditorId = null },
-            onSave = { title, subject, description, topics, slots -> manager.savePlan(original, title, subject, description, topics, slots) },
-            onDelete = existing?.let { { manager.deletePlan(it.id) } },
+            onSave = { title, subject, description, topics, slots ->
+                manager.savePlan(original, title, subject, description, topics, slots).also { ok ->
+                    if (ok) notice = if (existing != null) "Plan saved" else "Planned ${title.trim().ifBlank { "study" }}"
+                }
+            },
+            onDelete = existing?.let { { manager.deletePlan(it.id); notice = "Plan deleted" } },
             onDuplicate = existing?.let { { planEditorId = "copy:${it.id}:${java.util.UUID.randomUUID()}" } })
+        // A plan started, finished or deleted elsewhere closes its editor rather than saving over it.
+        else LaunchedEffect(id) { planEditorId = null }
     }
     discardId?.let { id ->
+        val target = entries.firstOrNull { it.id == id }
+        val elapsed = when {
+            id == focus?.sessionId -> focus.elapsed(now)
+            target != null -> focalEntryElapsed(target, now)
+            else -> 0L
+        }
         AlertDialog(onDismissRequest = { discardId = null }, modifier = Modifier.guardUiTouches(),
             title = { Text("Discard this session?") },
-            text = { Text("Its recorded study time will be removed from Folio and Focal. This cannot be undone.") },
-            confirmButton = { TextButton({ manager.controlEntry(id, "discard"); discardId = null }) { Text("Discard") } },
+            text = { Text("${formatStudyClock(elapsed)} of recorded study will be removed from Folio and Focal. This cannot be undone.") },
+            confirmButton = { TextButton({ manager.controlEntry(id, "discard"); discardId = null; notice = "Session discarded" }) { Text("Discard") } },
             dismissButton = { TextButton({ discardId = null }) { Text("Keep session") } })
+    }
+    deleteHistoryId?.let { id ->
+        val target = history.firstOrNull { it.id == id }
+        if (target == null) LaunchedEffect(id) { deleteHistoryId = null }
+        else AlertDialog(onDismissRequest = { deleteHistoryId = null }, modifier = Modifier.guardUiTouches(),
+            title = { Text("Delete this session?") },
+            text = { Text("${formatStudyMinutes(focalHistoryMinutes(target))} of ${subjectName(target.subjectId) ?: "study"} " +
+                "(${focalSlotLabel(FocalStudyInterval(target.startedAt, target.endedAt), zone)}) " +
+                "will be removed from Folio and Focal. This cannot be undone.") },
+            confirmButton = { TextButton({
+                notice = if (manager.deleteSession(id)) "Session deleted" else "Couldn't delete that session."
+                deleteHistoryId = null
+            }) { Text("Delete") } },
+            dismissButton = { TextButton({ deleteHistoryId = null }) { Text("Keep session") } })
     }
     bulkAction?.let { action ->
         val ids = entries.filter { it.active && it.paused && it.id != focus?.sessionId &&
             !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }.map { it.id }
         AlertDialog(onDismissRequest = { bulkAction = null }, modifier = Modifier.guardUiTouches(),
             title = { Text(if (action == "discard") "Discard ${ids.size} paused sessions?" else "Finish ${ids.size} paused sessions?") },
-            text = { Text(if (action == "discard") "These sessions will be removed from Folio and Focal."
-                else "These sessions will be saved as completed study sessions.") },
+            text = { Text(if (action == "discard") "These sessions will be removed from Folio and Focal. This cannot be undone."
+                else "These sessions will be saved as completed study with the time they recorded.") },
             confirmButton = { TextButton({ manager.controlPausedEntries(ids, action); bulkAction = null }) {
                 Text(if (action == "discard") "Discard sessions" else "Finish sessions")
             } },
@@ -569,36 +689,133 @@ internal fun FocalStudyContent(
     }
 }
 
+/** Holds the screen awake while [on]; released as soon as it turns off or the caller leaves. */
 @Composable
-private fun PlannedStudyCard(entry: FocalStudyEntry, subjects: List<FocalSubject>, color: Color,
+private fun KeepScreenOn(on: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(view, on) {
+        if (on) view.keepScreenOn = true
+        onDispose { if (on) view.keepScreenOn = false }
+    }
+}
+
+@Composable
+private fun SyncIcon(state: FocalStudyState, size: androidx.compose.ui.unit.Dp) {
+    Icon(when {
+        state.syncing -> Icons.Rounded.Sync
+        state.error != null -> Icons.Rounded.ErrorOutline
+        state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
+        else -> Icons.Rounded.CloudDone
+    }, null, Modifier.size(size), tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
+}
+
+/** A short-lived confirmation ("Saved 25 min of Maths") that can also be dismissed. */
+@Composable
+private fun StudyNotice(text: String, onDismiss: () -> Unit) {
+    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
+        Row(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(FolioSpacing.dp10))
+            Text(text, Modifier.weight(1f).padding(vertical = FolioSpacing.dp12), style = MaterialTheme.typography.bodyMedium)
+            IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Dismiss", Modifier.size(18.dp)) }
+        }
+    }
+}
+
+/** Elapsed study against a plan's scheduled length; reaching it never finishes the session. */
+@Composable
+private fun PlanGoal(elapsed: Long, plannedMillis: Long) {
+    val reached = elapsed >= plannedMillis
+    Text("${formatStudyMinutes(elapsed / 60_000L)} of ${formatStudyMinutes(studyRoundedMinutes(plannedMillis))} planned" +
+        if (reached) " · Goal reached" else " · ${formatStudyMinutes(studyRoundedMinutes(plannedMillis - elapsed).coerceAtLeast(1L))} to go",
+        style = MaterialTheme.typography.bodySmall)
+    LinearProgressIndicator(progress = { (elapsed.toFloat() / plannedMillis).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun HistoryCard(entry: FocalStudyEntry, subject: String?, color: Color, dedicated: Boolean,
+                        onShow: (() -> Unit)?, onDelete: (() -> Unit)?) {
+    val time = DateFormat.getTimeInstance(DateFormat.SHORT)
+    Surface(shape = FolioShapes.large, color = color, onClick = onShow ?: {}, enabled = onShow != null) {
+        Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp16, top = FolioSpacing.dp12, bottom = FolioSpacing.dp12,
+            end = if (onDelete != null) FolioSpacing.dp4 else FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            Box(Modifier.size(10.dp).background(FocalSubjects.color(entry.subjectId)?.let { Color(it) }
+                ?: MaterialTheme.colorScheme.outline, CircleShape))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val details = listOf(if (entry.kind == "exam") "Exam" else null, subject ?: "No subject",
+                    entry.notebookTitle, "${time.format(Date(entry.startedAt))} – ${time.format(Date(entry.endedAt))}")
+                    .filterNot { it.isNullOrBlank() }.joinToString(" · ")
+                Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (dedicated) {
+                    if (entry.notes.isNotBlank()) Text(entry.notes, style = MaterialTheme.typography.bodySmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    entry.confidence?.let { Text("Confidence $it/5 · ${CONFIDENCE_LABELS[it - 1]}", style = MaterialTheme.typography.labelSmall) }
+                    if (!entry.synced) Text(if (entry.userId == null) "Saved on this device" else "Saved locally · awaiting sync",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text(formatStudyMinutes(focalHistoryMinutes(entry)), style = MaterialTheme.typography.titleMedium)
+            onDelete?.let { IconButton(it) { Icon(Icons.Rounded.DeleteOutline, "Delete session", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        }
+    }
+}
+
+@Composable
+private fun PlannedStudyCard(entry: FocalStudyEntry, subjects: List<FocalSubject>, color: Color, now: Long,
                              enabled: Boolean, onStart: () -> Unit, onEdit: (() -> Unit)? = null) {
-    val slots = remember(entry.remotePayload, entry.planDraft) { focalPlannedSlots(entry) }
+    val slots = remember(entry.remotePayload, entry.planDraft, entry.pendingBlocks) { focalPlannedSlots(entry) }
     val details = remember(entry.remotePayload, entry.planDraft) { focalPlanDetails(entry) }
+    val zone = remember { ZoneId.systemDefault() }
+    val scheme = MaterialTheme.colorScheme
+    val conflicted = entry.synced && entry.planDraft != null
+    val whenLabel = focalPlanWhen(slots, now, zone)
+    val overdue = focalPlanOverdue(slots, now)
+    val current = slots.any { it.startAt <= now && (it.endAt ?: it.startAt) > now }
     Surface(shape = FolioShapes.large, color = color) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Text(entry.title, style = MaterialTheme.typography.titleSmall)
-            if (entry.synced && entry.planDraft != null) Text("Draft needs review · edit and save to resolve changes from Focal.",
-                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            subjects.firstOrNull { it.id == entry.subjectId }?.let {
-                Text(it.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                    Text(entry.title.ifBlank { "Untitled plan" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(listOfNotNull(subjects.firstOrNull { it.id == entry.subjectId }?.name,
+                        slots.takeIf { it.isNotEmpty() }?.let { formatStudyMinutes(studyRoundedMinutes(it.sumOf { s -> requireNotNull(s.endAt) - s.startAt })) },
+                        if (slots.size > 1) "${slots.size} blocks" else null).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                }
+                whenLabel?.let { label ->
+                    Surface(shape = FolioShapes.small, color = when {
+                        overdue -> scheme.errorContainer
+                        current -> scheme.primaryContainer
+                        else -> scheme.secondaryContainer
+                    }) {
+                        Text(label, Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
+                            style = MaterialTheme.typography.labelMedium, maxLines = 1, color = when {
+                                overdue -> scheme.onErrorContainer
+                                current -> scheme.onPrimaryContainer
+                                else -> scheme.onSecondaryContainer
+                            })
+                    }
+                }
             }
+            if (conflicted) Text("Draft needs review · edit and save to resolve changes from Focal.",
+                color = scheme.error, style = MaterialTheme.typography.bodySmall)
             slots.take(3).forEach { slot ->
-                Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(slot.startAt)) +
-                    " – " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(requireNotNull(slot.endAt))),
-                    style = MaterialTheme.typography.bodySmall)
+                Text(focalSlotLabel(slot, zone), style = MaterialTheme.typography.bodySmall)
             }
-            if (slots.isNotEmpty()) Text(
-                formatStudied((slots.sumOf { requireNotNull(it.endAt) - it.startAt } + 30_000L) / 60_000L) + " planned" +
-                    if (slots.size > 3) " · ${slots.size} blocks" else "",
-                style = MaterialTheme.typography.labelMedium)
-                        if (details.first.isNotBlank()) Text(details.first, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            if (details.second.isNotEmpty()) Text("Topics: ${details.second.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
-            onEdit?.let { TextButton(it) { Text("Edit plan") } }
-            Button(onStart, enabled = enabled, shapes = ButtonDefaults.shapes(),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Icon(Icons.Rounded.PlayArrow, null)
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text("Start session")
+            if (slots.size > 3) Text("+${slots.size - 3} more blocks", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            if (details.first.isNotBlank()) Text(details.first, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (details.second.isNotEmpty()) Text("Topics: ${details.second.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                onEdit?.let { OutlinedButton(it, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) { Text(if (conflicted) "Review" else "Edit") } }
+                Button(onStart, enabled = enabled, shapes = ButtonDefaults.shapes(),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                    Icon(Icons.Rounded.PlayArrow, null)
+                    Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text("Start session")
+                }
             }
         }
     }
@@ -627,6 +844,11 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
         }
     }
     var confirmDiscard by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) { if (notice != null) { kotlinx.coroutines.delay(6_000); notice = null } }
+    var subjectId by rememberSaveable(state.userId, note?.id) {
+        mutableStateOf(note?.let { FocalSubjects.suggest(it, state.subjects) } ?: focalRecentSubject(entries, state.subjects))
+    }
     val focus = state.visibleFocus
     val examRunning = examTimer.active && examTimer.startedAt != null
     val otherRunning = entries.any { it.active && !it.paused && it.id != focus?.sessionId }
@@ -635,26 +857,31 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
         otherRunning -> "Another study session is running, possibly on another Focal app. Pause or finish it first."
         else -> null
     }
+    val zone = remember { ZoneId.systemDefault() }
+    val dayStart = remember(now / 60_000L) { Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli() }
+    val today = remember(now / 60_000L, entries) { studyRoundedMinutes(focalStudyMillisBetween(entries, dayStart, now)) }
+    val subjectName = { id: String? -> state.subjects.firstOrNull { it.id == id }?.name }
     val scheme = MaterialTheme.colorScheme
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)
     ) {
+        FolioExpand(notice != null) { StudyNotice(notice.orEmpty()) { notice = null } }
         if (focus == null) {
-            val subject = note?.let { FocalSubjects.suggest(it, state.subjects) }
-                ?.let { id -> state.subjects.firstOrNull { it.id == id }?.name }
-            Text(
-                "Time your study here. It is saved as a Focal study session for this notebook" +
-                    (subject?.let { ", under $it" } ?: "") + ", and appears in your history and on your other Focal apps.",
-                color = scheme.onSurfaceVariant
-            )
-            Button({ manager.startFocus(note, note?.let { FocalSubjects.suggest(it, state.subjects) }, attended = true) },
+            Text("Time your study here. It is saved as a Focal study session" + (note?.let { " for this notebook" } ?: "") +
+                " and appears in your history and on your other Focal apps. It pauses by itself when you leave the pages.",
+                color = scheme.onSurfaceVariant)
+            Text("Subject", style = MaterialTheme.typography.labelLarge)
+            FocalSubjectPicker(state.subjects, subjectId) { subjectId = it }
+            Button({
+                if (!manager.startFocus(note, subjectId, attended = true)) notice = "Couldn't start: another session is already running."
+            },
                 enabled = blocked == null && state.canStartFocus,
-                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.PlayArrow, null)
                 Spacer(Modifier.width(FolioSpacing.dp8))
-                Text("Start studying")
+                Text(subjectName(subjectId)?.let { "Start studying $it" } ?: "Start studying", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             blocked?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
             val planned = remember(entries) {
@@ -664,9 +891,11 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
             if (planned.isNotEmpty()) {
                 Text("Planned study", style = MaterialTheme.typography.titleMedium)
                 planned.take(3).forEach { entry ->
-                    PlannedStudyCard(entry, state.subjects, scheme.surfaceContainerHighest,
+                    PlannedStudyCard(entry, state.subjects, scheme.surfaceContainerHighest, now,
                         enabled = blocked == null && state.canStartFocus && !(entry.synced && entry.planDraft != null),
-                        onStart = { manager.startPlannedFocus(entry.id, note, attended = true) })
+                        onStart = {
+                            if (!manager.startPlannedFocus(entry.id, note, attended = true)) notice = "That plan couldn't start. Refresh and try again."
+                        })
                 }
                 if (planned.size > 3) TextButton(onOpenStudy) { Text("All ${planned.size} planned sessions") }
             } else if (state.userId == null) {
@@ -674,6 +903,7 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
             }
         } else {
             val running = focus.resumedAt != null
+            val elapsed = focus.elapsed(now)
             Surface(shape = FolioShapes.extraLarge,
                 color = if (running) scheme.primaryContainer else scheme.tertiaryContainer,
                 contentColor = if (running) scheme.onPrimaryContainer else scheme.onTertiaryContainer,
@@ -681,21 +911,28 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
                 Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp24, horizontal = FolioSpacing.dp16),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     Text((focalFocusStatus(focus) ?: "Recording").uppercase(),
-                        style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp)
-                    Text(formatElapsed(focus.elapsed(now)),
+                        style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp, textAlign = TextAlign.Center)
+                    Text(formatStudyClock(elapsed),
                         style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
-                        fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+                        modifier = Modifier.semantics { contentDescription = "Active study time, ${formatStudyMinutes(elapsed / 60_000L)}" })
                     Text(focus.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    listOfNotNull(state.subjects.firstOrNull { it.id == focus.subjectId }?.name, focus.notebookTitle)
+                    listOfNotNull(subjectName(focus.subjectId), focus.notebookTitle)
                         .joinToString(" · ").takeIf { it.isNotBlank() }
                         ?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     (if (examRunning && !running) "Resume regular study after the exam timer stops." else focalFocusStatusDetail(focus))
                         ?.let { Text(it, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
+                    val plannedMillis = entries.firstOrNull { it.id == focus.sessionId }
+                        ?.let { entry -> focalPlannedSlots(entry).sumOf { requireNotNull(it.endAt) - it.startAt } } ?: 0L
+                    if (plannedMillis > 0L) Column(Modifier.fillMaxWidth().padding(top = FolioSpacing.dp4),
+                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        PlanGoal(elapsed, plannedMillis)
+                    }
                 }
             }
             Button({ manager.toggleFocus() },
                 enabled = running || (!examRunning && !otherRunning),
-                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) {
                 Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(if (running) "Pause" else "Resume")
@@ -703,14 +940,17 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 FilledTonalButton({
                     val entry = entries.firstOrNull { it.id == focus.sessionId }
+                    val saved = "Saved ${formatStudyMinutes(studyRoundedMinutes(elapsed).coerceAtLeast(1L))}" +
+                        (subjectName(focus.subjectId)?.let { " of $it" } ?: "")
                     manager.finishFocus(entry?.notes.orEmpty(), entry?.confidence)
-                }, enabled = focus.elapsed(now) >= 1_000L,
-                    modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                    notice = saved
+                }, enabled = elapsed >= 1_000L,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp6))
                     Text("Finish & save")
                 }
-                OutlinedButton({ confirmDiscard = true }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes(),
+                OutlinedButton({ confirmDiscard = true }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = scheme.error)) {
                     Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp6))
@@ -718,13 +958,9 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
                 }
             }
         }
+        if (today > 0) Text("${formatStudyMinutes(today)} studied today", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Icon(when {
-                state.syncing -> Icons.Rounded.Sync
-                state.error != null -> Icons.Rounded.ErrorOutline
-                state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
-                else -> Icons.Rounded.CloudDone
-            }, null, Modifier.size(18.dp))
+            SyncIcon(state, 18.dp)
             Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onOpenStudy) { Text(if (focus == null) "Study sessions" else "Add notes & history") }
         }
@@ -732,8 +968,8 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
     }
     if (confirmDiscard) AlertDialog(onDismissRequest = { confirmDiscard = false }, modifier = Modifier.guardUiTouches(),
         title = { Text("Discard this session?") },
-        text = { Text("Its recorded study time will be removed from Folio and Focal. This cannot be undone.") },
-        confirmButton = { TextButton({ manager.discardFocus(); confirmDiscard = false }) { Text("Discard") } },
+        text = { Text("${focus?.let { formatStudyClock(it.elapsed(now)) } ?: "Its"} of recorded study will be removed from Folio and Focal. This cannot be undone.") },
+        confirmButton = { TextButton({ manager.discardFocus(); confirmDiscard = false; notice = "Session discarded" }) { Text("Discard") } },
         dismissButton = { TextButton({ confirmDiscard = false }) { Text("Keep session") } })
 }
 
@@ -756,10 +992,13 @@ private fun TimerHero(
         HeroMode.IDLE -> scheme.onSurface
     }
     val status = statusOverride ?: when (mode) { HeroMode.RUNNING -> "Recording"; HeroMode.PAUSED -> "Paused"; HeroMode.IDLE -> "Ready" }
+    // The recording dot breathes, so a running clock is obvious even when the seconds are out of view.
+    val pulse = if (mode == HeroMode.RUNNING) rememberInfiniteTransition(label = "heroPulse").animateFloat(
+        1f, .25f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "heroDot").value else 1f
     Surface(shape = FolioShapes.panel, color = container, contentColor = content) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Box(Modifier.size(10.dp).background(if (mode == HeroMode.IDLE) content.copy(alpha = .4f) else content, CircleShape))
+                Box(Modifier.size(10.dp).alpha(pulse).background(if (mode == HeroMode.IDLE) content.copy(alpha = .4f) else content, CircleShape))
                 Text(status, style = MaterialTheme.typography.labelLarge)
             }
             Text(time,
@@ -771,7 +1010,7 @@ private fun TimerHero(
                 })
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
             Spacer(Modifier.height(FolioSpacing.dp4))
             actions()
@@ -799,43 +1038,32 @@ internal fun FocalSubjectPicker(subjects: List<FocalSubject>, selected: String?,
     } else {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             subjects.forEach { subject ->
+                // The subject's colour matches its blocks on the timeline and its dot in history.
+                val hue = FocalSubjects.color(subject.id)?.let { Color(it) }
                 FilterChip(selected = selected == subject.id, onClick = { onSelect(if (selected == subject.id) null else subject.id) },
-                    label = { Text(subject.name, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                    label = { Text(subject.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = if (hue != null) { { Box(Modifier.size(8.dp).background(hue, CircleShape)) } } else null)
             }
             if (subjects.isEmpty()) EmptyHint("No subjects yet — sessions are saved without one.")
         }
     }
 }
 
+internal val CONFIDENCE_LABELS = listOf("Lost", "Shaky", "Getting there", "Confident", "Nailed it")
+
 @Composable
 private fun ReflectionFields(notes: String, onNotes: (String) -> Unit, confidence: Int, onConfidence: (Int) -> Unit) {
     OutlinedTextField(notes, { onNotes(it.take(500)) }, Modifier.fillMaxWidth(),
-        label = { Text("What did you work on? (optional)") }, minLines = 2)
-    Text("How confident do you feel? (optional)", style = MaterialTheme.typography.labelMedium)
+        label = { Text("What did you work on? (optional)") }, minLines = 2,
+        supportingText = if (notes.length >= 400) { { Text("${notes.length}/500") } } else null,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
+    Text("How confident do you feel? (optional)" + if (confidence > 0) " · ${CONFIDENCE_LABELS[confidence - 1]}" else "",
+        style = MaterialTheme.typography.labelMedium)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         (1..5).forEach { score ->
             FilterChip(selected = confidence == score, onClick = { onConfidence(if (confidence == score) 0 else score) },
-                label = { Text("$score", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f))
+                label = { Text("$score", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+                modifier = Modifier.weight(1f).semantics { contentDescription = "Confidence $score of 5, ${CONFIDENCE_LABELS[score - 1]}" })
         }
-    }
-}
-
-private fun formatStudied(minutes: Long): String {
-    val h = minutes / 60
-    val m = minutes % 60
-    return if (h == 0L) "$m min" else if (m == 0L) "$h h" else "$h h $m min"
-}
-
-private fun formatElapsed(millis: Long): String {
-    val seconds = (millis / 1000L).coerceAtLeast(0L)
-    return String.format(java.util.Locale.ROOT, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
-}
-
-private fun formatChipElapsed(millis: Long): String {
-    val seconds = (millis / 1000L).coerceAtLeast(0L)
-    return if (seconds >= 3600L) {
-        String.format(java.util.Locale.ROOT, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
-    } else {
-        String.format(java.util.Locale.ROOT, "%02d:%02d", (seconds / 60) % 60, seconds % 60)
     }
 }

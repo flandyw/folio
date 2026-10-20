@@ -32,12 +32,13 @@ internal object MistakeToday {
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         fun day(iso: String): LocalDate? = runCatching { Instant.ofEpochMilli(timestamp(iso)).atZone(zone).toLocalDate() }.getOrNull()
         val reviewDays = HashSet<LocalDate>()
-        var reviewedToday = 0
+        // Distinct cards, like the daily ring and XP: repeating a card today does not count twice.
+        val reviewedToday = HashSet<String>()
         mistakes.forEach { m ->
             m.reviewHistory.forEach { r ->
                 val d = day(r.completedAt) ?: return@forEach
                 reviewDays += d
-                if (d == today) reviewedToday++
+                if (d == today) reviewedToday += m.id
             }
         }
         // A streak survives until the end of a day without reviews, so yesterday still counts.
@@ -58,7 +59,7 @@ internal object MistakeToday {
             else if (offset in 1..FORECAST_DAYS) counts[offset.toInt()]++
         }
         return TodayStats(
-            reviewedToday = reviewedToday,
+            reviewedToday = reviewedToday.size,
             streak = streak,
             laterToday = laterToday,
             week = (1..FORECAST_DAYS).map { TodayForecastDay(today.plusDays(it.toLong()), counts[it]) },

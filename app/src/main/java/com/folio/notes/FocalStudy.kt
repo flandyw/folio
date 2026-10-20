@@ -245,17 +245,26 @@ internal fun focalSessionTitle(subjectId: String?, subjects: List<FocalSubject>)
 private const val MAX_REPORTED_SESSION_MILLIS = 24 * 60 * 60 * 1_000L
 
 internal fun focalStudyMillisBetween(entries: Iterable<FocalStudyEntry>, from: Long, until: Long): Long =
-    entries.asSequence()
-        .filter { it.kind == "study" && !it.planned && !it.deleted && !focalIsCalendarPlaceholder(it) }
-        .sumOf { entry ->
-            val measured = if (entry.active) entry.copy(
-                endedAt = if (entry.paused) entry.endedAt else until,
-                activeMillis = maxOf(entry.activeMillis, entry.intervals.sumOf {
-                    ((it.endAt ?: until) - it.startAt).coerceAtLeast(0L)
-                })
-            ) else entry
-            focalActiveMillisBetween(measured, from, until)
-        }
+    focalCountedStudy(entries).sumOf { focalMeasuredMillisBetween(it, from, until) }
+
+/**
+ * The sessions that count as study time: measured study, never plans, tombstones, exams or
+ * imported calendar blocks. Filter once when summing many ranges (a streak, a week of days),
+ * because recognising a calendar block parses the session's payload.
+ */
+internal fun focalCountedStudy(entries: Iterable<FocalStudyEntry>): List<FocalStudyEntry> =
+    entries.filter { it.kind == "study" && !it.planned && !it.deleted && !focalIsCalendarPlaceholder(it) }
+
+/** One counted session's study inside [from, until); a running one counts its open interval up to [until]. */
+internal fun focalMeasuredMillisBetween(entry: FocalStudyEntry, from: Long, until: Long): Long {
+    val measured = if (entry.active) entry.copy(
+        endedAt = if (entry.paused) entry.endedAt else until,
+        activeMillis = maxOf(entry.activeMillis, entry.intervals.sumOf {
+            ((it.endAt ?: until) - it.startAt).coerceAtLeast(0L)
+        })
+    ) else entry
+    return focalActiveMillisBetween(measured, from, until)
+}
 
 /** Imported calendar blocks are scheduled time, not measured study, regardless of duration. */
 internal fun focalIsCalendarPlaceholder(entry: FocalStudyEntry): Boolean {
@@ -1190,13 +1199,31 @@ class FocalStudyManager(context: Context) {
         }
     }
 
-    fun startFocus(note: Notebook?, subjectId: String?, now: Long = this.now(), attended: Boolean = false) {
-        if (!_state.value.canStartFocus || _state.value.visibleEntries.any { it.active && !it.paused }) return
+    /** Starts the stopwatch; false when another session is already running or this one is open. */
+    fun startFocus(note: Notebook?, subjectId: String?, now: Long = this.now(), attended: Boolean = false): Boolean {
+        if (!_state.value.canStartFocus || _state.value.visibleEntries.any { it.active && !it.paused }) return false
         val focus = FocalFocus(notebookId = note?.id,
             title = focalSessionTitle(subjectId, _state.value.subjects), subjectId = subjectId,
             startedAt = now, resumedAt = now, intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title,
             attended = attended)
         saveFocusEntry(focus, now)
+        return _state.value.focus?.sessionId == focus.sessionId
+    }
+
+    /**
+     * Changes the subject of the open session, for a timer started under the wrong one. Its title
+     * follows only while it is still the generated "<subject> Focus" one; a plan keeps its title.
+     * Published as a save_progress on the same row, so the time recorded so far is untouched.
+     */
+    fun changeFocusSubject(subjectId: String?, now: Long = this.now()): Boolean {
+        val state = _state.value
+        val focus = state.visibleFocus ?: return false
+        if (focus.subjectId == subjectId) return true
+        val generated = focus.title == focalSessionTitle(focus.subjectId, state.subjects)
+        val next = focus.copy(subjectId = subjectId,
+            title = if (generated) focalSessionTitle(subjectId, state.subjects) else focus.title)
+        saveFocusEntry(next, now, forceUpload = true)
+        return _state.value.focus?.subjectId == subjectId
     }
     fun savePlan(original: FocalStudyEntry, title: String, subjectId: String?, description: String,
                  topics: List<String>, slots: List<FocalStudyInterval>): Boolean {
@@ -1230,12 +1257,14 @@ class FocalStudyManager(context: Context) {
         if (persist()) scope.launch { publishEntry(entry) }
     }
 
-    fun startPlannedFocus(id: String, note: Notebook?, now: Long = this.now(), attended: Boolean = false) {
+    /** Starts a plan as the stopwatch; false when it can't start (already running, conflicted draft, gone). */
+    fun startPlannedFocus(id: String, note: Notebook?, now: Long = this.now(), attended: Boolean = false): Boolean {
         val state = _state.value
-        if (!state.canStartFocus || state.visibleEntries.any { it.active && !it.paused }) return
-        val entry = state.visibleEntries.firstOrNull { it.id == id } ?: return
-        val focus = focalPlannedFocus(entry, note, now, attended) ?: return
+        if (!state.canStartFocus || state.visibleEntries.any { it.active && !it.paused }) return false
+        val entry = state.visibleEntries.firstOrNull { it.id == id } ?: return false
+        val focus = focalPlannedFocus(entry, note, now, attended) ?: return false
         saveFocusEntry(focus, now, forceUpload = true, startingPlanned = true)
+        return _state.value.focus?.sessionId == focus.sessionId
     }
 
     fun toggleFocus(now: Long = this.now()) {
@@ -1471,9 +1500,9 @@ class FocalStudyManager(context: Context) {
         if (persist()) scope.launch { publishEntry(entry) }
     }
     fun logManual(note: Notebook?, subjectId: String?, minutes: Int, notes: String,
-                  confidence: Int?, now: Long = this.now()) {
-        if (minutes !in 1..1_440) return
-        add(FocalStudyEntry(notebookId = note?.id, title = focalSessionTitle(subjectId, _state.value.subjects),
+                  confidence: Int?, now: Long = this.now()): Boolean {
+        if (minutes !in 1..1_440) return false
+        return add(FocalStudyEntry(notebookId = note?.id, title = focalSessionTitle(subjectId, _state.value.subjects),
             subjectId = subjectId, kind = "study", startedAt = now - minutes * 60_000L,
             endedAt = now, activeMillis = minutes * 60_000L, notebookTitle = note?.title,
             notes = notes.trim().take(500), confidence = confidence?.takeIf { it in 1..5 }, userId = _state.value.userId))
@@ -1481,10 +1510,9 @@ class FocalStudyManager(context: Context) {
     /** Study that already happened, drawn on the timeline as one block. */
     fun logBlock(subjectId: String?, title: String, startAt: Long, endAt: Long, now: Long = this.now()): Boolean {
         if (endAt <= startAt || endAt > now || endAt - startAt > MAX_REPORTED_SESSION_MILLIS) return false
-        add(FocalStudyEntry(notebookId = null, title = title.trim().take(512).ifBlank { focalSessionTitle(subjectId, _state.value.subjects) },
+        return add(FocalStudyEntry(notebookId = null, title = title.trim().take(512).ifBlank { focalSessionTitle(subjectId, _state.value.subjects) },
             subjectId = subjectId, kind = "study", startedAt = startAt, endedAt = endAt,
             activeMillis = endAt - startAt, userId = _state.value.userId))
-        return true
     }
 
     /**
@@ -1500,12 +1528,12 @@ class FocalStudyManager(context: Context) {
     }
 
     /** Deletes a plan or a finished session everywhere; a running or paused one is discarded instead. */
-    fun deleteSession(id: String) {
+    fun deleteSession(id: String): Boolean {
         val state = _state.value
-        val current = state.visibleEntries.firstOrNull { it.id == id } ?: return
-        if (current.planned) return deletePlan(id)
-        if (current.active || current.id == state.focus?.sessionId) return
-        saveEntry(current.copy(deleted = true, synced = false, pendingBlocks = null, changeId = UUID.randomUUID().toString()))
+        val current = state.visibleEntries.firstOrNull { it.id == id } ?: return false
+        if (current.planned) { deletePlan(id); return true }
+        if (current.active || current.id == state.focus?.sessionId) return false
+        return saveEntry(current.copy(deleted = true, synced = false, pendingBlocks = null, changeId = UUID.randomUUID().toString()))
     }
 
     /**
@@ -1569,9 +1597,12 @@ class FocalStudyManager(context: Context) {
         } }
     }
 
-    private fun add(entry: FocalStudyEntry) {
+    /** Adds a new session; false if it could not be saved on this device. */
+    private fun add(entry: FocalStudyEntry): Boolean {
         _state.update { state -> state.copy(entries = listOf(entry) + state.entries, error = null) }
-        if (persist()) scope.launch { publishEntry(entry) }
+        val saved = persist()
+        if (saved) scope.launch { publishEntry(entry) }
+        return saved
     }
     fun retry() {
         if (_state.value.needsSignIn) return

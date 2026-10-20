@@ -1,4 +1,5 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
 import androidx.compose.animation.core.Animatable
@@ -7,6 +8,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,7 +50,7 @@ import java.time.format.DateTimeFormatter
 }
 
 @Composable internal fun MistakePracticeHub(content: TodayContent, actions: TodayActions) {
-    val progress = remember(content.mistakes, content.now) { MistakePracticeProgress.get(content.mistakes, content.now) }
+    val progress = content.progress
     val settings = content.preferences
     val finish = MistakePracticeProgress.finishes.find { it.id == settings.practiceFinish && progress.xp >= it.xp } ?: MistakePracticeProgress.finishes.first()
     val color = Color(finish.color)
@@ -69,7 +74,10 @@ import java.time.format.DateTimeFormatter
                 val cards = MistakePracticeProgress.missionCards(active, quest.id, content.now)
                 OutlinedCard(onClick = { actions.onMission(cards.take(maxOf(1, quest.target - quest.done)), false) }, enabled = !content.working && cards.isNotEmpty() && quest.done < quest.target, shape = FolioShapes.large) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("${quest.label} · ${if (quest.done >= quest.target) "Complete" else "${quest.done}/${quest.target}"}", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (quest.done >= quest.target) Icon(Icons.Rounded.CheckCircle, null, Modifier.size(18.dp), tint = color)
+                            Text("${quest.label} · ${if (quest.done >= quest.target) "Complete" else "${quest.done}/${quest.target}"}", style = MaterialTheme.typography.titleSmall)
+                        }
                         Text(quest.detail, style = MaterialTheme.typography.bodySmall)
                         LinearProgressIndicator(progress = { (quest.done.toFloat() / quest.target).coerceAtMost(1f) }, color = color, modifier = Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "${quest.label}, ${minOf(quest.done, quest.target)} of ${quest.target}" })
                     }
@@ -85,7 +93,11 @@ import java.time.format.DateTimeFormatter
             OutlinedButton({
                 val completed = content.mistakes.filter { m -> m.reviewHistory.any { it.challengeWeek == progress.week } }.map { it.id }.toSet()
                 actions.onMission(progress.challenge.filterNot { it.id in completed }, true)
-            }, enabled = !content.working && progress.challenge.isNotEmpty() && !progress.weeklyComplete) { Text(if (progress.weeklyComplete) "Completed" else "Take the challenge") }
+            }, enabled = !content.working && progress.challenge.isNotEmpty() && !progress.weeklyComplete, shapes = ButtonDefaults.shapes()) {
+                Icon(if (progress.weeklyComplete) Icons.Rounded.EmojiEvents else Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (progress.weeklyComplete) "Completed" else "Take the challenge")
+            }
             HorizontalDivider()
             Text(slot?.let { "${if (it.toInstant().toEpochMilli() <= content.now) "Practice window open" else "Next practice"} · ${it.format(DateTimeFormatter.ofPattern("EEE HH:mm"))}" } ?: "Practice whenever it suits you", style = MaterialTheme.typography.bodyMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

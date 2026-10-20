@@ -37,13 +37,27 @@ internal fun TimingPanel(
             Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
         ) {
+            // Each tab says when its clock is live, so a running timer is never hidden behind the other tab.
+            val examState = when {
+                timer.phase == ExamTimerPhase.IDLE || timer.startedAt == null -> null
+                timer.phase == ExamTimerPhase.DONE -> "Time's up"
+                timer.paused -> "Paused"
+                timer.phase == ExamTimerPhase.READING -> "Reading"
+                else -> "Writing"
+            }
+            val focus = focalState.visibleFocus
+            val studyState = when {
+                focus == null -> null
+                focus.resumedAt != null -> "Running"
+                else -> "Paused"
+            }
             FilterChip(
                 selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                label = { Text("Exam timer") }, leadingIcon = { Icon(Icons.Rounded.Timer, null) }
+                label = { Text(examState?.let { "Exam timer · $it" } ?: "Exam timer") }, leadingIcon = { Icon(Icons.Rounded.Timer, null) }
             )
             FilterChip(
                 selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                label = { Text("Study stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
+                label = { Text(studyState?.let { "Study stopwatch · $it" } ?: "Study stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
             )
         }
         Box(Modifier.weight(1f, fill = false).folioEntrance(selectedTab)) {

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
@@ -56,21 +57,25 @@ internal fun MistakeDetailCard(
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         Text(mistake.question, style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
-        Text(if (mistake.suspended) "Suspended in Focal" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Status and the key facts in one line, so the answer to "why is this here?" never hides behind a toggle.
+        val dueText = if (mistake.suspended) "Suspended in Focal" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise"
+        val facts = buildList {
+            add(dueText)
+            mistake.marksLost?.let { lost ->
+                add("−${trimMark(lost)}${mistake.totalMarks?.let { " / ${trimMark(it)}" }.orEmpty()} ${if (lost == 1.0 && mistake.totalMarks == null) "mark" else "marks"}")
+            }
+            mistake.category.takeIf { it.isNotBlank() }?.let(::add)
+        }
+        Text(facts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium,
+            color = if (!mistake.suspended && dueText.contains("overdue")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
             if (working) LoadingIndicator(Modifier.size(20.dp))
             else Icon(Icons.Rounded.Edit, null)
             Spacer(Modifier.width(FolioSpacing.dp8))
             Text(if (mistake.suspended) "Unsuspend in Focal to practise" else if (attempts.any { it.second.completedAt == null }) "Continue review" else "Practise this question")
         }
-        TextButton({ showDelete = true }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-            Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(FolioSpacing.dp6))
-            Text("Delete this card")
-        }
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            listOf("Question", "Solution", "Attempts").forEachIndexed { index, title ->
+            listOf("Question", "Solution", if (attempts.isEmpty()) "Attempts" else "Attempts · ${attempts.size}").forEachIndexed { index, title ->
                 FilterChip(
                     selected = tab == index, onClick = { tab = index },
                     label = { Text(title) },
@@ -108,10 +113,17 @@ internal fun MistakeDetailCard(
                     val done = attempt.completedAt != null
                     Surface(onClick = { onOpenAttempt(note.id, attempt.practicePageId, attempt.reviewId, done) }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                            Icon(if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions, null)
+                            val rating = attempt.rating?.let(ReviewRating::parse)
+                            Icon(if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions, null,
+                                tint = when {
+                                    !done -> MaterialTheme.colorScheme.tertiary
+                                    rating == ReviewRating.AGAIN -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.primary
+                                })
                             Column(Modifier.weight(1f)) {
-                                Text(if (done) attempt.rating?.replaceFirstChar(Char::uppercase) ?: "Reviewed" else "Ready to continue", style = MaterialTheme.typography.titleSmall)
-                                Text(attempt.completedAt?.take(10) ?: "Unfinished · your response is saved", style = MaterialTheme.typography.bodySmall)
+                                Text(if (done) rating?.wire?.replaceFirstChar(Char::uppercase) ?: "Reviewed" else "Ready to continue", style = MaterialTheme.typography.titleSmall)
+                                Text(attempt.completedAt?.let(::localDateLabel) ?: "Unfinished · your response is saved", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Icon(Icons.AutoMirrored.Rounded.ArrowForward, if (done) "Open response" else "Continue review")
                         }
@@ -119,24 +131,39 @@ internal fun MistakeDetailCard(
                 }
             }
         }
+        // Destructive and rarely needed: kept at the end, away from Practise.
+        HorizontalDivider(Modifier.padding(top = FolioSpacing.dp8))
+        TextButton({ showDelete = true }, enabled = !working, shapes = ButtonDefaults.shapes(),
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+            Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(FolioSpacing.dp6))
+            Text("Delete this card")
+        }
     }
-    if (showDelete) {
-        AlertDialog(
-            onDismissRequest = { if (!working) showDelete = false },
-            icon = { Icon(Icons.Rounded.DeleteOutline, null) },
-            title = { Text("Delete this card?") },
-            text = { Text("“${mistake.question}” leaves your review list on all devices. Your responses on this device are kept.") },
-            dismissButton = { TextButton({ showDelete = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
-            confirmButton = {
-                Button(
-                    { showDelete = false; onDelete() },
-                    enabled = !working,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    shapes = ButtonDefaults.shapes(),
-                ) { Text("Delete card") }
-            },
-        )
+    if (showDelete) DeleteCardDialog(mistake.question, working, onDismiss = { showDelete = false }) {
+        showDelete = false; onDelete()
     }
+}
+
+/** The one confirmation for deleting a card, wherever the delete starts. */
+@Composable
+internal fun DeleteCardDialog(question: String, working: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = { if (!working) onDismiss() },
+        icon = { Icon(Icons.Rounded.DeleteOutline, null) },
+        title = { Text("Delete this card?") },
+        text = { Text("“${question.trim().take(140)}” leaves your review list on all devices. Your responses on this device are kept.") },
+        dismissButton = { TextButton(onDismiss, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
+        confirmButton = {
+            Button(
+                onConfirm,
+                enabled = !working,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError),
+                shapes = ButtonDefaults.shapes(),
+            ) { Text("Delete card") }
+        },
+    )
 }
 
 @Composable
@@ -255,6 +282,9 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                     TextButton({ zoom = 1f; offset = Offset.Zero }, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RectangleShape).pointerInput(Unit) {
+                    // Double-tap toggles between fitted and a close look.
+                    detectTapGestures(onDoubleTap = { if (zoom > 1f) { zoom = 1f; offset = Offset.Zero } else zoom = 2.5f })
+                }.pointerInput(Unit) {
                     detectTransformGestures { _, pan, scale, _ ->
                         zoom = (zoom * scale).coerceIn(1f, 5f)
                         val maxX = size.width * (zoom - 1f) / 2f

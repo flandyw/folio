@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.unit.IntOffset
 import android.content.Intent
 import androidx.compose.material.icons.Icons
@@ -50,7 +51,15 @@ import kotlin.math.roundToInt
  * What the editor's toolbar needs to offer split view: whether it is open, the one button that
  * opens or closes it, and opening a given notebook beside (a long-pressed tab).
  */
-internal class SplitViewControl(val open: Boolean, val toggle: () -> Unit, val openBeside: (String) -> Unit)
+internal class SplitViewControl(
+    val open: Boolean,
+    val toggle: () -> Unit,
+    val openBeside: (String) -> Unit,
+    /** Opens the notebook in the pane on the side the carried tab was dropped (window pixels). */
+    val dropAt: (String, androidx.compose.ui.geometry.Offset) -> Unit = { id, _ -> openBeside(id) },
+    /** Opens the notebook in the start (left/top) pane when true, else the end pane. */
+    val openOnSide: (String, Boolean) -> Unit = { id, _ -> openBeside(id) },
+)
 
 /** Provided by the workspace only; editors elsewhere (mistake review, music) have no split. */
 internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
@@ -118,6 +127,10 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
     val barHeight = remember { mutableIntStateOf(0) }
     val tabDrag = remember { mutableStateOf<TabDrag?>(null) }
     var rootInWindow by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    // The panes' area in the window, so a carried tab knows which half it is over.
+    var areaInWindow by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var areaStacked by remember { mutableStateOf(false) }
+    val rightToLeft = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val companion = state.companion
     val note = state.notes.find { it.id == companion?.notebookId }
     val paired = companion != null && note != null
@@ -130,7 +143,12 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
         }
     }
     fun openBeside(id: String) { choosing = false; model.showCompanion(id) }
-    val control = SplitViewControl(splitOpen, ::toggleSplit, ::openBeside)
+    // [start] = the left (or top) pane; the editor takes the other side.
+    fun openOnSide(id: String, start: Boolean) { openBeside(id); model.setEditorOnRight(start) }
+    fun dropSide(window: androidx.compose.ui.geometry.Offset): Boolean = SplitPanes.dropsAtStart(
+        window.x, window.y, areaInWindow.left, areaInWindow.top, areaInWindow.right, areaInWindow.bottom, areaStacked, rightToLeft)
+    val control = SplitViewControl(splitOpen, ::toggleSplit, ::openBeside,
+        dropAt = { id, window -> openOnSide(id, dropSide(window)) }, openOnSide = ::openOnSide)
     val commands = listOf(
         EditorCommand(if (splitOpen) "Close split view" else "Split view: open a document beside", keys = "Ctrl + \\", run = ::toggleSplit),
         EditorCommand("Work in the other pane", enabled = paired, reason = "Open split view first", run = model::swapCompanion),
@@ -143,8 +161,9 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.Backslash) { toggleSplit(); true } else false
     }) {
         val barTop = with(LocalDensity.current) { barHeight.intValue.toDp() }
-        BoxWithConstraints(Modifier.fillMaxSize().padding(top = barTop)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(top = barTop).onGloballyPositioned { areaInWindow = it.boundsInWindow() }) {
             val stacked = maxWidth < 600.dp
+            SideEffect { areaStacked = stacked }
             val divider = 12.dp
             val availablePx = with(LocalDensity.current) { ((if (stacked) maxHeight else maxWidth) - divider).toPx() }
             val editorFirst = !state.editorOnRight
@@ -217,7 +236,7 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
                 },
             )
             // Where a carried tab will open: the other pane, or the half a new one would take.
-            if (tabDrag.value != null) SplitDropZone(stacked, editorFirst, if (paired) fraction else SplitPanes.EQUAL, divider)
+            tabDrag.value?.let { drag -> SplitDropZone(stacked, dropSide(drag.window), replacing = paired, rightToLeft = rightToLeft) }
         }
         tabDrag.value?.let { drag -> TabDragChip(drag, state.notes.find { it.id == drag.id }, model, rootInWindow) }
         // One bar for both documents, across the whole screen; the ink options and the text bar
@@ -238,33 +257,50 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
     }
 }
 
-/** A dashed outline over the pane a dropped tab will fill. */
-@Composable private fun SplitDropZone(stacked: Boolean, editorFirst: Boolean, editorFraction: Float, divider: androidx.compose.ui.unit.Dp) {
+/**
+ * Two halves over the panes while a tab is carried: the one under the finger lights up and says
+ * exactly where the document will open; the other stays a faint outline naming its own side.
+ */
+@Composable private fun SplitDropZone(stacked: Boolean, start: Boolean, replacing: Boolean, rightToLeft: Boolean) {
     val colors = MaterialTheme.colorScheme
-    val zone: @Composable () -> Unit = {
-        Box(Modifier.fillMaxSize().padding(FolioSpacing.dp12)
-            .background(colors.primary.copy(alpha = .08f), FolioShapes.large)
+    val half: @Composable (Modifier, Boolean) -> Unit = { modifier, isStart ->
+        val target = isStart == start
+        val tint by androidx.compose.animation.animateColorAsState(colors.primary.copy(alpha = if (target) .14f else .03f), label = "dropTint")
+        val edge by androidx.compose.animation.animateColorAsState(if (target) colors.primary else colors.outline.copy(alpha = .5f), label = "dropEdge")
+        val side = when {
+            stacked -> if (isStart) "top" else "bottom"
+            else -> if (isStart != rightToLeft) "left" else "right"
+        }
+        val icon = when {
+            stacked -> if (isStart) Icons.Rounded.VerticalAlignTop else Icons.Rounded.VerticalAlignBottom
+            else -> if (isStart) Icons.AutoMirrored.Rounded.ArrowBack else Icons.AutoMirrored.Rounded.ArrowForward
+        }
+        Box(modifier.fillMaxSize().padding(FolioSpacing.dp12)
+            .background(tint, FolioShapes.large)
             .drawBehind {
-                drawRoundRect(colors.primary, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx(),
+                drawRoundRect(edge, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = (if (target) 2.5f else 1.5f).dp.toPx(),
                         pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12.dp.toPx(), 8.dp.toPx()))))
             }, contentAlignment = Alignment.Center) {
-            Surface(shape = FolioShapes.large, color = colors.primaryContainer, contentColor = colors.onPrimaryContainer) {
+            Surface(shape = FolioShapes.large,
+                color = if (target) colors.primaryContainer else colors.surfaceContainerHigh.copy(alpha = .9f),
+                contentColor = if (target) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                shadowElevation = if (target) 4.dp else 0.dp) {
                 Row(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(18.dp))
-                    Text("Drop to open beside", style = MaterialTheme.typography.labelLarge)
+                    Icon(icon, null, Modifier.size(18.dp))
+                    Column {
+                        Text(if (target) "Release to open on the $side" else "Open on the $side",
+                            style = if (target) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelMedium)
+                        if (target) Text(if (replacing) "Replaces the document beside" else "This document moves to the other side",
+                            style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = .8f))
+                    }
                 }
             }
         }
     }
-    val editorWeight = editorFraction.coerceIn(.05f, .95f)
-    val content: @Composable (Modifier, Modifier) -> Unit = { editor, other ->
-        if (editorFirst) { Spacer(editor); Spacer(Modifier.size(divider)); Box(other) { zone() } }
-        else { Box(other) { zone() }; Spacer(Modifier.size(divider)); Spacer(editor) }
-    }
-    if (stacked) Column(Modifier.fillMaxSize()) { content(Modifier.weight(editorWeight), Modifier.weight(1f - editorWeight)) }
-    else Row(Modifier.fillMaxSize()) { content(Modifier.weight(editorWeight), Modifier.weight(1f - editorWeight)) }
+    if (stacked) Column(Modifier.fillMaxSize()) { half(Modifier.weight(1f), true); half(Modifier.weight(1f), false) }
+    else Row(Modifier.fillMaxSize()) { half(Modifier.weight(1f), true); half(Modifier.weight(1f), false) }
 }
 
 /** The carried tab: a little card with the document's current page and its name, under the finger. */
