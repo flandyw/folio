@@ -19,8 +19,14 @@ it, a chooser that appears in the new pane, and no modes to pick.
   editor hands it up through `LocalToolbarPortal` (with its composition locals, so its menus behave as
   if drawn in the editor), and the panes sit below it. The pane the toolbar works on has a faint
   accent outline; its tab carries the accent line.
-- **Tabs show the split:** both documents get a tab, side by side in screen order, filled and marked
-  with the split icon (`splitTabs`). Tapping the other half's tab works there; closing it closes the pane.
+- **Tabs show the split:** both documents get a tab (opening a document beside adds its tab), side by
+  side in screen order and wrapped in one tinted, outlined group led by the split mark (`splitTabs`,
+  `SplitTabGroup`). The half being worked on carries the accent line. Tapping the other half's tab
+  works there.
+- **Closing (`WorkspaceManager.closeTab`):** closing the other half's tab closes its pane; closing the
+  tab being worked on leaves the other document as the editor, on its own; when both panes show one
+  notebook, closing it closes the split too. A split parked behind a closed tab is forgotten. Closing
+  the split itself (button, menu, divider) keeps both tabs open, like a browser.
 - **Write in both at once:** with a pen, highlighter, eraser, shape or laser selected, the pen writes
   straight into the other pane (`LocalSharedInk`). The toolbar's Undo/Redo takes back whichever pane's
   edit is newest (`DocumentEngine.undo` compares the other page's stack sequence).

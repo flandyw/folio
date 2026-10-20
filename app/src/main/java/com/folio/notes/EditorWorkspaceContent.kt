@@ -1619,7 +1619,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                 state.companion?.notebookId -> { finishTextEditing(); model.swapCompanion() }
                                 else -> { finishTextEditing(); model.open(id) }
                             } },
-                            onCloseTab = { id -> finishTextEditing(); if (id == state.companion?.notebookId) model.dismissCompanion(); model.closeTab(id) },
+                            onCloseTab = { id -> finishTextEditing(); model.closeTab(id) },
                             onNewTab = onOpenDocument?.let { open -> { finishTextEditing(); open() } },
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {

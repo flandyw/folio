@@ -6,7 +6,9 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
@@ -124,6 +126,7 @@ private val TabHeight = 28.dp
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragY by remember { mutableFloatStateOf(0f) }
     val bounds = remember { mutableStateMapOf<String, Pair<Float, Float>>() }
+    var content by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     val splitReach = with(density) { 56.dp.toPx() }
     val spacing = with(density) { FolioSpacing.dp4.toPx() }
     val ids = tabs.map { it.id }
@@ -153,11 +156,12 @@ private val TabHeight = 28.dp
         ) {
             Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
             Row(
-                Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null),
+                Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null)
+                    .onGloballyPositioned { content = it },
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                shown.forEach { tab -> key(tab.id) {
+                val slot: @Composable (EditorTabChip) -> Unit = { tab -> key(tab.id) {
                     val held = dragged == tab.id
                     // Pulled down out of the strip, the tab leaves it and travels as a chip (drawn by the
                     // workspace over the panes); its slot stays behind as a faint placeholder.
@@ -166,7 +170,8 @@ private val TabHeight = 28.dp
                     Tab(tab, tab.id == activeId, held, onClose,
                         modifier = Modifier
                             .onGloballyPositioned {
-                                bounds[tab.id] = it.positionInParent().x to it.size.width.toFloat()
+                                // In the scrolled row's frame, so a tab inside the split group measures the same way.
+                                bounds[tab.id] = (content?.takeIf { c -> c.isAttached }?.localPositionOf(it, Offset.Zero)?.x ?: it.positionInParent().x) to it.size.width.toFloat()
                                 slotInWindow = it.positionInWindow()
                             }
                             .zIndex(if (held) 1f else 0f)
@@ -248,11 +253,42 @@ private val TabHeight = 28.dp
                                 if (detached) alpha = .35f
                             })
                 } }
+                // The two documents in split view are wrapped together in one outlined group with the
+                // split mark, so the strip says plainly which tabs share the screen.
+                var at = 0
+                while (at < shown.size) {
+                    val tab = shown[at]
+                    val partner = shown.getOrNull(at + 1)
+                    if (tab.split && partner?.split == true && dragged != tab.id && dragged != partner.id) {
+                        SplitTabGroup(tab, partner) { slot(tab); slot(partner) }
+                        at += 2
+                    } else { slot(tab); at++ }
+                }
             }
             if (onNew != null) TabAction(Icons.Rounded.Add, "Open another document", onNew)
         }
     }
     LaunchedEffect(ids) { if (order == ids) order = null }
+}
+
+/** An outlined, tinted frame around the two split tabs, led by the split mark. */
+@Composable private fun SplitTabGroup(first: EditorTabChip, second: EditorTabChip, tabs: @Composable RowScope.() -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(topStart = FolioShapes.mediumRadius + 2.dp, topEnd = FolioShapes.mediumRadius + 2.dp)
+    Row(
+        Modifier.height(TabHeight + 4.dp).clip(shape)
+            .background(colors.primary.copy(alpha = .14f))
+            .border(1.5.dp, colors.primary.copy(alpha = .7f), shape)
+            .padding(start = FolioSpacing.dp6, end = 2.dp, top = 2.dp)
+            .semantics(mergeDescendants = false) {
+                contentDescription = "Split view: ${first.title.ifBlank { "Untitled" }} and ${second.title.ifBlank { "Untitled" }}"
+            },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(16.dp), tint = colors.primary)
+        Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp), content = tabs)
+    }
 }
 
 @Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, onClose: (String) -> Unit, modifier: Modifier) {
@@ -279,10 +315,7 @@ private val TabHeight = 28.dp
             } else Modifier),
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
-            if (tab.split) {
-                Icon(Icons.Rounded.VerticalSplit, "In split view", Modifier.size(14.dp))
-                Spacer(Modifier.width(FolioSpacing.dp4))
-            }
+
             Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(FolioSpacing.dp2))

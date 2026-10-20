@@ -138,8 +138,22 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         }
     }
 
+    /**
+     * Closes a document's tab. In split view the other half carries on alone: closing the pane being
+     * worked on leaves the other document as the editor, closing the other half just closes its pane,
+     * and a split parked behind a closed tab is forgotten with it.
+     */
     fun closeTab(id: String) {
         with(runtime) {
+            val before = _state.value
+            val pane = before.companion
+            when {
+                pane == null -> Unit
+                // The other half (or both halves, when both panes show this notebook): the split goes.
+                pane.notebookId == id -> dismissCompanion()
+                before.activeId == id -> closeEditorPane()
+            }
+            parked?.let { if (it.hostId == id || it.pane.notebookId == id) parked = null }
             captureTab()
             // A barrier in the existing writer drains every pending save before removing the tab.
             enqueue {
@@ -218,8 +232,10 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             parked = null
             // The side the editor sits on is the user's, not the pane's: opening a companion leaves
             // it wherever they last put it.
+            // The other document gets a tab of its own, so closing the split leaves both open like a browser.
             _state.update { it.copy(companion = source.copy(id = "companion", search = PdfSearchState()), companionPdfSearch = PdfSearchState(),
-                companionHostId = it.activeId) }
+                companionHostId = it.activeId,
+                tabs = if (it.tabs.any { tab -> tab.notebookId == id }) it.tabs else it.tabs + source.copy(id = id, search = PdfSearchState())) }
             loadPage(source.currentPageId)
         }
     }
