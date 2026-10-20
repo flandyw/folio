@@ -1,27 +1,48 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
@@ -36,13 +57,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 
 /**
  * The bar's colour roles: the same neutral surface as Folio's glass pills, so tools, chips and
@@ -101,6 +125,28 @@ private val TabHeight = 28.dp
     }
 }
 
+/** A tab keeps its composition and animation when it moves into or out of a split pair. */
+@Stable private class AnimatedEditorTab(tab: EditorTabChip, initiallyVisible: Boolean = true) {
+    var chip by mutableStateOf(tab)
+    val visibility = MutableTransitionState(initiallyVisible).apply { targetState = true }
+    val placement = TabPlacement()
+}
+
+/** Layout targets never include animation or pointer offsets, so reorder thresholds stay still. */
+@Stable private class TabPlacement {
+    var bounds by mutableStateOf<TabSlotBounds?>(null)
+    var position by mutableStateOf<Animatable<Offset, AnimationVector2D>?>(null)
+    var releasedAt by mutableStateOf<Offset?>(null)
+
+    fun place(left: Float, width: Float) {
+        bounds = TabSlotBounds(left, width)
+        if (position == null) position = Animatable(Offset(left, 0f), Offset.VectorConverter)
+    }
+
+    fun displayed(held: Boolean, pointer: Offset): Offset =
+        if (held) pointer else releasedAt ?: position?.value ?: Offset.Zero
+}
+
 /**
  * The neutral strip behind the tabs; the active tab shares the bar's colour so the two read as one.
  * Tabs behave like a browser's: tap to switch, press and drag sideways to reorder, and pull one down
@@ -119,207 +165,310 @@ private val TabHeight = 28.dp
     val tabDrag = LocalTabDrag.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val rightToLeft = LocalLayoutDirection.current == LayoutDirection.Rtl
     val scroll = rememberScrollState()
-    // The order shown while a tab is held; the store only hears about it on release.
+    val latestTabs by rememberUpdatedState(tabs)
+    val latestSelect by rememberUpdatedState(onSelect)
+    val latestSplit by rememberUpdatedState(split)
+    val latestReorder by rememberUpdatedState(reorder)
+    var entries by remember { mutableStateOf(tabs.map { AnimatedEditorTab(it) }) }
+    // Closed tabs live just long enough to fade and collapse. Only tab UI is retained, never editors.
+    LaunchedEffect(tabs) {
+        val previous = entries
+        val next = tabs.map { tab ->
+            (previous.find { it.chip.id == tab.id } ?: AnimatedEditorTab(tab, initiallyVisible = false)).also {
+                it.chip = tab
+                it.visibility.targetState = true
+            }
+        }.toMutableList()
+        previous.forEachIndexed { index, entry ->
+            if (tabs.none { it.id == entry.chip.id }) {
+                entry.visibility.targetState = false
+                next.add(index.coerceAtMost(next.size), entry)
+            }
+        }
+        entries = next
+    }
     var order by remember { mutableStateOf<List<String>?>(null) }
     var dragged by remember { mutableStateOf<String?>(null) }
-    var dragX by remember { mutableFloatStateOf(0f) }
-    var dragY by remember { mutableFloatStateOf(0f) }
-    val bounds = remember { mutableStateMapOf<String, Pair<Float, Float>>() }
-    var content by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    // The held tab's absolute position in the scrollable row, independent of its changing slot.
+    var pointer by remember { mutableStateOf(Offset.Zero) }
     val splitReach = with(density) { 56.dp.toPx() }
     val spacing = with(density) { FolioSpacing.dp4.toPx() }
     val ids = tabs.map { it.id }
-    val shown = order?.takeIf { it.toSet() == ids.toSet() }?.let { held -> held.mapNotNull { id -> tabs.find { it.id == id } } } ?: tabs
-    LaunchedEffect(activeId, tabs.size) {
-        val (start, width) = bounds[activeId] ?: return@LaunchedEffect
-        if (start < scroll.value || start + width > scroll.value + scroll.viewportSize) {
+    val liveOrder = order?.takeIf { it.toSet() == ids.toSet() } ?: ids
+    val shown = liveOrder.mapNotNull { id -> entries.find { it.chip.id == id } }.toMutableList()
+    entries.forEachIndexed { index, entry ->
+        if (entry.chip.id !in ids) shown.add(index.coerceAtMost(shown.size), entry)
+    }
+    // The frame is decoration behind flat, keyed slots; changing split state cannot restart a drag.
+    val pair = tabs.zipWithNext().firstOrNull { (first, second) -> first.split && second.split }
+    val firstSplit = pair?.first?.id
+    val secondSplit = pair?.second?.id
+    val pairTogether = pair != null && liveOrder.indexOf(secondSplit) == liveOrder.indexOf(firstSplit) + 1
+    LaunchedEffect(activeId, ids) {
+        if (activeId == null || activeId !in ids || dragged != null) return@LaunchedEffect
+        val bounds = snapshotFlow {
+            entries.find { it.chip.id == activeId }?.let { entry ->
+                entry.placement.bounds?.takeIf { entry.visibility.isIdle && entry.visibility.currentState }
+            }
+        }.filterNotNull().first()
+        val start = if (rightToLeft) scroll.maxValue + scroll.viewportSize - bounds.left - bounds.width else bounds.left
+        if (start < scroll.value || start + bounds.width > scroll.value + scroll.viewportSize) {
             scroll.animateScrollTo((start - spacing * 4).roundToInt().coerceAtLeast(0))
         }
     }
     fun move(id: String, by: Int) {
-        val now = ids.toMutableList(); val from = now.indexOf(id); val to = (from + by).coerceIn(0, now.lastIndex)
-        if (from < 0 || from == to) return
-        now.add(to, now.removeAt(from)); reorder?.invoke(now)
+        val now = ids.toMutableList()
+        val from = now.indexOf(id)
+        if (from < 0) return
+        val to = (from + by).coerceIn(0, now.lastIndex)
+        if (from == to) return
+        now.add(to, now.removeAt(from))
+        reorder?.invoke(now)
     }
-    // Material's 48 dp minimum otherwise wraps the 28 dp tab in extra layout space,
-    // lifting it off the bottom of the strip. Compose still expands touch hit targets.
     CompositionLocalProvider(
         LocalContentColor provides BarTones.stripContent,
         LocalMinimumInteractiveComponentSize provides 0.dp,
     ) {
         Row(
             Modifier.fillMaxWidth().height(TabStripHeight).background(BarTones.strip).padding(horizontal = BarInset),
-            // Tabs hang from the bottom of the strip into the bar; home and + sit on the same line.
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
             Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
-            Row(
-                Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null)
-                    .onGloballyPositioned { content = it },
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                val slot: @Composable (EditorTabChip) -> Unit = { tab -> key(tab.id) {
-                    val held = dragged == tab.id
-                    // Pulled down out of the strip, the tab leaves it and travels as a chip (drawn by the
-                    // workspace over the panes); its slot stays behind as a faint placeholder.
-                    val detached = held && split != null && dragY > splitReach
-                    var slotInWindow by remember { mutableStateOf(Offset.Zero) }
-                    Tab(tab, tab.id == activeId, held, onClose,
-                        modifier = Modifier
-                            .onGloballyPositioned {
-                                // In the scrolled row's frame, so a tab inside the split group measures the same way.
-                                bounds[tab.id] = (content?.takeIf { c -> c.isAttached }?.localPositionOf(it, Offset.Zero)?.x ?: it.positionInParent().x) to it.size.width.toFloat()
-                                slotInWindow = it.positionInWindow()
+            Box(Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null)) {
+                val first = entries.find { it.chip.id == firstSplit }
+                val second = entries.find { it.chip.id == secondSplit }
+                if (first != null && second != null) SplitTabGroup(
+                    first, second, visible = pairTogether && dragged != firstSplit && dragged != secondSplit,
+                    modifier = Modifier.matchParentSize(), rightToLeft = rightToLeft,
+                )
+                Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.Bottom) {
+                    shown.forEach { entry -> key(entry.chip.id) {
+                        val tab = entry.chip
+                        val live = tab.id in ids
+                        val held = dragged == tab.id
+                        val detached = held && split != null && pointer.y > splitReach
+                        val placement = entry.placement
+                        val target = placement.bounds?.let { Offset(it.left, 0f) }
+                        LaunchedEffect(target, held) {
+                            val animation = placement.position ?: return@LaunchedEffect
+                            if (!held && target != null) {
+                                placement.releasedAt?.let {
+                                    animation.snapTo(it)
+                                    placement.releasedAt = null
+                                }
+                                animation.animateTo(target, folioSpring())
                             }
-                            .zIndex(if (held) 1f else 0f)
-                            .semantics {
-                                role = Role.Tab; selected = tab.id == activeId
-                                onClick { onSelect(tab.id); true }
-                                customActions = listOfNotNull(
-                                    split?.let { CustomAccessibilityAction("Open in split view") { it.openBeside(tab.id); true } },
-                                    reorder?.let { CustomAccessibilityAction("Move tab left") { move(tab.id, -1); true } },
-                                    reorder?.let { CustomAccessibilityAction("Move tab right") { move(tab.id, 1); true } },
-                                )
+                        }
+                        LaunchedEffect(entry.visibility.isIdle, entry.visibility.currentState) {
+                            if (entry.visibility.isIdle && !entry.visibility.currentState && !entry.visibility.targetState && latestTabs.none { it.id == entry.chip.id }) {
+                                entries = entries.filterNot { it === entry }
                             }
-                            // Outside the layer below, so positions are in the slot's own (unmoved) frame:
-                            // the held tab's offset is simply where the finger is now minus where it took hold.
-                            .pointerInput(tab.id) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown()
-                                    // Before the hold a sideways slide scrolls the strip; after it, it carries the tab.
-                                    val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                                        while (true) {
-                                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
-                                            // The close button consumes its own tap.
-                                            if (!change.pressed) return@withTimeoutOrNull !change.isConsumed
-                                            if (change.isConsumed || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+                        }
+                        val lift = animateFloatAsState(if (held && !detached) 1f else 0f, folioSpring(), label = "tabLift")
+                        val opacity = animateFloatAsState(if (detached) .25f else 1f, tween(120), label = "tabDragOpacity")
+                        var inputCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+                        val leading by animateDpAsState(if (tab.id == firstSplit) 24.dp else 0.dp, folioSpring(), label = "splitTabInset")
+                        Box(
+                            Modifier.onPlaced {
+                                placement.place(it.positionInParent().x, it.size.width.toFloat())
+                            }
+                                .zIndex(if (held || placement.releasedAt != null || lift.value > .01f) 1f else 0f)
+                                .graphicsLayer {
+                                    val shownAt = placement.displayed(held, Offset(pointer.x, pointer.y.coerceIn(0f, splitReach)))
+                                    translationX = shownAt.x - (placement.bounds?.left ?: shownAt.x)
+                                    translationY = shownAt.y
+                                    scaleX = 1f + .035f * lift.value
+                                    scaleY = scaleX
+                                    shadowElevation = 6.dp.toPx() * lift.value.coerceAtLeast(0f)
+                                    alpha = opacity.value
+                                }
+                                .onGloballyPositioned { inputCoordinates = it }
+                                .pointerInput(tab.id, live, split != null, reorder != null) {
+                                    if (!live) return@pointerInput
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown()
+                                        val downWindow = inputCoordinates?.takeIf { it.isAttached }?.localToWindow(down.position) ?: return@awaitEachGesture
+                                        val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                            while (true) {
+                                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                                                if (!change.pressed) return@withTimeoutOrNull !change.isConsumed
+                                                val window = inputCoordinates?.takeIf { it.isAttached }?.localToWindow(change.position) ?: return@withTimeoutOrNull false
+                                                if (change.isConsumed || (window - downWindow).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+                                            }
+                                            @Suppress("UNREACHABLE_CODE") false
                                         }
-                                        @Suppress("UNREACHABLE_CODE") false
-                                    }
-                                    when (released) {
-                                        true -> { onSelect(tab.id); return@awaitEachGesture }
-                                        false -> return@awaitEachGesture
-                                        null -> Unit
-                                    }
-                                    if (reorder == null && split == null) return@awaitEachGesture
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    dragged = tab.id; dragX = 0f; dragY = 0f; order = ids
-                                    var wasDetached = false
-                                    var cancelled = false
-                                    while (true) {
-                                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
-                                        if (change == null) { cancelled = true; break }
-                                        if (!change.pressed) break
-                                        change.consume()
-                                        dragX = change.position.x - down.position.x
-                                        dragY = change.position.y - down.position.y
-                                        val off = split != null && dragY > splitReach
-                                        if (off != wasDetached) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); wasDetached = off }
-                                        tabDrag?.value = if (off) TabDrag(tab.id, tab.title, slotInWindow + change.position) else null
-                                        if (off) continue
-                                        // Swap with a neighbour once the held tab's middle passes the neighbour's middle.
-                                        val current = order ?: break
-                                        val at = current.indexOf(tab.id)
-                                        val (start, width) = bounds[tab.id] ?: continue
-                                        val middle = start + dragX + width / 2
-                                        val next = current.getOrNull(at + 1)?.let { id -> bounds[id] }
-                                        val previous = current.getOrNull(at - 1)?.let { id -> bounds[id] }
-                                        if (reorder != null && next != null && middle > next.first + next.second / 2) {
-                                            order = current.toMutableList().apply { add(at + 1, removeAt(at)) }
-                                        } else if (reorder != null && previous != null && middle < previous.first + previous.second / 2) {
-                                            order = current.toMutableList().apply { add(at - 1, removeAt(at)) }
+                                        when (released) {
+                                            true -> { latestSelect(tab.id); return@awaitEachGesture }
+                                            false -> return@awaitEachGesture
+                                            null -> Unit
+                                        }
+                                        if (dragged != null || (latestReorder == null && latestSplit == null)) return@awaitEachGesture
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val origin = placement.displayed(false, Offset.Zero).x
+                                        pointer = Offset(origin, 0f)
+                                        dragged = tab.id
+                                        order = latestTabs.map { it.id }
+                                        var completed = false
+                                        var wasDetached = false
+                                        try {
+                                            while (true) {
+                                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                                if (!change.pressed) { completed = true; break }
+                                                change.consume()
+                                                // Map through the animated layer too, keeping pointer motion independent of slot motion and lift scale.
+                                                val window = inputCoordinates?.takeIf { it.isAttached }?.localToWindow(change.position) ?: break
+                                                val delta = window - downWindow
+                                                pointer = Offset(origin + delta.x, delta.y)
+                                                val off = latestSplit != null && pointer.y > splitReach
+                                                if (off != wasDetached) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                                wasDetached = off
+                                                tabDrag?.value = if (off) TabDrag(tab.id, tab.title, window) else null
+                                                if (off || latestReorder == null) continue
+                                                val currentIds = latestTabs.map { it.id }
+                                                val current = order?.takeIf { it.toSet() == currentIds.toSet() } ?: currentIds
+                                                val bounds = entries.mapNotNull { item -> item.placement.bounds?.let { item.chip.id to it } }.toMap()
+                                                val next = reorderedTabs(current, tab.id, pointer.x + (placement.bounds?.width ?: 0f) / 2f, bounds, rightToLeft)
+                                                if (next != current) {
+                                                    order = next
+                                                    haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                                }
+                                            }
+                                        } finally {
+                                            // Seed the settling spring at the exact release point, including canceled gestures.
+                                            placement.releasedAt = Offset(pointer.x, pointer.y.coerceIn(0f, splitReach))
+                                            val final = order
+                                            dragged = null
+                                            tabDrag?.value = null
+                                            when {
+                                                !completed -> order = null
+                                                wasDetached && latestSplit != null -> { order = null; latestSplit?.openBeside(tab.id) }
+                                                final != null && final != latestTabs.map { it.id } -> latestReorder?.invoke(final)
+                                                else -> order = null
+                                            }
                                         }
                                     }
-                                    val final = order
-                                    dragged = null; dragX = 0f; dragY = 0f
-                                    tabDrag?.value = null
-                                    when {
-                                        cancelled -> order = null
-                                        // Dropped onto the page: open it beside the editor.
-                                        wasDetached && split != null -> { order = null; split.openBeside(tab.id) }
-                                        final != null && final != ids -> reorder?.invoke(final)
-                                        else -> order = null
-                                    }
+                                },
+                        ) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visibleState = entry.visibility,
+                                enter = fadeIn(tween(140)) + expandHorizontally(folioSpring(), expandFrom = Alignment.Start, clip = false),
+                                exit = fadeOut(tween(110)) + shrinkHorizontally(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 500f), shrinkTowards = Alignment.Start, clip = false),
+                            ) {
+                                Row(
+                                    Modifier.height(TabHeight + 4.dp).padding(start = leading.coerceAtLeast(0.dp), end = FolioSpacing.dp4),
+                                    verticalAlignment = Alignment.Bottom,
+                                ) {
+                                    Tab(tab, tab.id == activeId, held, onClose,
+                                        modifier = Modifier.semantics {
+                                            role = Role.Tab
+                                            selected = tab.id == activeId
+                                            if (live) {
+                                                onClick { onSelect(tab.id); true }
+                                                customActions = listOfNotNull(
+                                                    split?.let { CustomAccessibilityAction("Open in split view") { it.openBeside(tab.id); true } },
+                                                    reorder?.let { CustomAccessibilityAction("Move tab left") { move(tab.id, if (rightToLeft) 1 else -1); true } },
+                                                    reorder?.let { CustomAccessibilityAction("Move tab right") { move(tab.id, if (rightToLeft) -1 else 1); true } },
+                                                )
+                                            } else hideFromAccessibility()
+                                        },
+                                        enabled = live,
+                                    )
                                 }
                             }
-                            .graphicsLayer {
-                                if (held && !detached) {
-                                    translationX = dragX; translationY = dragY.coerceIn(0f, splitReach)
-                                    shadowElevation = 6.dp.toPx()
-                                }
-                                if (detached) alpha = .35f
-                            })
-                } }
-                // The two documents in split view are wrapped together in one outlined group with the
-                // split mark, so the strip says plainly which tabs share the screen.
-                var at = 0
-                while (at < shown.size) {
-                    val tab = shown[at]
-                    val partner = shown.getOrNull(at + 1)
-                    if (tab.split && partner?.split == true && dragged != tab.id && dragged != partner.id) {
-                        SplitTabGroup(tab, partner) { slot(tab); slot(partner) }
-                        at += 2
-                    } else { slot(tab); at++ }
+                        }
+                    } }
                 }
             }
             if (onNew != null) TabAction(Icons.Rounded.Add, "Open another document", onNew)
         }
     }
-    LaunchedEffect(ids) { if (order == ids) order = null }
+    // The workspace may normalize split partners back together when it acknowledges a reorder.
+    LaunchedEffect(ids) { if (dragged == null || order?.toSet() != ids.toSet()) order = null }
+    DisposableEffect(tabDrag) { onDispose { tabDrag?.value = null } }
 }
 
-/** An outlined, tinted frame around the two split tabs, led by the split mark. */
-@Composable private fun SplitTabGroup(first: EditorTabChip, second: EditorTabChip, tabs: @Composable RowScope.() -> Unit) {
+/** A decorative frame follows the animated slots without reparenting either tab. */
+@Composable private fun SplitTabGroup(
+    first: AnimatedEditorTab,
+    second: AnimatedEditorTab,
+    visible: Boolean,
+    modifier: Modifier,
+    rightToLeft: Boolean,
+) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(topStart = FolioShapes.mediumRadius + 2.dp, topEnd = FolioShapes.mediumRadius + 2.dp)
-    Row(
-        Modifier.height(TabHeight + 4.dp).clip(shape)
-            .background(colors.primary.copy(alpha = .14f))
-            .border(1.5.dp, colors.primary.copy(alpha = .7f), shape)
-            .padding(start = FolioSpacing.dp6, end = 2.dp, top = 2.dp)
-            .semantics(mergeDescendants = false) {
-                contentDescription = "Split view: ${first.title.ifBlank { "Untitled" }} and ${second.title.ifBlank { "Untitled" }}"
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(16.dp), tint = colors.primary)
-        Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp), content = tabs)
+    var frameWidth by remember { mutableIntStateOf(0) }
+    val opacity = animateFloatAsState(if (visible) 1f else 0f, tween(140), label = "splitTabFrame")
+    val radius = with(LocalDensity.current) { (FolioShapes.mediumRadius + 2.dp).toPx() }
+    Box(modifier.onSizeChanged { frameWidth = it.width }.semantics {
+        if (visible) contentDescription = "Split view: ${first.chip.title.ifBlank { "Untitled" }} and ${second.chip.title.ifBlank { "Untitled" }}"
+    }.drawBehind {
+        val firstX = first.placement.displayed(false, Offset.Zero).x
+        val secondX = second.placement.displayed(false, Offset.Zero).x
+        val left = minOf(firstX, secondX) + if (rightToLeft) FolioSpacing.dp4.toPx() else 0f
+        val right = maxOf(firstX + (first.placement.bounds?.width ?: 0f), secondX + (second.placement.bounds?.width ?: 0f)) - if (rightToLeft) 0f else FolioSpacing.dp4.toPx()
+        val top = size.height - (TabHeight + 4.dp).toPx()
+        val frame = Path().apply {
+            addRoundRect(RoundRect(
+                left = left, top = top, right = right.coerceAtLeast(left), bottom = size.height,
+                topLeftCornerRadius = CornerRadius(radius), topRightCornerRadius = CornerRadius(radius),
+            ))
+        }
+        drawPath(frame, colors.primary.copy(alpha = .14f * opacity.value))
+        drawPath(frame, colors.primary.copy(alpha = .7f * opacity.value), style = Stroke(1.5.dp.toPx()))
+    }) {
+        Icon(Icons.Rounded.VerticalSplit, null,
+            Modifier.align(Alignment.BottomStart).offset {
+                val x = first.placement.displayed(false, Offset.Zero).x
+                // offset is relative in RTL; the placement coordinates above are physical.
+                IntOffset((if (rightToLeft) frameWidth - x - (first.placement.bounds?.width ?: 0f) else x).roundToInt(), 0)
+            }.padding(start = FolioSpacing.dp6, bottom = 8.dp).size(16.dp).graphicsLayer { alpha = opacity.value },
+            tint = colors.primary,
+        )
     }
 }
 
-@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, onClose: (String) -> Unit, modifier: Modifier) {
+@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, onClose: (String) -> Unit, modifier: Modifier, enabled: Boolean) {
     val title = tab.title.ifBlank { "Untitled" }
     val accent = MaterialTheme.colorScheme.primary
-    val shape = if (held) RoundedCornerShape(FolioShapes.mediumRadius) else RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius)
-    Surface(
-        shape = shape,
-        // Both halves of a split wear the bar's colour, so the pair reads as one joined tab; the
-        // half the toolbar is working on carries the accent line.
-        color = when {
-            active || held || tab.split -> BarTones.container
-            else -> Color.Transparent
-        },
-        contentColor = when {
+    val bottomRadius by animateDpAsState(if (held) FolioShapes.mediumRadius else 0.dp, folioSpring(), label = "tabCorners")
+    val shape = RoundedCornerShape(
+        topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius,
+        bottomStart = bottomRadius.coerceAtLeast(0.dp), bottomEnd = bottomRadius.coerceAtLeast(0.dp),
+    )
+    // Both halves of a split wear the bar's colour, so the pair reads as one joined tab; the
+    // half the toolbar is working on carries the accent line.
+    val containerColor by animateColorAsState(
+        if (active || held || tab.split) BarTones.container else BarTones.container.copy(alpha = 0f),
+        tween(160), label = "tabContainer",
+    )
+    val contentColor by animateColorAsState(
+        when {
             active || held -> BarTones.content
             tab.split -> BarTones.content.copy(alpha = .75f)
             else -> BarTones.stripContent
         },
+        tween(160), label = "tabContent",
+    )
+    val indicator = animateFloatAsState(if (tab.split && active) 1f else 0f, tween(160), label = "tabIndicator")
+    Surface(
+        shape = shape,
+        color = containerColor,
+        contentColor = contentColor,
         modifier = modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp).clip(shape)
-            .then(if (tab.split && active) Modifier.drawWithContent {
+            .drawWithContent {
                 drawContent()
-                drawRect(accent, size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
-            } else Modifier),
+                if (indicator.value > 0f) drawRect(accent.copy(alpha = indicator.value), size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+            },
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
 
             Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(FolioSpacing.dp2))
-            IconButton({ onClose(tab.id) }, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
+            IconButton({ onClose(tab.id) }, enabled = enabled, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Close, "Close $title", Modifier.size(14.dp),
                     tint = LocalContentColor.current.copy(alpha = if (active) 1f else .7f))
             }

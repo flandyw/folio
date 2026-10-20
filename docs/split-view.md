@@ -15,14 +15,17 @@ it, a chooser that appears in the new pane, and no modes to pick.
   of one notebook are one tap apart), **Open tabs**, then **Recent** notebooks.
 - **Tabs:** tap to switch; press, hold and drag sideways to reorder (like a browser). The order and the
   open tabs are kept across restarts (`workspaceTabs` in preferences as well as the saved state).
+  Neighbours spring into their new slots while the held tab follows the pointer directly; on release
+  or cancellation it settles back into place. New and closed tabs expand/collapse with a short fade.
 - **One toolbar, two editors:** the bar (tabs and tools) spans the whole screen above both panes. The
   editor hands it up through `LocalToolbarPortal` (with its composition locals, so its menus behave as
   if drawn in the editor), and the panes sit below it. The pane the toolbar works on has a faint
   accent outline; its tab carries the accent line.
 - **Tabs show the split:** both documents get a tab (opening a document beside adds its tab), side by
   side in screen order and wrapped in one tinted, outlined group led by the split mark (`splitTabs`,
-  `SplitTabGroup`). The half being worked on carries the accent line. Tapping the other half's tab
-  works there.
+  `SplitTabGroup`). The frame follows the animated slots as a separate decoration, so grouping never
+  recreates a held tab. The half being worked on carries the accent line. Tapping the other half's
+  tab works there.
 - **Closing (`WorkspaceManager.closeTab`):** closing the other half's tab closes its pane; closing the
   tab being worked on leaves the other document as the editor, on its own; when both panes show one
   notebook, closing it closes the split too. A split parked behind a closed tab is forgotten. Closing
@@ -64,7 +67,12 @@ saved workspace's `mode` field is ignored when it is read.
    the pen: the stroke lands on the PDF and the toolbar stays put; the pane's Undo removes it. Switch to
    lasso and touch the PDF with the pen: the toolbar moves over and no stroke is drawn.
 7. Drag tabs to reorder them, restart the app, and check the order. Drag a tab down onto the page: it
-   opens beside the editor.
+   opens beside the editor. With short and long tab titles, cross several neighbours, pause just past
+   a swap, then reverse: neighbours slide aside and the held tab stays under the pointer without
+   swapping back on its own. Release between slots and cancel a drag: it springs home without
+   persisting a canceled order. Repeat with either split tab, pulling down and back into the strip.
+   Open and close several tabs quickly: their space expands/collapses, the active tab remains visible,
+   and a closing tab cannot be selected again. Also check a scrolled strip and right-to-left layout.
 2. Pick **This notebook**: both panes show the same notebook. Write on each page in turn and check that
    both thumbnails update and undo stays per page.
 3. Drag the divider to each edge: *Release to close* appears, and the remaining document keeps its page
