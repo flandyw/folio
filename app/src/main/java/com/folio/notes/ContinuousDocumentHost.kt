@@ -36,10 +36,10 @@ import kotlinx.coroutines.launch
 internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Float,
     val documentScale: Float, val toolbarTop: Dp, val windowBounds: Rect?, val eraser: EraserPreview? = null)
 
-@Composable internal fun ContinuousDocumentHost(noteId: String, pageCount: Int, hasPdf: Boolean,
+@Composable internal fun ContinuousDocumentHost(noteId: String, pageCount: Int,
     editor: EditorSession, pages: LazyListState, motion: DocumentMotion, viewportCoordinator: EditorViewportCoordinator,
     layout: DocumentHostLayout, activeView: InkView?, haptics: Boolean, pullAdding: Boolean,
-    showPageBoundaries: Boolean, panBy: (Float, Float) -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+    panBy: (Float, Float) -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     val inputStylusActivity = LocalStylusActivity.current
     val density = LocalDensity.current
     val pullHaptics = LocalHapticFeedback.current
@@ -196,14 +196,13 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
             }, contentAlignment = Alignment.TopCenter) {
                 val anchorWidth = baseWidthPx * documentZoom
                 // Mode return and pane resize retain page-local position and the continuous camera.
-                LaunchedEffect(baseWidthPx, showPageBoundaries) {
+                LaunchedEffect(baseWidthPx) {
                     if (editor.viewport.anchor != null) viewportCoordinator.restore(anchorWidth)
                 }
                 ContinuousDocument(
                     state = pages,
                     modifier = Modifier.requiredWidth(baseWidth * documentScale * documentZoom).fillMaxHeight().offset { IntOffset(documentPan.roundToInt(), 0) }.graphicsLayer { translationY = motion.stretch }.holdPenFromScrolling(),
-                    top = floatingToolbarTop, showBoundaries = showPageBoundaries,
-                    hasPdf = hasPdf,
+                    top = floatingToolbarTop,
                 ) {
                     content()
                 }

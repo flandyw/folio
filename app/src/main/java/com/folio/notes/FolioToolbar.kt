@@ -75,13 +75,7 @@ internal val DockGap = FolioSpacing.dp4
     onRetrySave: () -> Unit,
     onClose: () -> Unit,
     timer: @Composable () -> Unit,
-    pageIndex: Int,
-    pageCount: Int,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
     onPages: () -> Unit,
-    onFirstPage: () -> Unit,
-    onLastPage: () -> Unit,
     zoomPercent: Int,
     onFit: () -> Unit,
     onFitAll: (() -> Unit)? = null,
@@ -92,9 +86,6 @@ internal val DockGap = FolioSpacing.dp4
     bookmarked: Boolean,
     onBookmark: () -> Unit,
     onInsertImage: () -> Unit,
-    onContents: (() -> Unit)?,
-    paperTitle: String,
-    onPaper: (() -> Unit)?,
     layersPopover: @Composable () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
@@ -106,7 +97,7 @@ internal val DockGap = FolioSpacing.dp4
     onChatGpt: (() -> Unit)? = null,
     onSettings: () -> Unit,
     onKeyboardShortcuts: () -> Unit,
-    pageActions: @Composable (() -> Unit) -> Unit,
+    documentActions: @Composable (() -> Unit) -> Unit,
     /** False where leaving the editor mid-task is wrong (mistake review has its own back button). */
     showBack: Boolean = true,
     toolbarOptions: ToolbarOptions = ToolbarOptions(),
@@ -149,27 +140,19 @@ internal val DockGap = FolioSpacing.dp4
                     PopoverTile(Icons.Rounded.Dashboard, "Pages", Modifier.weight(1f)) { run(onPages) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    PopoverGroup("Go to page · ${pageIndex + 1} of $pageCount") {
-                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous", Modifier.weight(1f), enabled = pageIndex > 0) { run(onPrevious) }
-                            PopoverTile(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next", Modifier.weight(1f), enabled = pageIndex < pageCount - 1) { run(onNext) }
-                        }
-                        PopoverRow(Icons.Rounded.FirstPage, "First page", enabled = pageIndex > 0) { run(onFirstPage) }
-                        PopoverRow(Icons.AutoMirrored.Rounded.LastPage, "Last page", enabled = pageIndex < pageCount - 1) { run(onLastPage) }
-                    }
-                    HorizontalDivider()
                     PopoverGroup("Add page") {
                         PopoverRow(Icons.Rounded.Add, "Add page at end") { run(onAdd) }
                         PopoverRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Insert after this page") { run(onInsertPage) }
                         PopoverRow(Icons.Rounded.ContentCopy, "Duplicate this page") { run(onDuplicatePage) }
                     }
                     HorizontalDivider()
-                    PopoverGroup("View") {
-                        PopoverRow(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%") { run(onFit) }
-                        if (onFitAll != null) PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
+                    if (onFitAll != null) {
+                        PopoverGroup("View") {
+                            PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }
+                        }
+                        HorizontalDivider()
                     }
-                    HorizontalDivider()
-                    pageActions(dismiss)
+                    documentActions(dismiss)
                     HorizontalDivider()
                     PopoverGroup("Workspace") { notebookActions(dismiss) }
                     HorizontalDivider()

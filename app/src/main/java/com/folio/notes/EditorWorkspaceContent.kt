@@ -125,8 +125,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val multiTouchUndo = preferences.multiTouchUndo
     val graphStyle = preferences.graphStyle
     val singlePage = preferences.singlePage
-    val focusMode = preferences.focusMode && music == null
-    val showPageBoundaries = !focusMode
     var commandPalette by remember { mutableStateOf(false) }
     var gestureGuide by remember { mutableStateOf(false) }
     var historyOpen by remember { mutableStateOf(false) }
@@ -342,7 +340,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val transfers = editor.interaction.transfers
     SideEffect {
         transfers.update(note.pages)
-        editor.documentInput.configure(note, model, with(editorDensity) { if (showPageBoundaries || note.pages.any { it.pdfIndex != null }) 6.dp.toPx() else 0f })
+        editor.documentInput.configure(note, model, with(editorDensity) { 6.dp.toPx() })
     }
     // Each page's whole item (paper plus the workspace around it) and the sticky note being carried over all of them.
 
@@ -504,7 +502,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     var rename by editor.overlays.rename
     var renameTitle by editor.overlays.renameTitle
     var scrubbing by editor.interaction.scrubbing
-    var clear by editor.overlays.clear
     var paperMenu by editor.paper.open
     var nextPaperMenu by editor.paper.next
     var nextPagePaper by editor.paper.nextPaper
@@ -1204,11 +1201,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         onRedo = ::redoEditor,
                         onSelectAllView = { configureOverview(it) },
                         onSelectionAnchor = { selectionAnchor = it }))
-            } else ContinuousDocumentHost(note.id, note.pages.size, note.pages.any { it.pdfIndex != null }, editor,
+            } else ContinuousDocumentHost(note.id, note.pages.size, editor,
                 pages, motion, viewportCoordinator,
                 DocumentHostLayout(baseWidth, viewportWidth, documentScale, floatingToolbarTop, canvasWindowBounds,
                     if (tool == Tool.ERASER && !zoomPaneOpen) EraserPreview(options.width / 2f, page.width, eraserWholeStroke) else null),
-                activeInkView, haptics, pullAdding, showPageBoundaries, ::panBy) {
+                activeInkView, haptics, pullAdding, ::panBy) {
 
                     itemsIndexed(note.pages, key = { _, item -> item.id }) { index, item ->
                         Box(Modifier.fillMaxWidth().semantics {
@@ -1611,7 +1608,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             showBack = showBack,
                             toolbarOptions = toolbarOptions,
                             // Practice notebooks stay in Mistakes; a regular tab uses its current title.
-                            tabs = if (focusMode) emptyList() else splitTabs(state, note.id),
+                            tabs = splitTabs(state, note.id),
                             activeTabId = note.id,
                             onSelectTab = { id -> when (id) {
                                 note.id -> Unit
@@ -1631,13 +1628,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     }) { studyPanel = true }
                                 }
                             },
-                            pageIndex = state.pageIndex,
-                            pageCount = note.pages.size,
-                            onPrevious = { turnPage(false) },
-                            onNext = { turnPage(true) },
                             onPages = { pageBrowser = true },
-                            onFirstPage = { jumpToEnd(false) },
-                            onLastPage = { jumpToEnd(true) },
                             zoomPercent = (documentZoom * 100).roundToInt(),
                             onFit = ::resetZoom,
                             onFitAll = if (page.infinite) ::fitAllContent else null,
@@ -1650,10 +1641,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             layerStatus = PageLayers.effective(page.layers).firstOrNull { it.id == model.activeLayerOf(page) }?.let { layer ->
                                 when { !layer.visible -> "Hidden layer: ${layer.name}"; layer.locked -> "Locked layer: ${layer.name}"; else -> null }
                             },
-                            onContents = if (page.pdfIndex != null) ({ pdfContentsOpen = true; loadOutline() }) else null,
                             onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                            paperTitle = editorPaperLabel(page.paper),
-                            onPaper = if (page.pdfIndex == null) ({ openPaperMenu(false) }) else null,
                             bookmarked = page.bookmarked,
                             onBookmark = { model.togglePageBookmark(page.id) },
                             layersPopover = {
@@ -1668,18 +1656,14 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             onChatGpt = onChatGpt?.takeUnless { note.hiddenFromLibrary }?.let { open -> { finishTextEditing(); open() } },
                             onSettings = { finishTextEditing(); onSettings() },
                             onKeyboardShortcuts = { keyboardShortcuts = true },
-                            pageActions = { dismiss ->
-                                PageOptionsContent(dismiss, page, state.saveFailed,
-                                    focusMode = focusMode, onFocusMode = { appPrefs.edit().putBoolean(AppPrefs.EDITOR_FOCUS_MODE, !focusMode).apply() },
-                                    onPaper = { openPaperMenu(false) }, onClear = { clear = true }, onRetry = model::retrySave,
-                                    onRedo = model::toggleRedoFlag, onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
+                            documentActions = { dismiss ->
+                                NotebookOptionsContent(dismiss, page.pdfIndex != null, state.saveFailed,
+                                    onRetry = model::retrySave,
+                                    onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
                                     onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                                     onSearchPdf = { pdfSearchOpen = true },
                                     onContents = { pdfContentsOpen = true; loadOutline() },
-                                    onSearchNotes = { noteSearchOpen = true },
-                                    onOrganize = { pageBrowser = true },
-                                    onBookmark = { model.togglePageBookmark(page.id) },
-                                    onNamePage = { namedPage = page; pageTitle = page.title })
+                                    onSearchNotes = { noteSearchOpen = true })
                             }
                         )
                     }

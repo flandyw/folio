@@ -54,28 +54,13 @@ import androidx.compose.ui.unit.dp
     }
 }
 
-/** The editor's page menu. Shared by the floating and stacked chrome so both stay in step. */
-@Composable internal fun PageOptionsContent(
-    dismiss: () -> Unit, page: NotePage, saveFailed: Boolean, focusMode: Boolean, onFocusMode: () -> Unit,
-    onPaper: () -> Unit, onClear: () -> Unit, onRetry: () -> Unit,
-    onRedo: () -> Unit, onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+/** Study and insert/find actions shared by the floating and stacked editor chrome. */
+@Composable internal fun NotebookOptionsContent(
+    dismiss: () -> Unit, hasPdf: Boolean, saveFailed: Boolean, onRetry: () -> Unit,
+    onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit,
-    onOrganize: () -> Unit, onBookmark: () -> Unit, onNamePage: () -> Unit
 ) {
     val run: (() -> Unit) -> Unit = { dismiss(); it() }
-    PopoverRow(if (focusMode) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-        if (focusMode) "Leave focus view" else "Focus view") { run(onFocusMode) }
-    PopoverGroup("This page") {
-        PopoverRow(Icons.Rounded.AutoStories, "Organise pages") { run(onOrganize) }
-        PopoverRow(Icons.Rounded.Edit, "Name page") { run(onNamePage) }
-        PopoverRow(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-            if (page.bookmarked) "Remove bookmark" else "Bookmark page") { run(onBookmark) }
-        PopoverRow(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
-            if (page.redoFlag) "Remove redo flag" else "Flag this page to redo") { run(onRedo) }
-        PopoverRow(Icons.Rounded.GridOn, "Paper style: ${editorPaperLabel(page.paper)}", enabled = page.pdfIndex == null) { run(onPaper) }
-        PopoverRow(Icons.Rounded.LayersClear, "Clear page",
-            enabled = page.strokes.isNotEmpty() || page.texts.isNotEmpty() || page.images.isNotEmpty()) { run(onClear) }
-    }
     PopoverGroup("Study") {
         PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(onExam) }
         PopoverRow(Icons.AutoMirrored.Rounded.Grading, "Record a mark") { run(onRecordMark) }
@@ -84,8 +69,8 @@ import androidx.compose.ui.unit.dp
     PopoverGroup("Insert & find") {
         PopoverRow(Icons.Rounded.AddPhotoAlternate, "Insert picture") { run(onInsertImage) }
         PopoverRow(Icons.Rounded.FindInPage, "Find in notes") { run(onSearchNotes) }
-        PopoverRow(Icons.Rounded.Search, "Search PDF text", enabled = page.pdfIndex != null) { run(onSearchPdf) }
-        PopoverRow(Icons.AutoMirrored.Rounded.FormatListBulleted, "Contents", enabled = page.pdfIndex != null) { run(onContents) }
+        PopoverRow(Icons.Rounded.Search, "Search PDF text", enabled = hasPdf) { run(onSearchPdf) }
+        PopoverRow(Icons.AutoMirrored.Rounded.FormatListBulleted, "Contents", enabled = hasPdf) { run(onContents) }
     }
     if (saveFailed) PopoverRow(Icons.Rounded.Save, "Retry save") { run(onRetry) }
 }

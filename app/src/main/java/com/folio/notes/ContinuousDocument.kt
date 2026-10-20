@@ -10,10 +10,10 @@ import androidx.compose.ui.unit.dp
 /** Virtualized paper column. The seam is presentation space and never scales stored ink. */
 @Composable internal fun ContinuousDocument(
     state: LazyListState, modifier: Modifier, top: androidx.compose.ui.unit.Dp,
-    showBoundaries: Boolean, hasPdf: Boolean, content: LazyListScope.() -> Unit,
+    content: LazyListScope.() -> Unit,
 ) {
     LazyColumn(state = state, modifier = modifier,
         contentPadding = PaddingValues(top = top + 8.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(if (showBoundaries || hasPdf) 6.dp else 0.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally, content = content)
 }
