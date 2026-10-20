@@ -147,8 +147,6 @@ object AppPrefs {
     const val EXPORT_PAGES_FORMAT = "export.pagesFormat"
     /** Long-press action for the editor's share button, stored as a `ShareShortcut` name. */
     const val SHARE_LONG_PRESS = "share.longPress"
-    /** Editor chrome layout, stored as a `ToolbarStyle` name; the tool order and pins are shared by both. */
-    const val TOOLBAR_STYLE = "editor.toolbarStyle"
     /** What the toolbar shows beyond its tools (`ToolbarOptions`); both styles read the same values. */
     const val TOOLBAR_UNDO = "toolbar.undoRedo"
     const val TOOLBAR_COLOUR_DOTS = "toolbar.colourDots"
@@ -297,7 +295,6 @@ object AppPrefs {
 
     fun exportPagesFormat(raw: String?): PageExportFormat = PageExportFormat.safeValueOf(raw)
 
-    fun toolbarStyle(raw: String?): ToolbarStyle = ToolbarStyle.safeValueOf(raw)
 
     fun shareShortcut(raw: String?): ShareShortcut = ShareShortcut.safeValueOf(raw)
 

@@ -66,23 +66,6 @@ data class ToolbarLayout(
         if (slots.isEmpty()) this else copy(order = order - slots, hidden = hidden - slots)
 }
 
-/**
- * How the editor's chrome is laid out. [FOLIO] floats the navigation, tools and document actions
- * as separate glass pills; [GOODNOTES] is one flat bar with document tabs above the tools.
- * Both read the same [ToolbarLayout], tools and actions, so only the arrangement differs.
- */
-enum class ToolbarStyle(val label: String, val description: String) {
-    FOLIO("Folio", "Floating pills for navigation, tools and document actions."),
-    GOODNOTES("Goodnotes-inspired", "One flat bar with document tabs on top and the tools in the middle.");
-
-    companion object {
-        val DEFAULT = FOLIO
-
-        fun safeValueOf(name: String?): ToolbarStyle =
-            entries.firstOrNull { it.name == name } ?: DEFAULT
-    }
-}
-
 /** Which history buttons sit at the start of the tool strip; whatever is left off lives in the … menu. */
 enum class UndoButtons(val label: String) {
     BOTH("Undo & redo"), UNDO("Undo only"), NONE("In … menu");
@@ -93,7 +76,7 @@ enum class UndoButtons(val label: String) {
 }
 
 /**
- * What the toolbar shows beyond the tools themselves, shared by both [ToolbarStyle]s. Nothing here
+ * What the toolbar shows beyond the tools themselves, on the editor bar. Nothing here
  * removes a feature: undo and redo fall back to the … menu, the timer to the notebook menu, and the
  * tab strip's way home to a button on the bar.
  */
@@ -107,7 +90,7 @@ data class ToolbarOptions(
     val timer: Boolean = true,
     /** The ink options bar (widths and colours) starts open when a notebook opens. */
     val inkOptionsOpen: Boolean = false,
-    /** Goodnotes-inspired style only: open documents as tabs above the tools. */
+    /** Open documents as tabs above the tools. */
     val tabs: Boolean = true,
 ) {
     companion object {

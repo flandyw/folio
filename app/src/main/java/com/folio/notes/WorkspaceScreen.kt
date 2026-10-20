@@ -56,6 +56,23 @@ internal val LocalTabOrder = compositionLocalOf<((List<String>) -> Unit)?> { nul
 internal val LocalSharedInk = compositionLocalOf<MutableState<InkSurfaceConfig?>?> { null }
 
 /**
+ * The editor's bar, handed up to the workspace so it spans the whole screen above both split panes
+ * instead of sitting inside the editor's pane. [locals] are the editor's composition locals at the
+ * point it was built, so its menus and popovers work exactly as if drawn inside the editor.
+ */
+internal class ToolbarPortalContent(
+    val owner: Any,
+    val locals: CompositionLocalContext,
+    val bar: @Composable () -> Unit,
+    val overlay: @Composable () -> Unit,
+)
+
+internal val LocalToolbarPortal = compositionLocalOf<MutableState<ToolbarPortalContent?>?> { null }
+
+/** The bar's own height (tabs and tools, without the ink options under it), reported by [EditorBar]. */
+internal val LocalEditorBarHeight = compositionLocalOf<MutableIntState?> { null }
+
+/**
  * Tools the other pane takes straight from the shared toolbar. Text, lasso, sticky notes and the
  * like need the editor's own panels, so a pen with one of those moves the editor over instead.
  */
@@ -82,6 +99,8 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
     // The divider's position while a finger holds it; the store only hears about the release.
     var dragging by remember { mutableStateOf<Float?>(null) }
     val sharedInk = remember { mutableStateOf<InkSurfaceConfig?>(null) }
+    val portal = remember { mutableStateOf<ToolbarPortalContent?>(null) }
+    val barHeight = remember { mutableIntStateOf(0) }
     val companion = state.companion
     val note = state.notes.find { it.id == companion?.notebookId }
     val paired = companion != null && note != null
@@ -99,80 +118,97 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
         EditorCommand(if (splitOpen) "Close split view" else "Split view: open a document beside", keys = "Ctrl + \\", run = ::toggleSplit),
         EditorCommand("Work in the other pane", enabled = paired, reason = "Open split view first", run = model::swapCompanion),
         EditorCommand("Swap split view sides", enabled = paired, reason = "Open split view first", run = model::swapPaneSides),
+        EditorCommand(if (state.companionLinked) "Unlink split view pages" else "Link split view pages", enabled = paired, reason = "Open split view first",
+            run = { model.setCompanionLinked(!state.companionLinked) }),
         EditorCommand("Saved workspaces", run = { savedWorkspaces = true }),
     )
-    BoxWithConstraints(Modifier.fillMaxSize().onKeyEvent { event ->
+    Box(Modifier.fillMaxSize().onKeyEvent { event ->
         if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.Backslash) { toggleSplit(); true } else false
     }) {
-        val stacked = maxWidth < 600.dp
-        val divider = 12.dp
-        val availablePx = with(LocalDensity.current) { ((if (stacked) maxHeight else maxWidth) - divider).toPx() }
-        val editorFirst = !state.editorOnRight
-        val fraction = SplitPanes.coerce(dragging ?: state.splitFraction)
-        // Past the resize limits the panes stop shrinking and the one about to close says so.
-        val closing = dragging?.let { SplitPanes.release(it) }
-        SplitLayout(
-            split = splitOpen,
-            stacked = stacked,
-            editorFirst = editorFirst,
-            editorFraction = fraction,
-            divider = divider,
-            editor = {
-                // Key on the active document only: including navigationRequest discarded the whole
-                // editor composition (LazyListState, InkViews, PDF backgrounds) on every page jump.
-                // Page jumps scroll via LaunchedEffect in EditorScreen instead.
-                key(state.activeId, state.workspaceRestoreRequest) {
-                    CompositionLocalProvider(LocalSplitView provides control, LocalWorkspaceCommands provides commands,
-                        LocalTabOrder provides model::reorderTabs, LocalSharedInk provides sharedInk) {
-                        EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
-                            onShareLongPress = onShareLongPress,
-                            onChatGpt = onChatGpt,
-                            onOpenDocument = { onBrowseLibrary(PickerPurpose.OPEN) },
-                            notebookActions = { dismiss ->
-                                PopoverRow(Icons.Rounded.VerticalSplit, if (splitOpen) "Close split view" else "Split view…") { dismiss(); toggleSplit() }
-                                if (paired) PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight)) { dismiss(); model.swapPaneSides() }
-                                PopoverRow(Icons.Rounded.Bookmarks, "Saved workspaces") { dismiss(); savedWorkspaces = true }
-                                PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN) }
-                            })
-                    }
-                }
-                if (closing == SplitRelease.CloseEditor) ReleaseToClose()
-            },
-            handle = {
-                SplitDivider(
-                    vertical = !stacked,
-                    onDrag = { delta -> dragging = SplitPanes.dragged(dragging ?: fraction, delta, availablePx, invert = !editorFirst) },
-                    onRelease = {
-                        val released = dragging
-                        dragging = null
-                        when (val outcome = released?.let { SplitPanes.release(it) }) {
-                            is SplitRelease.Settle -> model.setSplitFraction(outcome.fraction)
-                            SplitRelease.CloseCompanion -> { choosing = false; model.dismissCompanion() }
-                            SplitRelease.CloseEditor -> { choosing = false; if (paired) model.closeEditorPane() }
-                            null -> Unit
+        val barTop = with(LocalDensity.current) { barHeight.intValue.toDp() }
+        BoxWithConstraints(Modifier.fillMaxSize().padding(top = barTop)) {
+            val stacked = maxWidth < 600.dp
+            val divider = 12.dp
+            val availablePx = with(LocalDensity.current) { ((if (stacked) maxHeight else maxWidth) - divider).toPx() }
+            val editorFirst = !state.editorOnRight
+            val fraction = SplitPanes.coerce(dragging ?: state.splitFraction)
+            // Past the resize limits the panes stop shrinking and the one about to close says so.
+            val closing = dragging?.let { SplitPanes.release(it) }
+            SplitLayout(
+                split = splitOpen,
+                stacked = stacked,
+                editorFirst = editorFirst,
+                editorFraction = fraction,
+                divider = divider,
+                editor = {
+                    // Key on the active document only: including navigationRequest discarded the whole
+                    // editor composition (LazyListState, InkViews, PDF backgrounds) on every page jump.
+                    // Page jumps scroll via LaunchedEffect in EditorScreen instead.
+                    key(state.activeId, state.workspaceRestoreRequest) {
+                        CompositionLocalProvider(LocalSplitView provides control, LocalWorkspaceCommands provides commands,
+                            LocalTabOrder provides model::reorderTabs, LocalSharedInk provides sharedInk,
+                            LocalToolbarPortal provides portal, LocalEditorBarHeight provides barHeight) {
+                            EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
+                                onShareLongPress = onShareLongPress,
+                                onChatGpt = onChatGpt,
+                                onOpenDocument = { onBrowseLibrary(PickerPurpose.OPEN) },
+                                notebookActions = { dismiss ->
+                                    PopoverRow(Icons.Rounded.VerticalSplit, if (splitOpen) "Close split view" else "Split view…") { dismiss(); toggleSplit() }
+                                    if (paired) {
+                                        PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight)) { dismiss(); model.swapPaneSides() }
+                                        PopoverRow(if (state.companionLinked) Icons.Rounded.LinkOff else Icons.Rounded.Link,
+                                            if (state.companionLinked) "Unlink pages" else "Link pages: the other pane follows page turns") { dismiss(); model.setCompanionLinked(!state.companionLinked) }
+                                        if (state.companionLinked) PopoverRow(Icons.Rounded.Tune, "Adjust page link…") { dismiss(); linkOffset = true }
+                                    }
+                                    PopoverRow(Icons.Rounded.Bookmarks, "Saved workspaces") { dismiss(); savedWorkspaces = true }
+                                    PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN) }
+                                })
                         }
-                    },
-                    onDoubleTap = { model.setSplitFraction(SplitPanes.EQUAL) },
-                    thickness = divider, touch = 28.dp,
-                    contentDescription = "Split view divider. Drag to resize the panes, or to an edge to close one. Double-tap for an equal split.",
-                )
-            },
-            other = {
-                // Keyed on the document alone: the pane keeps its PDF tools (search, contents,
-                // previews, link following) across page turns, and its InkView is keyed per page
-                // inside, so a turn still resets the camera onto a fresh page.
-                if (choosing || !paired) SplitChooserPane(state, model, replacing = paired,
-                    onPick = ::openBeside, onCancel = { choosing = false })
-                else key(companion!!.notebookId, state.workspaceRestoreRequest) {
-                    CompanionPane(state, model, companion, note!!, sharedInk.value,
-                        onFocus = model::swapCompanion,
-                        onChangeDocument = { choosing = true },
-                        onSavedWorkspaces = { savedWorkspaces = true },
-                        onLinkOffset = { linkOffset = true })
-                }
-                if (closing == SplitRelease.CloseCompanion) ReleaseToClose()
-            },
-        )
+                    }
+                    // The pane the toolbar is working on, outlined like the active half of a browser split.
+                    if (paired) Box(Modifier.matchParentSize().border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f)))
+                    if (closing == SplitRelease.CloseEditor) ReleaseToClose()
+                },
+                handle = {
+                    SplitDivider(
+                        vertical = !stacked,
+                        onDrag = { delta -> dragging = SplitPanes.dragged(dragging ?: fraction, delta, availablePx, invert = !editorFirst) },
+                        onRelease = {
+                            val released = dragging
+                            dragging = null
+                            when (val outcome = released?.let { SplitPanes.release(it) }) {
+                                is SplitRelease.Settle -> model.setSplitFraction(outcome.fraction)
+                                SplitRelease.CloseCompanion -> { choosing = false; model.dismissCompanion() }
+                                SplitRelease.CloseEditor -> { choosing = false; if (paired) model.closeEditorPane() }
+                                null -> Unit
+                            }
+                        },
+                        onDoubleTap = { model.setSplitFraction(SplitPanes.EQUAL) },
+                        thickness = divider, touch = 28.dp,
+                        contentDescription = "Split view divider. Drag to resize the panes, or to an edge to close one. Double-tap for an equal split.",
+                    )
+                },
+                other = {
+                    // Keyed on the document alone; its InkView is keyed per page inside, so a turn
+                    // still resets the camera onto a fresh page.
+                    if (choosing || !paired) SplitChooserPane(state, model, replacing = paired,
+                        onPick = ::openBeside, onCancel = { choosing = false })
+                    else key(companion!!.notebookId, state.workspaceRestoreRequest) {
+                        CompanionPane(model, companion, note!!, sharedInk.value, onFocus = model::swapCompanion)
+                    }
+                    if (closing == SplitRelease.CloseCompanion) ReleaseToClose()
+                },
+            )
+        }
+        // One bar for both documents, across the whole screen; the ink options and the text bar
+        // drop down over the panes rather than pushing them about.
+        portal.value?.let { content ->
+            Column(Modifier.align(Alignment.TopCenter).zIndex(11f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CompositionLocalProvider(content.locals) { content.bar(); content.overlay() }
+            }
+        }
     }
     if (savedWorkspaces) SavedWorkspacesPanel(state, model) { savedWorkspaces = false }
     if (linkOffset && paired) FolioPanel(title = "Page link", onDismissRequest = { linkOffset = false }) {
@@ -293,44 +329,25 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
     }
 }
 
-@Composable private fun CompanionPane(state: FolioState, model: FolioViewModel, pane: EditorTab, note: Notebook,
+/**
+ * The other document: just its page and the same page navigator the editor has, with no bar of its
+ * own. The shared toolbar's pen writes here directly; a finger scrolls, zooms and follows links, and
+ * a tap (or a pen holding a tool only the editor can use) makes this pane the editor.
+ */
+@Composable private fun CompanionPane(model: FolioViewModel, pane: EditorTab, note: Notebook,
     sharedInk: InkSurfaceConfig?,
-    onFocus: () -> Unit,
-    onChangeDocument: () -> Unit,
-    onSavedWorkspaces: () -> Unit,
-    onLinkOffset: () -> Unit) {
+    onFocus: () -> Unit) {
     val index = note.pages.indexOfFirst { it.id == pane.currentPageId }.coerceAtLeast(0)
     val page = note.pages.getOrNull(index) ?: return
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var viewport by remember(pane.notebookId, page.id) { mutableStateOf(pane.viewport) }
-    var reset by remember(pane.notebookId, page.id) { mutableIntStateOf(0) }
-    // The pane's own surface, for the zoom buttons and the fit menu; the editor's view is untouched.
-    var paneView by remember { mutableStateOf<InkView?>(null) }
-    // PDF tools only appear for a notebook that actually has an imported document behind it.
     val pdfBacked = remember(note.id) { note.pages.any { it.pdfIndex != null } }
     var links by remember(note.id) { mutableStateOf(emptyList<PdfLink>()) }
-    var linksOn by remember(note.id) { mutableStateOf(true) }
-    var outline by remember(note.id) { mutableStateOf<List<PdfOutlineEntry>?>(null) }
-    var searchOpen by remember { mutableStateOf(false) }
-    var contentsOpen by remember { mutableStateOf(false) }
-    var jumpOpen by remember { mutableStateOf(false) }
-    var fastScrollOn by remember(pane.notebookId) { mutableStateOf(false) }
-    var scrubPage by remember(pane.notebookId, index) { mutableFloatStateOf(index.toFloat()) }
-    var filmstripOn by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
-    var paneMenu by remember { mutableStateOf(false) }
     var linkFollowedAt by remember { mutableLongStateOf(0L) }
     val stylus = LocalStylusActivity.current
     // Link rectangles arrive once per notebook; a native notebook simply has none.
     LaunchedEffect(note.id, pdfBacked) {
         links = if (pdfBacked) try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() } else emptyList()
-    }
-    fun loadOutline() {
-        if (outline != null) return
-        scope.launch {
-            outline = try { model.repository.pdfOutline(note.id) } catch (_: Exception) { emptyList() }
-        }
     }
     // Debounce viewport writes: pan frames must not spam the ViewModel + recompose the tree.
     LaunchedEffect(viewport) {
@@ -338,101 +355,37 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
         model.updateCompanionViewport(viewport)
     }
     val handOptions = remember { ToolOptions.defaults(Tool.HAND) }
-    // Both documents are editable at once: the pane borrows the editor's pen, eraser or shape, and
-    // a finger keeps scrolling, zooming and following links.
+    // Both documents are editable at once: the pane borrows the editor's pen, eraser or shape.
     val writable = sharedInk != null && sharedInk.tool in PaneInkTools
-    var wrote by remember(page.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        // The pane's own slim bar: its title switches the document, Edit (or simply writing on the
-        // page) makes it the editor, and the rest of the split's controls live in its menu.
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().heightIn(min = FolioTouch.target).guardUiTouches().padding(end = FolioSpacing.dp4),
-                verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).padding(start = FolioSpacing.dp4).clip(FolioShapes.medium)
-                    .clickable(onClickLabel = "Show another document here", onClick = onChangeDocument)
-                    .padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f, fill = false)) {
-                        Text(note.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            buildString {
-                                append("Page ${index + 1} of ${note.pages.size}")
-                                if (state.companionLinked) append(" · linked")
-                                append(if (writable) " · writing with your pen" else " · tap to edit")
-                            },
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(Icons.Rounded.ArrowDropDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, onFocus)) {
+            key(note.id, page.id) {
+                val onCamera = remember(pane.notebookId, page.id) {
+                    { vp: WorkspaceViewport -> viewport = viewport.copy(canvasX = vp.canvasX, canvasY = vp.canvasY, canvasZoom = vp.canvasZoom) }
                 }
-                // Steps written here come off this page's own stacks; the toolbar's undo is the editor's.
-                if (wrote) {
-                    IconButton({ model.undoPage(page.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo in this pane") }
-                    IconButton({ model.redoPage(page.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo in this pane") }
-                }
-                TextButton(onFocus, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(FolioSpacing.dp6))
-                    Text("Edit")
-                }
-                IconButton({ model.setCompanionLinked(!state.companionLinked) }, shapes = IconButtonDefaults.shapes()) {
-                    Icon(
-                        if (state.companionLinked) Icons.Rounded.Link else Icons.Rounded.LinkOff,
-                        if (state.companionLinked) "Unlink pages — this pane stays where it is" else "Link pages — this pane follows the editor's page turns",
-                        tint = if (state.companionLinked) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                    )
-                }
-                Box {
-                    IconButton({ paneMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Split view options") }
-                    FolioMenuPopover(paneMenu, { paneMenu = false }, modifier = Modifier.guardUiTouches(), title = "Split view") {
-                        FolioMenuItem({ Text("Show another document here") }, { paneMenu = false; onChangeDocument() }, leadingIcon = { Icon(Icons.Rounded.SwapVert, null) })
-                        FolioMenuItem({ Text(WorkspacePicker.flipAction(state.editorOnRight)) }, { paneMenu = false; model.swapPaneSides() }, leadingIcon = { Icon(Icons.Rounded.SwapHoriz, null) })
-                        FolioMenuItem({ Text("Equal split") }, { paneMenu = false; model.setSplitFraction(SplitPanes.EQUAL) }, leadingIcon = { Icon(Icons.Rounded.Balance, null) })
-                        if (state.companionLinked) FolioMenuItem({ Text("Adjust page link…") }, { paneMenu = false; onLinkOffset() }, leadingIcon = { Icon(Icons.Rounded.Link, null) })
-                        FolioMenuItem({ Text("Saved workspaces…") }, { paneMenu = false; onSavedWorkspaces() }, leadingIcon = { Icon(Icons.Rounded.Bookmarks, null) })
-                        HorizontalDivider()
-                        FolioMenuItem({ Text("Close split view") }, { paneMenu = false; model.dismissCompanion() }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
-                    }
-                }
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
-            Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, onFocus)) {
-                key(note.id, page.id) {
-                    val onCamera = remember(pane.notebookId, page.id) {
-                        { vp: WorkspaceViewport -> viewport = viewport.copy(canvasX = vp.canvasX, canvasY = vp.canvasY, canvasZoom = vp.canvasZoom) }
-                    }
-                    val onLoad = remember(note.id, page.id) { { model.loadPage(page.id) } }
-                    val mutations = remember(page.id) { model.pageMutations(page.id) }
-                    val paneMutations = remember(mutations) { object : EditorPageMutations by mutations {
-                        override fun appendStroke(before: List<Stroke>, stroke: Stroke, after: List<Stroke>) { wrote = true; mutations.appendStroke(before, stroke, after) }
-                        override fun strokes(values: List<Stroke>) { wrote = true; mutations.strokes(values) }
-                    } }
-                    EditorPage(note.id, page, model,
-                        surface = if (writable) sharedInk!!.copy(finger = false, multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
-                        else InkSurfaceConfig(tool = Tool.HAND,
-                            options = handOptions,
-                            finger = false,
-                            snapEnabled = false,
-                            shapeRecognition = false,
-                            multiTouchUndo = false),
-                        presentation = PagePresentation(active = false,
-                            fullscreen = true,
-                            canvasReset = reset,
-                            readOnly = !writable,
-                            initialViewport = pane.viewport,
-                            pdfLinks = if (linksOn) links else emptyList()),
-                        actions = EditorPageActions(mutations = paneMutations, onActive = {},
-                            onPan = { _, _ -> },
-                            onPanEnd = {},
-                            onSelection = {},
-                            onTextEdit = {},
-                            onTextCreate = {},
-                            onLoad = onLoad,
-                            onCameraChanged = onCamera,
-                            onSelectAllView = { view -> paneView = view },
-                            onPdfLink = { link ->
+                val onLoad = remember(note.id, page.id) { { model.loadPage(page.id) } }
+                EditorPage(note.id, page, model,
+                    surface = if (writable) sharedInk!!.copy(finger = false, multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
+                    else InkSurfaceConfig(tool = Tool.HAND,
+                        options = handOptions,
+                        finger = false,
+                        snapEnabled = false,
+                        shapeRecognition = false,
+                        multiTouchUndo = false),
+                    presentation = PagePresentation(active = false,
+                        fullscreen = true,
+                        readOnly = !writable,
+                        initialViewport = pane.viewport,
+                        pdfLinks = links),
+                    actions = EditorPageActions(mutations = remember(page.id) { model.pageMutations(page.id) }, onActive = {},
+                        onPan = { _, _ -> },
+                        onPanEnd = {},
+                        onSelection = {},
+                        onTextEdit = {},
+                        onTextCreate = {},
+                        onLoad = onLoad,
+                        onCameraChanged = onCamera,
+                        onPdfLink = { link ->
                             linkFollowedAt = android.os.SystemClock.uptimeMillis()
                             when (val target = link.target) {
                                 is PdfLinkTarget.Page -> model.companionPage(target.pageIndex)
@@ -441,93 +394,13 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
                                 } catch (_: Exception) { model.reportError("Couldn't open this link") }
                             }
                         }))
-                }
             }
         }
-        // One tonal bar holds the reference's own controls, so they read as a shelf of their own
-        // rather than as loose buttons floating on the page.
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-            Column {
-                if (fastScrollOn && note.pages.size > 1) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16).guardUiTouches()) {
-                        Text("Page ${scrubPage.roundToInt() + 1} of ${note.pages.size}", style = MaterialTheme.typography.labelLarge)
-                        Slider(
-                            value = scrubPage,
-                            onValueChange = { scrubPage = it },
-                            onValueChangeFinished = { model.companionPage(scrubPage.roundToInt()) },
-                            valueRange = 0f..note.pages.lastIndex.toFloat(),
-                            modifier = Modifier.semantics { contentDescription = "Fast scroll reference pages" }
-                        )
-                    }
-                }
-                if (filmstripOn && pdfBacked) ReferenceFilmstrip(note.id, note, index, model.thumbnails) { model.companionPage(it) }
-            // Scrollable so a cramped split pane keeps every control reachable instead of clipping the
-            // zoom buttons off the end; it centres itself whenever there is room for everything.
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).guardUiTouches(),
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically) {
-                val hold = rememberLongPressGuard()
-                IconButton(hold.click { model.companionPage(index - 1) }, enabled = index > 0, modifier = Modifier.longPressAction(hold) { model.companionPage(0) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous reference page — hold for the first page") }
-                TextButton({ jumpOpen = true }, shapes = ButtonDefaults.shapes()) {
-                    Text(PdfReference.pageLabel(index, note.pages.size, page.pdfIndex), maxLines = 1)
-                }
-                IconButton(hold.click { model.companionPage(index + 1) }, enabled = index < note.pages.lastIndex, modifier = Modifier.longPressAction(hold) { model.companionPage(note.pages.lastIndex) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next reference page — hold for the last page") }
-                if (note.pages.size > 1) {
-                    IconToggleButton(fastScrollOn, { fastScrollOn = it }, shapes = IconButtonDefaults.toggleableShapes()) {
-                        Icon(Icons.Rounded.SwapVert, "Fast scroll")
-                    }
-                }
-                if (pdfBacked) {
-                    IconButton({ paneView?.zoomReference(-1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomOut, "Zoom out") }
-                    Text("${(viewport.canvasZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    IconButton({ paneView?.zoomReference(1) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ZoomIn, "Zoom in") }
-                    Box {
-                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Zoom, contents and search") }
-                        FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "View") {
-                            FolioMenuItem({ Text("Fit whole page") }, { menu = false; paneView?.fitReference(PdfFit.PAGE) }, leadingIcon = { Icon(Icons.Rounded.FitScreen, null) })
-                            FolioMenuItem({ Text("Fit page width") }, { menu = false; paneView?.fitReference(PdfFit.WIDTH) }, leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) })
-                            FolioMenuItem({ Text("Actual size") }, { menu = false; paneView?.fitReference(PdfFit.ACTUAL) }, leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) })
-                            FolioMenuItem({ Text("Reset zoom") }, { menu = false; viewport = WorkspaceViewport(); reset++ }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) })
-                            HorizontalDivider()
-                            FolioMenuItem({ Text("Contents") }, { menu = false; contentsOpen = true; loadOutline() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null) })
-                            FolioMenuItem({ Text("Search this PDF") }, { menu = false; searchOpen = true }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                            FolioMenuItem({ Text("Go to page…") }, { menu = false; jumpOpen = true }, leadingIcon = { Icon(Icons.Rounded.Numbers, null) })
-                            HorizontalDivider()
-                            FolioMenuItem(
-                                { Text(if (filmstripOn) "Hide page previews" else "Show page previews") },
-                                { menu = false; filmstripOn = !filmstripOn },
-                                leadingIcon = { Icon(if (filmstripOn) Icons.Rounded.ViewAgenda else Icons.Rounded.PhotoLibrary, null) }
-                            )
-                            if (links.isNotEmpty()) FolioMenuItem(
-                                { Text(if (linksOn) "Ignore PDF links" else "Follow PDF links") },
-                                { menu = false; linksOn = !linksOn },
-                                leadingIcon = { Icon(if (linksOn) Icons.Rounded.LinkOff else Icons.Rounded.Link, null) }
-                            )
-                        }
-                    }
-                    } else {
-                        TextButton({ viewport = WorkspaceViewport(); reset++ }, shapes = ButtonDefaults.shapes()) { Text("Fit") }
-                    }
-                    }
-                }
-            }
+        if (note.pages.size > 1) PageNavigator(
+            index = index, count = note.pages.size, singlePage = true,
+            onTurn = { forward -> model.companionPage(index + if (forward) 1 else -1) },
+            onJumpToEnd = { last -> model.companionPage(if (last) note.pages.lastIndex else 0) },
+            onToggleView = onFocus, onBrowse = onFocus,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp16).guardUiTouches())
     }
-    if (searchOpen) ReferenceSearchPanel(
-        search = state.companionPdfSearch,
-        currentIndex = index,
-        onQuery = model::searchCompanionPdf,
-        onJump = { model.companionPage(it); searchOpen = false },
-        onDismiss = { searchOpen = false; model.clearCompanionPdfSearch() }
-    )
-    if (contentsOpen) ReferenceContentsPanel(
-        outline = outline,
-        onOpen = { model.companionPage(it); contentsOpen = false },
-        onDismiss = { contentsOpen = false }
-    )
-    if (jumpOpen) ReferenceJumpDialog(
-        currentIndex = index,
-        pageCount = note.pages.size,
-        onJump = { model.companionPage(it); jumpOpen = false },
-        onDismiss = { jumpOpen = false }
-    )
 }

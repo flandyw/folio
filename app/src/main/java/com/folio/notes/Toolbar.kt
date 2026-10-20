@@ -7,6 +7,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -51,13 +53,17 @@ internal object BarTones {
     val divider @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f)
 }
 
-/** One open document as a tab: the notebook id (what the workspace switches by) and its current title. */
-internal class EditorTabChip(val id: String, val title: String)
+/**
+ * One open document as a tab: the notebook id (what the workspace switches by) and its current title.
+ * [split] marks the two tabs showing side by side in split view; they sit next to each other and
+ * read as one pair.
+ */
+internal class EditorTabChip(val id: String, val title: String, val split: Boolean = false)
 
 /** Height of the tool row; the tab strip above it is [TabStripHeight]. */
-internal val GoodnotesRowHeight = 40.dp
-/** Side inset of both rows, matching where the Folio pills' first button sits from the edge. */
-internal val GoodnotesBarInset = FolioSpacing.dp4
+internal val BarRowHeight = 40.dp
+/** Side inset of both rows. */
+internal val BarInset = FolioSpacing.dp4
 private val TabStripHeight = 36.dp
 private val TabHeight = 28.dp
 
@@ -66,7 +72,7 @@ private val TabHeight = 28.dp
  * [tabs] is null where leaving the editor mid-task is wrong (mistake review), which drops the
  * strip altogether. [content] is the second row and arrives already coloured for the bar.
  */
-@Composable internal fun GoodnotesBar(
+@Composable internal fun EditorBar(
     tabs: List<EditorTabChip>?,
     activeId: String?,
     onHome: () -> Unit,
@@ -75,8 +81,10 @@ private val TabHeight = 28.dp
     onNewTab: (() -> Unit)?,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val reportHeight = LocalEditorBarHeight.current
     Surface(
-        modifier = Modifier.fillMaxWidth().guardUiTouches(),
+        modifier = Modifier.fillMaxWidth().guardUiTouches()
+            .then(if (reportHeight != null) Modifier.onSizeChanged { reportHeight.intValue = it.height } else Modifier),
         color = BarTones.container,
         contentColor = BarTones.content,
         shadowElevation = 1.dp,
@@ -135,11 +143,12 @@ private val TabHeight = 28.dp
         LocalMinimumInteractiveComponentSize provides 0.dp,
     ) {
         Row(
-            Modifier.fillMaxWidth().height(TabStripHeight).background(BarTones.strip).padding(horizontal = GoodnotesBarInset),
-            verticalAlignment = Alignment.CenterVertically,
+            Modifier.fillMaxWidth().height(TabStripHeight).background(BarTones.strip).padding(horizontal = BarInset),
+            // Tabs hang from the bottom of the strip into the bar; home and + sit on the same line.
+            verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
-            Box(Modifier.padding(horizontal = FolioSpacing.dp8)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
+            Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
             Row(
                 Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null),
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
@@ -231,24 +240,32 @@ private val TabHeight = 28.dp
 
 @Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, splitting: Boolean, onClose: (String) -> Unit, modifier: Modifier) {
     val title = tab.title.ifBlank { "Untitled" }
+    val accent = MaterialTheme.colorScheme.primary
     val shape = if (held) RoundedCornerShape(FolioShapes.mediumRadius) else RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius)
     Surface(
         shape = shape,
+        // Both halves of a split wear the bar's colour, so the pair reads as one joined tab; the
+        // half the toolbar is working on carries the accent line.
         color = when {
             splitting -> MaterialTheme.colorScheme.primaryContainer
-            active || held -> BarTones.container
+            active || held || tab.split -> BarTones.container
             else -> Color.Transparent
         },
         contentColor = when {
             splitting -> MaterialTheme.colorScheme.onPrimaryContainer
             active || held -> BarTones.content
+            tab.split -> BarTones.content.copy(alpha = .75f)
             else -> BarTones.stripContent
         },
-        modifier = modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp).clip(shape),
+        modifier = modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp).clip(shape)
+            .then(if (tab.split && active) Modifier.drawWithContent {
+                drawContent()
+                drawRect(accent, size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+            } else Modifier),
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
-            if (splitting) {
-                Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(14.dp))
+            if (splitting || tab.split) {
+                Icon(Icons.Rounded.VerticalSplit, if (tab.split) "In split view" else null, Modifier.size(14.dp))
                 Spacer(Modifier.width(FolioSpacing.dp4))
             }
             Text(if (splitting) "Open beside" else title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
@@ -265,6 +282,6 @@ private val TabHeight = 28.dp
 @Composable private fun TabAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(18.dp)) }
+        IconButton(onClick, modifier = Modifier.width(36.dp).height(TabHeight), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(18.dp)) }
     }
 }

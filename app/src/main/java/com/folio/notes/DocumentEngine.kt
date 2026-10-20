@@ -634,6 +634,10 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             val active = state.active
             val group = historyAvailability.forNotebook(active).undo.lastOrNull()
             val inkTop = pageId?.takeUnless { undo[it].isNullOrEmpty() }?.let { maxOf(inkSeq[it] ?: 0L, undo[it]?.lastOrNull()?.actionSequence ?: 0L) }
+            // Split view: ink written in the other pane is undone first when it is the newer step.
+            val other = state.companion?.currentPageId?.takeIf { it != pageId && !undo[it].isNullOrEmpty() }
+            val otherTop = other?.let { maxOf(inkSeq[it] ?: 0L, undo[it]?.lastOrNull()?.actionSequence ?: 0L) }
+            if (other != null && otherTop!! > maxOf(inkTop ?: 0L, step?.seq ?: 0L, group?.sequence ?: 0L)) { undoPage(other); return }
             if (group != null && group.sequence >= (inkTop ?: 0L) && group.sequence >= (step?.seq ?: 0L)) {
                 documentHistory(group, true); return
             }
@@ -666,6 +670,9 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
             val active = state.active
             val group = historyAvailability.forNotebook(active).redo.lastOrNull()
             val inkTop = pageId?.takeUnless { redo[it].isNullOrEmpty() }?.let { maxOf(inkRedoSeq[it] ?: 0L, redo[it]?.lastOrNull()?.actionSequence ?: 0L) }
+            val other = state.companion?.currentPageId?.takeIf { it != pageId && !redo[it].isNullOrEmpty() }
+            val otherTop = other?.let { maxOf(inkRedoSeq[it] ?: 0L, redo[it]?.lastOrNull()?.actionSequence ?: 0L) }
+            if (other != null && otherTop!! > maxOf(inkTop ?: 0L, step?.seq ?: 0L, group?.sequence ?: 0L)) { redoPage(other); return }
             if (group != null && group.sequence >= (inkTop ?: 0L) && group.sequence >= (step?.seq ?: 0L)) {
                 documentHistory(group, false); return
             }
@@ -753,9 +760,10 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
                     val top = stack?.lastOrNull() ?: return false
                     return top.groupId == null || groups.any { it.id == top.groupId }
                 }
+                val other = state.companion?.currentPageId
                 state.copy(
-                    canUndo = groupsUndo.isNotEmpty() || local(undo[state.page?.id], groupsUndo) || structureUndo.any { it.noteId == noteId },
-                    canRedo = groupsRedo.isNotEmpty() || local(redo[state.page?.id], groupsRedo) || structureRedo.any { it.noteId == noteId })
+                    canUndo = groupsUndo.isNotEmpty() || local(undo[state.page?.id], groupsUndo) || structureUndo.any { it.noteId == noteId } || local(undo[other], emptyList()),
+                    canRedo = groupsRedo.isNotEmpty() || local(redo[state.page?.id], groupsRedo) || structureRedo.any { it.noteId == noteId } || local(redo[other], emptyList()))
             }
             // Every change to a page's stacks republishes them, so the copy the storage thread reads is
             // never the one being appended to.

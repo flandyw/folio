@@ -230,24 +230,15 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
 }
 
 /**
- * The editor toolbar: its layout, which tools it carries, and what sits beside them. Every
- * option applies to both styles except the tab strip, which only the Goodnotes-inspired bar has.
+ * The editor toolbar: which tools it carries, and what sits beside them.
  */
 @Composable private fun ToolbarGroups() {
     val p = rememberPrefs()
-    val style by rememberPref(p, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
     val options by rememberPref(p, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     val layouts = rememberToolbarLayoutState(p)
     val inkPrefs = LocalContext.current.let { context -> remember(context) { context.getSharedPreferences("ink-tools", 0) } }
     val presets = remember(inkPrefs) { ToolPresetState(inkPrefs) }
     var editTools by rememberSaveable { mutableStateOf(false) }
-    SettingsGroup("Toolbar style") {
-        SettingsRadioGroup {
-            ToolbarStyle.entries.forEach { option ->
-                SettingsRadioRow(option.label, option.description, option == style) { p.write { putString(AppPrefs.TOOLBAR_STYLE, option.name) } }
-            }
-        }
-    }
     SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away: tools, undo and redo in the … menu, the timer in the notebook menu.") {
         val layout = layouts.layout
         SettingsLinkRow(
@@ -278,10 +269,8 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show the exam timer and Focal chips beside the tools when there is room.")
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false, "Start with ink options open", "Widths and colours appear under the toolbar as soon as a notebook opens.")
-        if (style == ToolbarStyle.GOODNOTES) {
-            SettingsDivider()
-            SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents as tabs above the tools. Off: a back button joins the bar.")
-        }
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents as tabs above the tools. Off: a back button joins the bar.")
     }
     if (editTools) ToolbarEditPanel(layouts, presets.presets, onDismiss = { editTools = false })
 }

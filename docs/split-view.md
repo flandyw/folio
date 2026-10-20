@@ -5,25 +5,26 @@ it, a chooser that appears in the new pane, and no modes to pick.
 
 ## How it works for the user
 
-- **Open:** the split button in the editor toolbar (both toolbar styles), *Split view…* in the notebook
+- **Open:** the split button in the editor toolbar, *Split view…* in the notebook
   menu, Ctrl + \ or the command palette, or in the tab strip drag a tab down onto the page (it turns
   into *Open beside*) or hold it without moving. The screen splits at once
   and the new pane shows a chooser: search, **This notebook** (opens on the page being edited, so two pages
   of one notebook are one tap apart), **Open tabs**, then **Recent** notebooks.
 - **Tabs:** tap to switch; press, hold and drag sideways to reorder (like a browser). The order and the
   open tabs are kept across restarts (`workspaceTabs` in preferences as well as the saved state).
-- **Write in both at once:** there is only one toolbar. With a pen, highlighter, eraser, shape or laser
-  selected, the pen writes straight into the other pane with that tool (`LocalSharedInk`, published by
-  the editor), and the pane's bar gains Undo/Redo for that page (`undoPage`/`redoPage`) once you've
-  written there; the toolbar's Undo stays the editor's.
-- **Make the other pane the editor:** a deliberate finger tap there, its **Edit** button, or a pen
-  touch while a tool the pane can't use alone (text, lasso, sticky notes, mark area…) is selected. The documents stay where they
-  are and only the toolbar moves. The touch that switches panes is consumed, so a stroke never lands in
-  the wrong document. A finger still scrolls, zooms and follows PDF links in the other pane. Finger taps
-  are ignored while a pen is active (`StylusActivity`), so a resting palm can't switch panes.
-- **The other pane's bar:** tap the title to show another document there, link pages (the pane follows
-  the editor's page turns, with an adjustable offset), and a menu to swap sides, split evenly, open saved
-  workspaces or close the split. The bottom bar keeps page navigation, zoom, contents, search and previews.
+- **One toolbar, two editors:** the bar (tabs and tools) spans the whole screen above both panes. The
+  editor hands it up through `LocalToolbarPortal` (with its composition locals, so its menus behave as
+  if drawn in the editor), and the panes sit below it. The pane the toolbar works on has a faint
+  accent outline; its tab carries the accent line.
+- **Tabs show the split:** both documents get a tab, side by side in screen order, filled and marked
+  with the split icon (`splitTabs`). Tapping the other half's tab works there; closing it closes the pane.
+- **Write in both at once:** with a pen, highlighter, eraser, shape or laser selected, the pen writes
+  straight into the other pane (`LocalSharedInk`). The toolbar's Undo/Redo takes back whichever pane's
+  edit is newest (`DocumentEngine.undo` compares the other page's stack sequence).
+- **The other pane has no bar of its own:** just its page and the editor's floating page navigator.
+  A finger tap, or a pen holding a tool only the editor can use (text, lasso, sticky notes, mark
+  area…), makes it the editor; the documents stay put and only the toolbar's contents change. Page
+  link, swap sides and saved workspaces are in the notebook menu and the command palette.
 - **Divider:** drag to resize (it settles on 30/50/70%). Drag past the limit towards an edge and the pane
   being squeezed shows *Release to close*. Letting go there closes that pane, and closing the editor's pane
   leaves the other document as the editor. Double-tap for an even split.

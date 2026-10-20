@@ -66,7 +66,8 @@ import kotlin.math.roundToInt
     rulerOn: Boolean = false, onRuler: (() -> Unit)? = null,
     shapeTools: List<Tool> = ShapePickerTools.toList(),
     actions: List<ToolbarAction> = emptyList(),
-    style: ToolbarStyle = ToolbarStyle.FOLIO,
+    /** Flat on the editor bar; false floats the tools on their own glass pill (the music reader). */
+    flat: Boolean = true,
     toolbarOptions: ToolbarOptions = ToolbarOptions(),
     header: @Composable (@Composable () -> Unit) -> Unit
 ) {
@@ -423,8 +424,8 @@ import kotlin.math.roundToInt
                             controls(showRedo, showUndo, primary, showExtras)
                         }
                     }
-                    // The Goodnotes-inspired bar already is the surface, so its tools sit on it without a pill.
-                    if (style == ToolbarStyle.GOODNOTES) Box(stripHold.height(EditorFloatingGroupHeight), contentAlignment = Alignment.Center) { strip() }
+                    // The editor bar already is the surface, so its tools sit on it without a pill.
+                    if (flat) Box(stripHold.height(EditorFloatingGroupHeight), contentAlignment = Alignment.Center) { strip() }
                     else EditorGlassSurface(stripHold) { strip() }
                 }
             }

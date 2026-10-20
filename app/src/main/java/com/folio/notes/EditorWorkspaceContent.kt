@@ -139,7 +139,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val forwardPositions = remember(note.id) { mutableStateListOf<EditorVisit>() }
     fun undoEditor() { editor.documentInput.cancelNativeContacts(); model.undo() }
     fun redoEditor() { editor.documentInput.cancelNativeContacts(); model.redo() }
-    val toolbarStyle by rememberPref(appPrefs, AppPrefs.TOOLBAR_STYLE) { AppPrefs.toolbarStyle(it.getString(AppPrefs.TOOLBAR_STYLE, null)) }
     val toolbarOptions by rememberPref(appPrefs, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     var tool by editor.tools.tool
     var previousTool by editor.tools.previousTool
@@ -989,7 +988,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         LongResponseBar(note, page, model, onAttempts = { responseAttempts = true })
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
-        var floatingToolbarTop by remember { mutableStateOf(120.dp) }
+        // In the workspace the bar sits above the panes, so the pages start just below the pane's top edge.
+        val toolbarPortal = LocalToolbarPortal.current?.takeIf { music == null }
+        var floatingToolbarTop by remember { mutableStateOf(if (toolbarPortal != null) 8.dp else 120.dp) }
         // A score clears the whole tool strip, quick bar included. Measured in full but applied once it
         // settles, so opening or closing the bar re-fits the sheet once instead of every frame.
         var musicToolbarFull by remember { mutableIntStateOf(0) }
@@ -1557,13 +1558,11 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 onBrowse = { pageBrowser = true },
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
                     .padding(followInset).guardUiTouches().zIndex(11f))
-            EditorToolbarHost(toolbarStyle, music != null,
-                onHeight = { editorChromeHeightPx = it.toFloat() + with(density) { 6.dp.toPx() } },
-                tools = {
+            val toolbarTools: @Composable () -> Unit = {
 
                 if (music == null || (music.showToolbar && !music.performance)) FloatingInkToolbar(
                     modifier = Modifier, markAreaAvailable = music == null && note.pages.any { it.pdfIndex != null },
-                    onMainHeight = { floatingToolbarTop = with(density) { it.toDp() } + 8.dp },
+                    onMainHeight = { floatingToolbarTop = if (toolbarPortal != null) 8.dp else with(density) { it.toDp() } + 8.dp },
                     onFullHeight = { if (music != null) musicToolbarFull = it },
                     hiddenSlots = if (music != null) setOf(ToolbarSlot.STICKY_NOTE, ToolbarSlot.MARK_AREA) else emptySet(),
                     shapeTools = if (music != null) ShapeTools.toList() else ShapePickerTools.toList(),
@@ -1592,7 +1591,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                     toolPresetsState = toolPresets,
                     toolbarLayoutState = toolbarLayouts,
                     rulerOn = rulerOn, onRuler = { rulerOn = !rulerOn },
-                    style = if (music == null) toolbarStyle else ToolbarStyle.FOLIO,
+                    flat = music == null,
                     toolbarOptions = toolbarOptions,
                     header = { mainTools ->
                         if (music != null) FolioExpand(true) { mainTools() } else EditorTopBar(
@@ -1610,17 +1609,17 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             onRetrySave = model::retrySave,
                             onClose = { finishTextEditing(); model.close() },
                             showBack = showBack,
-                            style = toolbarStyle,
                             toolbarOptions = toolbarOptions,
                             // Practice notebooks stay in Mistakes; a regular tab uses its current title.
-                            tabs = if (focusMode) emptyList() else state.tabs.mapNotNull { tab ->
-                                val notebook = state.notes.find { it.id == tab.notebookId }
-                                if (notebook == null || notebook.mistakePractice) null
-                                else EditorTabChip(tab.notebookId, notebook?.title ?: tab.title)
-                            },
+                            tabs = if (focusMode) emptyList() else splitTabs(state, note.id),
                             activeTabId = note.id,
-                            onSelectTab = { id -> if (id != note.id) { finishTextEditing(); model.open(id) } },
-                            onCloseTab = { id -> finishTextEditing(); model.closeTab(id) },
+                            onSelectTab = { id -> when (id) {
+                                note.id -> Unit
+                                // The other half of the split: work there, leaving both documents in place.
+                                state.companion?.notebookId -> { finishTextEditing(); model.swapCompanion() }
+                                else -> { finishTextEditing(); model.open(id) }
+                            } },
+                            onCloseTab = { id -> finishTextEditing(); if (id == state.companion?.notebookId) model.dismissCompanion(); model.closeTab(id) },
                             onNewTab = onOpenDocument?.let { open -> { finishTextEditing(); open() } },
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
@@ -1685,7 +1684,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         )
                     }
                 )
-                }, text = {
+                }
+            val toolbarText: @Composable () -> Unit = {
                 textEditor?.let { draft ->
                     InlineTextToolbar(draft.box, quick.colors(InkColors.INK_GROUP),
                         onChange = { box -> textEditor = draft.copy(box = box); rememberTextLook(box) },
@@ -1696,7 +1696,18 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             textEditor = draft.copy(box = draft.box.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f))
                         })
                 }
-                            })
+            }
+            if (toolbarPortal != null) {
+                // The workspace draws this bar across the whole screen, above both split panes. The
+                // editor's composition locals travel with it, so its menus behave as if drawn here.
+                val locals = currentCompositionLocalContext
+                val owner = remember { Any() }
+                SideEffect { toolbarPortal.value = ToolbarPortalContent(owner, locals, toolbarTools, toolbarText) }
+                DisposableEffect(toolbarPortal) { onDispose { if (toolbarPortal.value?.owner === owner) toolbarPortal.value = null } }
+                SideEffect { editorChromeHeightPx = 0f }
+            } else EditorToolbarHost(music != null,
+                onHeight = { editorChromeHeightPx = it.toFloat() + with(density) { 6.dp.toPx() } },
+                tools = toolbarTools, text = toolbarText)
         }
         if (zoomPaneOpen && music == null && zoomTarget != null) {
             val available = with(editorDensity) { editorSize.height.toDp().value }
@@ -2045,3 +2056,23 @@ private enum class FollowSub { AREAS, LINES, PEEK }
  * stepper for part marks. It floats over the page without taking focus, never blocks writing, and goes
  * away by itself — a pen touching the page dismisses it, and so does a few seconds of nothing.
  */
+
+/**
+ * The tab strip's documents. In split view both documents get a tab, side by side in the order the
+ * panes sit on screen, so the strip shows which two are open together.
+ */
+internal fun splitTabs(state: FolioState, activeId: String): List<EditorTabChip> {
+    val other = state.companion?.notebookId?.takeIf { id -> id != activeId && state.notes.any { it.id == id } }
+    var ids = state.tabs.map { it.notebookId }.distinct()
+    if (other != null) {
+        ids = ids - other
+        val at = ids.indexOf(activeId)
+        ids = if (at < 0) ids + other else ids.toMutableList().apply { add(if (state.editorOnRight) at else at + 1, other) }
+    }
+    return ids.mapNotNull { id ->
+        val notebook = state.notes.find { it.id == id }
+        if (notebook == null || notebook.mistakePractice) null
+        else EditorTabChip(id, notebook.title.ifBlank { state.tabs.find { it.notebookId == id }?.title.orEmpty() },
+            split = other != null && (id == other || id == activeId))
+    }
+}

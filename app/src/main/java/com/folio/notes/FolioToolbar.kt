@@ -28,12 +28,10 @@ import androidx.compose.ui.unit.dp
 internal val EditorFloatingGroupHeight: Dp @Composable get() = if (showEditorToolNames()) (if (largeEditorControls()) 72.dp else 60.dp) else if (largeEditorControls()) 56.dp else 40.dp
 internal val DockButtonWidth: Dp @Composable get() = if (largeEditorControls()) 48.dp else 40.dp
 internal val DockButtonHeight: Dp @Composable get() = if (largeEditorControls()) 48.dp else 36.dp
-/** The gap between neighbouring buttons in the left and right groups, the same in both styles. */
+/** The gap between neighbouring buttons in the left and right groups. */
 internal val DockGap = FolioSpacing.dp4
 /** Width of [buttons] dock buttons, each followed by a [DockGap] (so a row errs a gap wide, never narrow). */
 @Composable internal fun dockWidth(buttons: Int): Dp = (DockButtonWidth + DockGap) * buttons
-/** The "3/12" page readout between the previous and next buttons. */
-private val PageChipWidth = 48.dp
 
 /** Shared glass-like M3 surface. Translucency and a highlight rim work on every supported API. */
 @Composable internal fun EditorGlassSurface(
@@ -111,9 +109,8 @@ private val PageChipWidth = 48.dp
     pageActions: @Composable (() -> Unit) -> Unit,
     /** False where leaving the editor mid-task is wrong (mistake review has its own back button). */
     showBack: Boolean = true,
-    style: ToolbarStyle = ToolbarStyle.FOLIO,
     toolbarOptions: ToolbarOptions = ToolbarOptions(),
-    /** Open documents for the Goodnotes-inspired tab strip; the Folio style ignores them. */
+    /** Open documents for the tab strip. */
     tabs: List<EditorTabChip> = emptyList(),
     activeTabId: String? = null,
     onSelectTab: (String) -> Unit = {},
@@ -130,42 +127,10 @@ private val PageChipWidth = 48.dp
         // clipped: it either fits beside the tools or lives in the notebook menu.
         val timerWidth = remember { mutableStateOf(0.dp) }
         MeasureNaturalWidth(timerWidth) { timer() }
-        val timerNeed = timerWidth.value + FolioSpacing.dp6 * 2 + FolioSpacing.dp8 // surface padding (dp6 each side) + slack
         val toolsNeed = 400.dp
-        val groupGaps = FolioSpacing.dp6 * 2
         val split = LocalSplitView.current
         val shareButtons = 1 + (if (onChatGpt != null) 1 else 0) + (if (split != null) 1 else 0)
-        val documentWidth = dockWidth(shareButtons + 1) + FolioSpacing.dp8
-        val expandedNavWidth = dockWidth((if (showBack) 1 else 0) + 4) + FolioSpacing.dp8
-        // Both side pills take the wider side's width so the tools and the ink bar below them
-        // share the screen's centre line.
-        // Keep navigation compact on most tablets so drawing tools get the width. Wide
-        // windows can expose the individual actions without adding another toolbar row.
-        val foldNav = maxWidth < toolsNeed + maxOf(expandedNavWidth, documentWidth) * 2 + groupGaps
-        val navButtons = (if (showBack) 1 else 0) + if (foldNav) 1 else 4
-        val leftNatural = dockWidth(navButtons) + FolioSpacing.dp8
-        val rightWithTimer = documentWidth + timerNeed + FolioSpacing.dp6
-        // Settings can keep the timer in the notebook menu even where it would fit.
-        val compact = !toolbarOptions.timer || maxWidth < toolsNeed + maxOf(leftNatural, rightWithTimer) * 2 + groupGaps
-        val rightNatural = documentWidth + if (compact) 0.dp else timerNeed + FolioSpacing.dp6
-        // Where the pane has room beyond the tools, page stepping and the common page actions join
-        // the bar instead of waiting in the notebook menu: previous, page n/N, next and bookmark on
-        // the left; insert picture and fit to screen on the right.
-        val navExtraWidth = dockWidth(3) + PageChipWidth + DockGap
         val docExtraWidth = dockWidth(2)
-        val dense = maxWidth >= toolsNeed + maxOf(leftNatural + navExtraWidth, rightNatural + docExtraWidth) * 2 + groupGaps
-        val sideWidth = if (dense) maxOf(leftNatural + navExtraWidth, rightNatural + docExtraWidth) else maxOf(leftNatural, rightNatural)
-        // Reflow before either side squeezes the tool tray below a useful width. This also
-        // accounts for a running timer's actual size instead of a fixed window breakpoint.
-        val narrow = maxWidth < toolsNeed + sideWidth * 2 + groupGaps
-        @Composable fun PageNavigation() {
-            DockButton(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page", onPrevious, enabled = pageIndex > 0)
-            PageChip(pageIndex, pageCount, onPages)
-            DockButton(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page", onNext, enabled = pageIndex < pageCount - 1)
-            DockButton(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                if (bookmarked) "Remove bookmark" else "Bookmark this page", onBookmark,
-                tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-        }
         @Composable fun PageExtras() {
             DockButton(Icons.Rounded.Image, "Insert picture", onInsertImage)
             DockButton(Icons.Rounded.FitScreen, (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%", onFit)
@@ -213,74 +178,12 @@ private val PageChipWidth = 48.dp
                 }
             }
         }
-        @Composable fun NavigationControls() {
-            Box(Modifier, contentAlignment = Alignment.CenterStart) { EditorGlassSurface {
-                Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(DockGap)) {
-                    if (showBack) DockButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks", onClose)
-                    if (foldNav) Box {
-                        DockButton(Icons.Rounded.MoreHoriz, "Pages, search and layers", { navMenu = true })
-                        FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Notebook pages") {
-                            val closeThen: (() -> Unit) -> Unit = { navMenu = false; it() }
-                            FolioMenuItem({ Text("Browse pages") }, { closeThen(onPages) }, leadingIcon = { Icon(Icons.Rounded.GridView, null) })
-                            FolioMenuItem({ Text("Blank page after this") }, { closeThen(onInsertPage) }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            FolioMenuItem({ Text("Blank page at end") }, { closeThen(onAdd) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                            FolioMenuItem({ Text("Duplicate this page") }, { closeThen(onDuplicatePage) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                            FolioMenuItem({ Text("Find in notes") }, { closeThen(onSearch) }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
-                            FolioMenuItem({ Text("Layers") }, { closeThen(onLayers) }, leadingIcon = { Icon(Icons.Rounded.Layers, null) })
-                        }
-                        layersPopover()
-                    } else {
-                    DockButton(Icons.Rounded.GridView, "Browse pages", onPages)
-                    Box {
-                        DockButton(Icons.Rounded.AddBox, "Add or duplicate page", { addMenu = true })
-                        FolioMenuPopover(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add a page") {
-                            FolioMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(Icons.Rounded.Add, null) })
-                            FolioMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-                            FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                        }
-                    }
-                    DockButton(Icons.Rounded.Search, "Find in notes", onSearch)
-                    Box {
-                        DockButton(Icons.Rounded.Layers, "Layers", onLayers)
-                        layersPopover()
-                    }
-                    }
-                    if (dense) PageNavigation()
-                }
-            } }
-        }
-        @Composable fun DocumentControls() {
-            Row(Modifier, verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.End)) {
-                if (!compact) EditorGlassSurface {
-                    Row(Modifier.padding(horizontal = FolioSpacing.dp6),
-                        verticalAlignment = Alignment.CenterVertically) { timer() }
-                }
-                EditorGlassSurface {
-                    Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(DockGap)) {
-                        if (dense) PageExtras()
-                        onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
-                        split?.let { SplitViewButton(it) }
-                        DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
-                        Box {
-                            DockButton(if (saveFailed) Icons.Rounded.ErrorOutline else Icons.Rounded.MoreVert,
-                                if (saveFailed) "Save failed. Notebook actions" else "Notebook actions",
-                                { overflow = true },
-                                tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
-                            if (overflow) NotebookMenu(timerInMenu = compact)
-                        }
-                    }
-                }
-            }
-        }
-        if (style == ToolbarStyle.GOODNOTES) {
+        run {
             // One flat bar: pages, find, layers and add page on the left; the tools in the middle; the timer,
             // share and notebook menu on the right. Narrow panes fold the left side into a menu and
-            // finally stack the tools onto their own row, so nothing the Folio style offers goes missing.
+            // finally stack the tools onto their own row, so nothing goes missing.
             // The row's side insets come out of the width first, so the fold points match what is drawn.
-            val rowWidth = maxWidth - GoodnotesBarInset * 2
+            val rowWidth = maxWidth - BarInset * 2
             val barGap = FolioSpacing.dp12
             // With the tab strip turned off, the way home moves onto the bar.
             val showTabs = showBack && toolbarOptions.tabs
@@ -296,8 +199,8 @@ private val PageChipWidth = 48.dp
             val fold = rowWidth < toolsNeed + maxOf(leftFull, rightBase) * 2 + barGap * 2
             val stacked = rowWidth < toolsNeed + maxOf(leftFolded, rightBase) * 2 + barGap * 2
             val rightNow = if (timerInline) rightWithTimer else rightBase
-            val goodnotesDense = rowWidth >= toolsNeed + maxOf(leftDense, rightNow + docExtraWidth) * 2 + barGap * 2
-            val side = if (goodnotesDense) maxOf(leftDense, rightNow + docExtraWidth)
+            val denseBar = rowWidth >= toolsNeed + maxOf(leftDense, rightNow + docExtraWidth) * 2 + barGap * 2
+            val side = if (denseBar) maxOf(leftDense, rightNow + docExtraWidth)
                 else maxOf(if (fold) leftFolded else leftFull, rightNow)
             @Composable fun LeftControls() {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
@@ -326,7 +229,7 @@ private val PageChipWidth = 48.dp
                             FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                         }
                     }
-                    if (goodnotesDense) DockButton(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                    if (denseBar) DockButton(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                         if (bookmarked) "Remove bookmark" else "Bookmark this page", onBookmark,
                         tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                 }
@@ -334,7 +237,7 @@ private val PageChipWidth = 48.dp
             @Composable fun RightControls() {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
                     if (timerInline) Row(verticalAlignment = Alignment.CenterVertically) { timer() }
-                    if (goodnotesDense) PageExtras()
+                    if (denseBar) PageExtras()
                     onChatGpt?.let { DockButton(Icons.Rounded.AutoAwesome, "Review page with ChatGPT", it) }
                     split?.let { SplitViewButton(it) }
                     DockButton(Icons.Rounded.IosShare, "Share or export", onExport, onLongClick = onShareLongPress)
@@ -347,18 +250,18 @@ private val PageChipWidth = 48.dp
                     }
                 }
             }
-            GoodnotesBar(
+            EditorBar(
                 tabs = if (showTabs) tabs else null, activeId = activeTabId,
                 onHome = onClose, onSelectTab = onSelectTab, onCloseTab = onCloseTab, onNewTab = onNewTab
             ) {
-                val row = Modifier.fillMaxWidth().height(GoodnotesRowHeight).padding(horizontal = GoodnotesBarInset)
+                val row = Modifier.fillMaxWidth().height(BarRowHeight).padding(horizontal = BarInset)
                 if (stacked) {
-                    FlowRow(Modifier.fillMaxWidth().heightIn(min = GoodnotesRowHeight).padding(horizontal = GoodnotesBarInset),
+                    FlowRow(Modifier.fillMaxWidth().heightIn(min = BarRowHeight).padding(horizontal = BarInset),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         itemVerticalAlignment = Alignment.CenterVertically) {
                         LeftControls(); RightControls()
                     }
-                    HorizontalDivider(Modifier.padding(horizontal = GoodnotesBarInset), color = BarTones.divider)
+                    HorizontalDivider(Modifier.padding(horizontal = BarInset), color = BarTones.divider)
                     Box(row, contentAlignment = Alignment.Center) { mainTools() }
                 } else {
                     Row(row, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(barGap)) {
@@ -374,33 +277,6 @@ private val PageChipWidth = 48.dp
                     Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
                 }
             }
-        } else
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            if (layerStatus != null) Box {
-                TextButton(onLayers) {
-                    Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(layerStatus, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
-                }
-            }
-            run {
-                if (narrow) {
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                        NavigationControls()
-                        DocumentControls()
-                    }
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { mainTools() }
-                } else {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                        Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart) { NavigationControls() }
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
-                        Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterEnd) { DocumentControls() }
-                    }
-                }
-            }
-
         }
     }
 }
@@ -421,15 +297,6 @@ private val PageChipWidth = 48.dp
         IconButton(hold.click(onClick), enabled = enabled, modifier = Modifier.width(width).height(DockButtonHeight).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
             Icon(icon, label, Modifier.size(20.dp), tint = tint)
         }
-    }
-}
-
-/** "3/12": where the reader is, and a tap browses the pages. */
-@Composable private fun PageChip(pageIndex: Int, pageCount: Int, onPages: () -> Unit) {
-    TextButton(onPages, Modifier.width(PageChipWidth).height(DockButtonHeight), contentPadding = PaddingValues(0.dp),
-        colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current)) {
-        Text("${pageIndex + 1}/$pageCount", style = MaterialTheme.typography.labelMedium, maxLines = 1,
-            modifier = Modifier.semantics { contentDescription = "Page ${pageIndex + 1} of $pageCount. Browse pages" })
     }
 }
 
