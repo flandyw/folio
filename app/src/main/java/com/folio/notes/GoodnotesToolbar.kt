@@ -2,17 +2,30 @@
 package com.folio.notes
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,7 +89,11 @@ private val TabHeight = 28.dp
     }
 }
 
-/** The neutral strip behind the tabs; the active tab shares the bar's colour so the two read as one. */
+/**
+ * The neutral strip behind the tabs; the active tab shares the bar's colour so the two read as one.
+ * Tabs behave like a browser's: tap to switch, press and drag sideways to reorder, and drag one down
+ * onto the page to open it in split view.
+ */
 @Composable private fun TabStrip(
     tabs: List<EditorTabChip>,
     activeId: String?,
@@ -85,10 +102,31 @@ private val TabHeight = 28.dp
     onClose: (String) -> Unit,
     onNew: (() -> Unit)?,
 ) {
-    val listState = rememberLazyListState()
+    val split = LocalSplitView.current
+    val reorder = LocalTabOrder.current
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val scroll = rememberScrollState()
+    // The order shown while a tab is held; the store only hears about it on release.
+    var order by remember { mutableStateOf<List<String>?>(null) }
+    var dragged by remember { mutableStateOf<String?>(null) }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val bounds = remember { mutableStateMapOf<String, Pair<Float, Float>>() }
+    val splitReach = with(density) { 56.dp.toPx() }
+    val spacing = with(density) { FolioSpacing.dp4.toPx() }
+    val ids = tabs.map { it.id }
+    val shown = order?.takeIf { it.toSet() == ids.toSet() }?.let { held -> held.mapNotNull { id -> tabs.find { it.id == id } } } ?: tabs
     LaunchedEffect(activeId, tabs.size) {
-        val index = tabs.indexOfFirst { it.id == activeId }
-        if (index >= 0) listState.animateScrollToItem(index)
+        val (start, width) = bounds[activeId] ?: return@LaunchedEffect
+        if (start < scroll.value || start + width > scroll.value + scroll.viewportSize) {
+            scroll.animateScrollTo((start - spacing * 4).roundToInt().coerceAtLeast(0))
+        }
+    }
+    fun move(id: String, by: Int) {
+        val now = ids.toMutableList(); val from = now.indexOf(id); val to = (from + by).coerceIn(0, now.lastIndex)
+        if (from < 0 || from == to) return
+        now.add(to, now.removeAt(from)); reorder?.invoke(now)
     }
     // Material's 48 dp minimum otherwise wraps the 28 dp tab in extra layout space,
     // lifting it off the bottom of the strip. Compose still expands touch hit targets.
@@ -102,39 +140,118 @@ private val TabHeight = 28.dp
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
             Box(Modifier.padding(horizontal = FolioSpacing.dp8)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
-            LazyRow(
-                Modifier.weight(1f, fill = false).fillMaxHeight(),
-                state = listState,
+            Row(
+                Modifier.weight(1f, fill = false).fillMaxHeight().horizontalScroll(scroll, enabled = dragged == null),
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                items(tabs, key = { it.id }) { tab -> Tab(tab, tab.id == activeId, onSelect, onClose) }
+                shown.forEach { tab -> key(tab.id) {
+                    val held = dragged == tab.id
+                    val splitting = held && split != null && dragY > splitReach
+                    Tab(tab, tab.id == activeId, held, splitting, onClose,
+                        modifier = Modifier
+                            .onGloballyPositioned { bounds[tab.id] = it.positionInParent().x to it.size.width.toFloat() }
+                            .zIndex(if (held) 1f else 0f)
+                            .graphicsLayer {
+                                if (held) { translationX = dragX; translationY = dragY.coerceAtLeast(0f); shadowElevation = 6.dp.toPx(); alpha = if (splitting) .85f else 1f }
+                            }
+                            .semantics {
+                                role = Role.Tab; selected = tab.id == activeId
+                                onClick { onSelect(tab.id); true }
+                                customActions = listOfNotNull(
+                                    split?.let { CustomAccessibilityAction("Open in split view") { it.openBeside(tab.id); true } },
+                                    reorder?.let { CustomAccessibilityAction("Move tab left") { move(tab.id, -1); true } },
+                                    reorder?.let { CustomAccessibilityAction("Move tab right") { move(tab.id, 1); true } },
+                                )
+                            }
+                            .pointerInput(tab.id) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    // Before the hold a sideways slide scrolls the strip; after it, it carries the tab.
+                                    var lifted = false
+                                    val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                        while (true) {
+                                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                                            // The close button consumes its own tap.
+                                            if (!change.pressed) return@withTimeoutOrNull !change.isConsumed
+                                            if (change.isConsumed || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+                                        }
+                                        @Suppress("UNREACHABLE_CODE") false
+                                    }
+                                    when (released) {
+                                        true -> { onSelect(tab.id); return@awaitEachGesture }
+                                        false -> return@awaitEachGesture
+                                        null -> lifted = true
+                                    }
+                                    if (!lifted || (reorder == null && split == null)) return@awaitEachGesture
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    dragged = tab.id; dragX = 0f; dragY = 0f; order = ids
+                                    var moved = false
+                                    while (true) {
+                                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        val delta = change.position - change.previousPosition
+                                        change.consume()
+                                        dragX += delta.x; dragY += delta.y
+                                        if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                                        // Swap with a neighbour once the held tab's middle passes the neighbour's middle.
+                                        val current = order ?: break
+                                        val at = current.indexOf(tab.id)
+                                        val (start, width) = bounds[tab.id] ?: continue
+                                        val middle = start + dragX + width / 2
+                                        val next = current.getOrNull(at + 1)?.let { id -> bounds[id]?.let { id to it } }
+                                        val previous = current.getOrNull(at - 1)?.let { id -> bounds[id]?.let { id to it } }
+                                        if (reorder != null && next != null && middle > next.second.first + next.second.second / 2) {
+                                            order = current.toMutableList().apply { add(at + 1, removeAt(at)) }
+                                            dragX -= next.second.second + spacing
+                                        } else if (reorder != null && previous != null && middle < previous.second.first + previous.second.second / 2) {
+                                            order = current.toMutableList().apply { add(at - 1, removeAt(at)) }
+                                            dragX += previous.second.second + spacing
+                                        }
+                                    }
+                                    val final = order
+                                    val split = split?.takeIf { dragY > splitReach || !moved }
+                                    dragged = null; dragX = 0f; dragY = 0f
+                                    when {
+                                        // Pulled down onto the page, or held still: open it beside the editor.
+                                        split != null -> { order = null; split.openBeside(tab.id) }
+                                        final != null && final != ids -> reorder?.invoke(final)
+                                    }
+                                    // Keep the dropped order on screen until the store's order catches up.
+                                    if (final == null || final == ids) order = null
+                                }
+                            })
+                } }
             }
             if (onNew != null) TabAction(Icons.Rounded.Add, "Open another document", onNew)
         }
     }
+    LaunchedEffect(ids) { if (order == ids) order = null }
 }
 
-@Composable private fun Tab(tab: EditorTabChip, active: Boolean, onSelect: (String) -> Unit, onClose: (String) -> Unit) {
+@Composable private fun Tab(tab: EditorTabChip, active: Boolean, held: Boolean, splitting: Boolean, onClose: (String) -> Unit, modifier: Modifier) {
     val title = tab.title.ifBlank { "Untitled" }
-    // Long-press opens the tab beside the editor, as dragging a tab does in other note apps.
-    val split = LocalSplitView.current
-    val shape = RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius)
+    val shape = if (held) RoundedCornerShape(FolioShapes.mediumRadius) else RoundedCornerShape(topStart = FolioShapes.mediumRadius, topEnd = FolioShapes.mediumRadius)
     Surface(
         shape = shape,
-        color = if (active) BarTones.container else Color.Transparent,
-        contentColor = if (active) BarTones.content else BarTones.stripContent,
-        modifier = Modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp)
-            .clip(shape)
-            .combinedClickable(
-                onClick = { onSelect(tab.id) },
-                onLongClick = split?.let { { it.openBeside(tab.id) } },
-                onLongClickLabel = if (split != null) "Open in split view" else null,
-            )
-            .semantics { role = Role.Tab; selected = active },
+        color = when {
+            splitting -> MaterialTheme.colorScheme.primaryContainer
+            active || held -> BarTones.container
+            else -> Color.Transparent
+        },
+        contentColor = when {
+            splitting -> MaterialTheme.colorScheme.onPrimaryContainer
+            active || held -> BarTones.content
+            else -> BarTones.stripContent
+        },
+        modifier = modifier.height(TabHeight).widthIn(min = 88.dp, max = 200.dp).clip(shape),
     ) {
         Row(Modifier.fillMaxHeight().padding(start = FolioSpacing.dp8, end = FolioSpacing.dp2), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
+            if (splitting) {
+                Icon(Icons.Rounded.VerticalSplit, null, Modifier.size(14.dp))
+                Spacer(Modifier.width(FolioSpacing.dp4))
+            }
+            Text(if (splitting) "Open beside" else title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(FolioSpacing.dp2))
             IconButton({ onClose(tab.id) }, modifier = Modifier.size(24.dp), shapes = IconButtonDefaults.shapes()) {

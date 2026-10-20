@@ -162,6 +162,19 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         }
     }
 
+    /** Puts the tabs named in [order] (notebook ids) in that order; tabs it leaves out keep their slots. */
+    fun reorderTabs(order: List<String>) {
+        with(runtime) {
+            _state.update { state ->
+                val named = order.toSet()
+                val moving = ArrayDeque(order.mapNotNull { id -> state.tabs.find { it.notebookId == id } })
+                if (moving.size != state.tabs.count { it.notebookId in named }) return@update state
+                val next = state.tabs.map { if (it.notebookId in named) moving.removeFirst() else it }
+                if (next == state.tabs) state else state.copy(tabs = next)
+            }
+        }
+    }
+
     fun closeOtherTabs(keepId: String) {
         with(runtime) {
             captureTab()
@@ -410,15 +423,17 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
                         a.editorOnRight == b.editorOnRight && a.pdfSearch == b.pdfSearch
                 }
                 .collect { savedState["activeId"] = it.activeId; savedState["pageIndex"] = it.pageIndex; savedState["folderId"] = it.folderId
-            savedState["workspaceTabs"] = WorkspaceSessionCodec.encode(it.tabs.map { tab ->
+            val tabSession = WorkspaceSessionCodec.encode(it.tabs.map { tab ->
                 if (tab.notebookId == it.activeId) tab.copy(currentPageId = it.page?.id ?: tab.currentPageId, search = it.pdfSearch) else tab
             })
+            savedState["workspaceTabs"] = tabSession
             persistCompanionPosition(it.companion)
             val companionSession = WorkspaceSessionCodec.encode(listOfNotNull(it.companion))
             savedState["workspaceCompanion"] = companionSession
             // SavedStateHandle covers recreation; preferences also cover a fresh app launch.
             prefs.edit()
                 .putString("workspaceCompanion", companionSession)
+                .putString("workspaceTabs", tabSession)
                 .putBoolean("companionLinked", it.companionLinked)
                 .putString("companionHostId", it.companionHostId)
                 .apply()

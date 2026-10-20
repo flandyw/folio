@@ -688,9 +688,29 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         }
     }
 
-    internal fun history(from: MutableMap<String, MutableList<PageEdit>>, to: MutableMap<String, MutableList<PageEdit>>) {
+    /**
+     * Undo/redo on one page outside the active notebook: the split view's other pane takes ink from
+     * the shared toolbar, and its steps come off that page's own stacks.
+     */
+    fun undoPage(pageId: String) {
         with(runtime) {
-            val page = _state.value.page ?: return
+            if (documentHistoryBusy || undo[pageId].isNullOrEmpty()) return
+            inkRedoSeq[pageId] = ++actionCounter
+            history(undo, redo, pageId)
+        }
+    }
+
+    fun redoPage(pageId: String) {
+        with(runtime) {
+            if (documentHistoryBusy || redo[pageId].isNullOrEmpty()) return
+            inkSeq[pageId] = ++actionCounter
+            history(redo, undo, pageId)
+        }
+    }
+
+    internal fun history(from: MutableMap<String, MutableList<PageEdit>>, to: MutableMap<String, MutableList<PageEdit>>, pageId: String? = null) {
+        with(runtime) {
+            val page = (if (pageId != null) findPageContent(pageId) else _state.value.page) ?: return
             if (!page.loaded) return
             if (from[page.id]?.lastOrNull()?.groupId != null) { reportError("Undo this action through document history"); return }
             val op = from[page.id]?.removeLastOrNull() ?: return

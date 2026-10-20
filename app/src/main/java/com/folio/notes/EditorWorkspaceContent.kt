@@ -892,6 +892,8 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         palmRejectMs = palmRejectMs,
         panMultiplier = panMultiplier,
         inkStyle = options.style)
+    // Split view's other pane writes with this same pen, so there is never a second toolbar.
+    LocalSharedInk.current?.let { shared -> SideEffect { shared.value = sharedSurface } }
     val keyboardWindowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(keyboardWindowFocused) { if (!keyboardWindowFocused) temporaryTool = null }
     val keyLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -1613,7 +1615,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             // Practice notebooks stay in Mistakes; a regular tab uses its current title.
                             tabs = if (focusMode) emptyList() else state.tabs.mapNotNull { tab ->
                                 val notebook = state.notes.find { it.id == tab.notebookId }
-                                if (notebook?.mistakePractice == true) null
+                                if (notebook == null || notebook.mistakePractice) null
                                 else EditorTabChip(tab.notebookId, notebook?.title ?: tab.title)
                             },
                             activeTabId = note.id,

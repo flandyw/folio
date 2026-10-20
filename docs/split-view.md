@@ -6,11 +6,18 @@ it, a chooser that appears in the new pane, and no modes to pick.
 ## How it works for the user
 
 - **Open:** the split button in the editor toolbar (both toolbar styles), *Split view…* in the notebook
-  menu, Ctrl + \ or the command palette, or long-press a tab in the tab strip. The screen splits at once
+  menu, Ctrl + \ or the command palette, or in the tab strip drag a tab down onto the page (it turns
+  into *Open beside*) or hold it without moving. The screen splits at once
   and the new pane shows a chooser: search, **This notebook** (opens on the page being edited, so two pages
   of one notebook are one tap apart), **Open tabs**, then **Recent** notebooks.
-- **Work in either pane:** the editor (with its toolbar) is one pane. A pen touch on the other pane, or a
-  deliberate finger tap there, or its **Edit** button makes it the editor. The documents stay where they
+- **Tabs:** tap to switch; press, hold and drag sideways to reorder (like a browser). The order and the
+  open tabs are kept across restarts (`workspaceTabs` in preferences as well as the saved state).
+- **Write in both at once:** there is only one toolbar. With a pen, highlighter, eraser, shape or laser
+  selected, the pen writes straight into the other pane with that tool (`LocalSharedInk`, published by
+  the editor), and the pane's bar gains Undo/Redo for that page (`undoPage`/`redoPage`) once you've
+  written there; the toolbar's Undo stays the editor's.
+- **Make the other pane the editor:** a deliberate finger tap there, its **Edit** button, or a pen
+  touch while a tool the pane can't use alone (text, lasso, sticky notes, mark area…) is selected. The documents stay where they
   are and only the toolbar moves. The touch that switches panes is consumed, so a stroke never lands in
   the wrong document. A finger still scrolls, zooms and follows PDF links in the other pane. Finger taps
   are ignored while a pen is active (`StylusActivity`), so a resting palm can't switch panes.
@@ -40,8 +47,11 @@ saved workspace's `mode` field is ignored when it is read.
 
 ## Device checks
 
-1. Open a notebook, tap the split button, and pick a PDF. Write in the editor, then put the pen on the PDF:
-   the toolbar moves over, no stroke lands on the PDF, and the next stroke writes there.
+1. Open a notebook, tap the split button, and pick a PDF. Write in the editor, then write on the PDF with
+   the pen: the stroke lands on the PDF and the toolbar stays put; the pane's Undo removes it. Switch to
+   lasso and touch the PDF with the pen: the toolbar moves over and no stroke is drawn.
+7. Drag tabs to reorder them, restart the app, and check the order. Drag a tab down onto the page: it
+   opens beside the editor.
 2. Pick **This notebook**: both panes show the same notebook. Write on each page in turn and check that
    both thumbnails update and undo stays per page.
 3. Drag the divider to each edge: *Release to close* appears, and the remaining document keeps its page

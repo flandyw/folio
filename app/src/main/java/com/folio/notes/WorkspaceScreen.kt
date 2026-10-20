@@ -46,6 +46,21 @@ internal class SplitViewControl(val open: Boolean, val toggle: () -> Unit, val o
 /** Provided by the workspace only; editors elsewhere (mistake review, music) have no split. */
 internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
 
+/** Puts the open tabs in the given order (notebook ids); provided by the workspace only. */
+internal val LocalTabOrder = compositionLocalOf<((List<String>) -> Unit)?> { null }
+
+/**
+ * The editor's live pen settings, published by the editor so the other pane can write with the same
+ * tool. There is one toolbar for both documents; it never has to move just to draw.
+ */
+internal val LocalSharedInk = compositionLocalOf<MutableState<InkSurfaceConfig?>?> { null }
+
+/**
+ * Tools the other pane takes straight from the shared toolbar. Text, lasso, sticky notes and the
+ * like need the editor's own panels, so a pen with one of those moves the editor over instead.
+ */
+private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASER) + ShapePickerTools
+
 /**
  * The editor, and optionally a second document beside it. The toolbar's split button opens the
  * second pane straight onto a document chooser; writing in that pane (or tapping it) makes it the
@@ -66,6 +81,7 @@ internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
     var linkOffset by remember { mutableStateOf(false) }
     // The divider's position while a finger holds it; the store only hears about the release.
     var dragging by remember { mutableStateOf<Float?>(null) }
+    val sharedInk = remember { mutableStateOf<InkSurfaceConfig?>(null) }
     val companion = state.companion
     val note = state.notes.find { it.id == companion?.notebookId }
     val paired = companion != null && note != null
@@ -106,7 +122,8 @@ internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
                 // editor composition (LazyListState, InkViews, PDF backgrounds) on every page jump.
                 // Page jumps scroll via LaunchedEffect in EditorScreen instead.
                 key(state.activeId, state.workspaceRestoreRequest) {
-                    CompositionLocalProvider(LocalSplitView provides control, LocalWorkspaceCommands provides commands) {
+                    CompositionLocalProvider(LocalSplitView provides control, LocalWorkspaceCommands provides commands,
+                        LocalTabOrder provides model::reorderTabs, LocalSharedInk provides sharedInk) {
                         EditorScreen(state, model, finger, haptics, shapeRecognition, onSettings, onExport,
                             onShareLongPress = onShareLongPress,
                             onChatGpt = onChatGpt,
@@ -114,11 +131,8 @@ internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
                             notebookActions = { dismiss ->
                                 PopoverRow(Icons.Rounded.VerticalSplit, if (splitOpen) "Close split view" else "Split view…") { dismiss(); toggleSplit() }
                                 if (paired) PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight)) { dismiss(); model.swapPaneSides() }
-                                PopoverRow(Icons.AutoMirrored.Rounded.MenuBook, "Open documents · ${state.tabs.size}") { dismiss(); onBrowseLibrary(PickerPurpose.TABS) }
                                 PopoverRow(Icons.Rounded.Bookmarks, "Saved workspaces") { dismiss(); savedWorkspaces = true }
                                 PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN) }
-                                PopoverRow(Icons.Rounded.Close, "Close this tab") { dismiss(); state.activeId?.let(model::closeTab) }
-                                PopoverRow(Icons.Rounded.ClearAll, "Close other tabs", enabled = state.tabs.size > 1) { dismiss(); state.activeId?.let(model::closeOtherTabs) }
                             })
                     }
                 }
@@ -150,7 +164,7 @@ internal val LocalSplitView = compositionLocalOf<SplitViewControl?> { null }
                 if (choosing || !paired) SplitChooserPane(state, model, replacing = paired,
                     onPick = ::openBeside, onCancel = { choosing = false })
                 else key(companion!!.notebookId, state.workspaceRestoreRequest) {
-                    CompanionPane(state, model, companion, note!!, finger,
+                    CompanionPane(state, model, companion, note!!, sharedInk.value,
                         onFocus = model::swapCompanion,
                         onChangeDocument = { choosing = true },
                         onSavedWorkspaces = { savedWorkspaces = true },
@@ -232,17 +246,21 @@ private enum class SplitSlot { EDITOR, HANDLE, OTHER }
 }
 
 /**
- * Makes the pane the editor as soon as a pen touches it, and on a deliberate finger tap. The pen's
+ * Makes the pane the editor on a deliberate finger tap, and when a pen touches it holding a tool the
+ * pane can't use on its own (with an ink tool the pen just writes there). The pen's
  * contact is consumed (the read-only page underneath gets a cancel), so the stroke is never drawn
  * into the wrong document; a finger still scrolls, zooms and follows links in the pane, and a palm
  * near a pen that was just writing is never taken for a tap.
  */
-private fun Modifier.focusOnTouch(stylus: StylusActivity, linkFollowedAt: () -> Long, onFocus: () -> Unit): Modifier = composed {
+private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, linkFollowedAt: () -> Long, onFocus: () -> Unit): Modifier = composed {
     val scope = rememberCoroutineScope()
     val focus by rememberUpdatedState(onFocus)
+    val writes by rememberUpdatedState(penWrites)
     pointerInput(stylus) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            // With an ink tool the pen simply writes here; the toolbar stays where it is.
+            if (isPen(down.type) && writes) return@awaitEachGesture
             if (isPen(down.type)) {
                 down.consume()
                 focus()
@@ -276,7 +294,7 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, linkFollowedAt: () -> 
 }
 
 @Composable private fun CompanionPane(state: FolioState, model: FolioViewModel, pane: EditorTab, note: Notebook,
-    finger: Boolean,
+    sharedInk: InkSurfaceConfig?,
     onFocus: () -> Unit,
     onChangeDocument: () -> Unit,
     onSavedWorkspaces: () -> Unit,
@@ -320,6 +338,10 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, linkFollowedAt: () -> 
         model.updateCompanionViewport(viewport)
     }
     val handOptions = remember { ToolOptions.defaults(Tool.HAND) }
+    // Both documents are editable at once: the pane borrows the editor's pen, eraser or shape, and
+    // a finger keeps scrolling, zooming and following links.
+    val writable = sharedInk != null && sharedInk.tool in PaneInkTools
+    var wrote by remember(page.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         // The pane's own slim bar: its title switches the document, Edit (or simply writing on the
         // page) makes it the editor, and the rest of the split's controls live in its menu.
@@ -336,13 +358,18 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, linkFollowedAt: () -> 
                             buildString {
                                 append("Page ${index + 1} of ${note.pages.size}")
                                 if (state.companionLinked) append(" · linked")
-                                append(" · write here to edit")
+                                append(if (writable) " · writing with your pen" else " · tap to edit")
                             },
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Icon(Icons.Rounded.ArrowDropDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                // Steps written here come off this page's own stacks; the toolbar's undo is the editor's.
+                if (wrote) {
+                    IconButton({ model.undoPage(page.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo in this pane") }
+                    IconButton({ model.redoPage(page.id) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo in this pane") }
                 }
                 TextButton(onFocus, shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp))
@@ -371,14 +398,20 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, linkFollowedAt: () -> 
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
-            Box(Modifier.fillMaxSize().focusOnTouch(stylus, { linkFollowedAt }, onFocus)) {
+            Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, onFocus)) {
                 key(note.id, page.id) {
                     val onCamera = remember(pane.notebookId, page.id) {
                         { vp: WorkspaceViewport -> viewport = viewport.copy(canvasX = vp.canvasX, canvasY = vp.canvasY, canvasZoom = vp.canvasZoom) }
                     }
                     val onLoad = remember(note.id, page.id) { { model.loadPage(page.id) } }
+                    val mutations = remember(page.id) { model.pageMutations(page.id) }
+                    val paneMutations = remember(mutations) { object : EditorPageMutations by mutations {
+                        override fun appendStroke(before: List<Stroke>, stroke: Stroke, after: List<Stroke>) { wrote = true; mutations.appendStroke(before, stroke, after) }
+                        override fun strokes(values: List<Stroke>) { wrote = true; mutations.strokes(values) }
+                    } }
                     EditorPage(note.id, page, model,
-                        surface = InkSurfaceConfig(tool = Tool.HAND,
+                        surface = if (writable) sharedInk!!.copy(finger = false, multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
+                        else InkSurfaceConfig(tool = Tool.HAND,
                             options = handOptions,
                             finger = false,
                             snapEnabled = false,
@@ -387,10 +420,10 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, linkFollowedAt: () -> 
                         presentation = PagePresentation(active = false,
                             fullscreen = true,
                             canvasReset = reset,
-                            readOnly = true,
+                            readOnly = !writable,
                             initialViewport = pane.viewport,
                             pdfLinks = if (linksOn) links else emptyList()),
-                        actions = EditorPageActions(mutations = remember(page.id) { model.pageMutations(page.id) }, onActive = {},
+                        actions = EditorPageActions(mutations = paneMutations, onActive = {},
                             onPan = { _, _ -> },
                             onPanEnd = {},
                             onSelection = {},

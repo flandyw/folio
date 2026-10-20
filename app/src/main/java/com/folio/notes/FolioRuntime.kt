@@ -34,7 +34,8 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal val companionPositionPrefs get() = workspaceManager.companionPositionPrefs
     val repository = (application as FolioApplication).repository
     val thumbnails = (application as FolioApplication).thumbnails
-    internal val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"])
+    // SavedStateHandle covers recreation; preferences bring the tabs back on a fresh launch.
+    internal val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"] ?: prefs.getString("workspaceTabs", null))
     internal val _state = DocumentStateStore(FolioState(tabs = restoredTabs,
         backupExcludedNotebookIds = AppPrefs.backupExcludedNotebookIds(prefs.getStringSet(AppPrefs.BACKUP_EXCLUDED_NOTEBOOKS, AppPrefs.DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS)),
         pdfSearch = restoredTabs.find { it.notebookId == savedState.get<String>("activeId") }?.search ?: PdfSearchState(),
@@ -198,6 +199,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun close(): Unit = workspaceManager.close()
 
     fun closeTab(id: String): Unit = workspaceManager.closeTab(id)
+    fun reorderTabs(order: List<String>): Unit = workspaceManager.reorderTabs(order)
 
     fun closeOtherTabs(keepId: String): Unit = workspaceManager.closeOtherTabs(keepId)
 
@@ -399,6 +401,8 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun undo(): Unit = documentEngine.undo()
     fun redo(): Unit = documentEngine.redo()
+    fun undoPage(pageId: String): Unit = documentEngine.undoPage(pageId)
+    fun redoPage(pageId: String): Unit = documentEngine.redoPage(pageId)
 
     // ---- Exam timer -----------------------------------------------------------------------
 
