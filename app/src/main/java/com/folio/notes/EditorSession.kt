@@ -23,12 +23,27 @@ internal class EditorToolState(private val prefs: SharedPreferences, initial: To
     val tool = object : MutableState<Tool> {
         override var value: Tool
             get() = selected.value
-            set(value) { if (selected.value != value) { selected.value = value; options.value = ToolOptions.load(prefs, value) } }
+            set(value) { if (selected.value != value) { flushSave(); selected.value = value; options.value = ToolOptions.load(prefs, value) } }
         override fun component1() = value
         override fun component2(): (Tool) -> Unit = { value = it }
     }
-    fun changeOptions(value: ToolOptions) { options.value = value; value.save(prefs, tool.value) }
-    fun optionsFor(value: Tool): ToolOptions = if (value == tool.value) options.value else ToolOptions.load(prefs, value)
+    // A slider drag changes the options every frame; the page reads [options] at once, but the
+    // preference write waits until the drag settles so it never competes with drawing.
+    private val saver = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingSave: Pair<ToolOptions, Tool>? = null
+    private val flush = Runnable { flushSave() }
+    fun flushSave() {
+        saver.removeCallbacks(flush)
+        pendingSave?.let { (value, owner) -> value.save(prefs, owner) }
+        pendingSave = null
+    }
+    fun changeOptions(value: ToolOptions) {
+        options.value = value
+        pendingSave = value to tool.value
+        saver.removeCallbacks(flush)
+        saver.postDelayed(flush, 250)
+    }
+    fun optionsFor(value: Tool): ToolOptions = if (value == tool.value) options.value else { flushSave(); ToolOptions.load(prefs, value) }
     fun select(value: Tool, singleStroke: Boolean): Boolean {
         if (value == tool.value) return false
         if (value == Tool.ERASER && singleStroke) eraserReturn.value = tool.value

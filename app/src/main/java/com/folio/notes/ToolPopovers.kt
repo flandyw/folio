@@ -157,14 +157,14 @@ internal class PopoverPositionProvider(private val margin: Int, private val gap:
 /** A labelled slider row that shows its value, used for width and opacity in popovers. */
 @Composable internal fun PopoverSlider(
     label: String, valueText: String, value: Float, range: ClosedFloatingPointRange<Float>,
-    onChange: (Float) -> Unit, enabled: Boolean = true, description: String = label
+    onChange: (Float) -> Unit, enabled: Boolean = true, description: String = label, onFinished: (() -> Unit)? = null
 ) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
             Text(valueText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Slider(value.coerceIn(range), onChange, valueRange = range, enabled = enabled, modifier = Modifier.semanticsLabel(description))
+        Slider(value.coerceIn(range), onChange, valueRange = range, enabled = enabled, onValueChangeFinished = onFinished, modifier = Modifier.semanticsLabel(description))
     }
 }
 

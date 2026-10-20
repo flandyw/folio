@@ -125,102 +125,132 @@ object EditorQuickPrefs {
             }
             Tool.TEXT -> Text("Tap the page to type, or tap existing text to edit it in place. Use the toolbar to format it, the upper grip to move it and the lower grip to change its wrap width. Tap outside or Done to finish; Undo reverses the edit.", style = MaterialTheme.typography.bodyMedium)
             else -> {
-                val range = WidthPresets.range(WidthPresets.group(tool))
-                val ink = Color(options.color).copy(alpha = options.opacity)
-                if (tool == Tool.ERASER) StrokeSample(options.width.coerceAtMost(24f), MaterialTheme.colorScheme.outline)
-                else StrokeSample(options.width, ink)
-                PopoverSlider(if (tool == Tool.ERASER) "Eraser diameter" else "Stroke width", String.format(Locale.ROOT, "%.1f pt", options.width), options.width, range,
-                    { onChange(options.copy(width = WidthPresets.clamp(WidthPresets.group(tool), it))) })
-                if (tool != Tool.ERASER) {
-                    PopoverSlider("Opacity", "${(options.opacity * 100).roundToInt()}%", options.opacity, 0.05f..1f, { onChange(options.copy(opacity = it)) })
-                    PopoverSection("Colour", initiallyOpen = true) { InkColorsSection(options, onChange, quick, InkColors.groupOf(tool)) }
+                // Two short pages instead of one long column of sections: what the ink looks like,
+                // then how the tool behaves. Only the open page is composed, so the popover opens fast.
+                var page by rememberSaveable(tool) { mutableIntStateOf(0) }
+                FolioButtonGroup(Modifier.fillMaxWidth()) {
+                    toggleableItem(page == 0, if (tool == Tool.ERASER) "Size" else "Style", { page = 0 }, weight = 1f)
+                    toggleableItem(page == 1, "Behaviour", { page = 1 }, weight = 1f)
                 }
-                if (tool == Tool.PEN) PopoverSection("Smoothing", initiallyOpen = true) {
-                    val smoothing by rememberPref(prefs, AppPrefs.PEN_SMOOTHING) {
-                        AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING))
-                    }
-                    PopoverSlider("Pen smoothing", if (smoothing == 0f) "Off" else "${(smoothing * 100).roundToInt()}%",
-                        smoothing, 0f..1f, { prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)).apply() })
-                    Text("Steadies small jitters while keeping up with faster writing. Applies to new pen strokes; slide to zero to turn it off.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING).apply() },
-                        shapes = ButtonDefaults.shapes()) { Text("Reset smoothing") }
-                }
-                if (tool == Tool.PEN) PopoverSection("Speed") {
-                    val thinner by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
-                    SwitchRow("Thinner when fast", thinner, { prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, it).apply() },
-                        hint = "Quick strokes lay down thinner ink, like a real pen. Applies to new pen strokes.")
-                }
-                if (tool == Tool.HIGHLIGHTER) PopoverSection("Tilt") {
-                    val tilt by rememberPref(prefs, AppPrefs.HIGHLIGHTER_TILT) { it.getBoolean(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT) }
-                    SwitchRow("Tilt widens the highlighter", tilt, { prefs.edit().putBoolean(AppPrefs.HIGHLIGHTER_TILT, it).apply() },
-                        hint = "Lay the stylus over for a broader stroke. The width is set when the pen touches down.")
-                }
-                if (tool == Tool.PEN) PopoverSection("Pressure") {
-                    SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })
-                    PopoverSlider("Sensitivity", String.format(Locale.ROOT, "%.2f×", options.pressureSensitivity), PenPressure.sensitivity(options.pressureSensitivity),
-                        PenPressure.sensitivityRange, { onChange(options.copy(pressureSensitivity = it)) }, enabled = options.pressure, description = "Pen pressure sensitivity")
-                    PopoverSlider("Width variation", "${(options.pressureVariation * 100).roundToInt()}%", PenPressure.variation(options.pressureVariation),
-                        PenPressure.variationRange, { onChange(options.copy(pressureVariation = it)) }, enabled = options.pressure, description = "Pen pressure width variation")
-                    PopoverSlider("Response curve", String.format(Locale.ROOT, "%.2f", options.pressureCurve), PenPressure.curve(options.pressureCurve),
-                        PenPressure.curveRange, { onChange(options.copy(pressureCurve = it)) }, enabled = options.pressure, description = "Pen pressure response curve")
-                    Text("Feel", style = MaterialTheme.typography.labelLarge)
-                    FolioButtonGroup {
-                        PenPressure.Feel.entries.forEach { feel ->
-                            toggleableItem(PenPressure.Feel.matching(options.pressureCurve, options.pressureSensitivity) == feel, feel.label,
-                                { onChange(options.copy(pressure = true, pressureCurve = feel.curve, pressureSensitivity = feel.sensitivity)) })
-                        }
-                    }
-                    Text("Light and Firm bend how pressure is read: a light pen reaches full width sooner, a firm one needs a harder press. Higher sensitivity needs less pressure for thicker ink. Applies to new pen strokes only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f, pressureCurve = 1f)) }, shapes = ButtonDefaults.shapes()) { Text("Reset pen pressure") }
-                }
-                if (tool in ShapePickerTools) {
-                    PopoverSection("Line style", initiallyOpen = true) {
-                        // M3e button group: these three are one choice, so they read as connected toggles.
-                        StrokeStyle.entries.chunked(3).forEach { row ->
-                            FolioButtonGroup {
-                                row.forEach { style -> toggleableItem(options.style == style, style.label, { onChange(options.copy(style = style)) }) }
-                            }
-                        }
-                        var measurements by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true)) }
-                        SwitchRow("Live measurements", measurements, {
-                            measurements = it
-                            prefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, it).apply()
-                        }, "Shows length/angle or width×height while drawing. Lines snap to 15° and to the grid on Maths/Grid/Graph paper.")
-                        var snap by remember { mutableStateOf(prefs.getBoolean("mathSnap", true)) }
-                        SwitchRow("Snap to grid and 15°", snap, {
-                            snap = it
-                            prefs.edit().putBoolean("mathSnap", it).apply()
-                        }, "Lines snap to 15° and to the grid on Maths, Grid and Graph paper.")
-                    }
-                    if (tool == Tool.GRAPH) PopoverSection("Graph axes") { GraphStyleSection(options) }
-                }
-                if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool in ShapePickerTools) {
-                    HorizontalDivider()
-                    ShapeAssistSettings()
-                }
-                if (tool == Tool.ERASER) {
-                    var pressure by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true)) }
-                    SwitchRow("Pressure-sensitive size", pressure, {
-                        pressure = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, it).apply()
-                    }, "Slightly grows with stronger pressure (about ±12%).")
-                    var single by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false)) }
-                    SwitchRow("Single-stroke eraser", single, {
-                        single = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, it).apply()
-                    }, "One eraser stroke, then back to the previous tool.")
-                    var whole by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false)) }
-                    SwitchRow("Whole-stroke eraser", whole, {
-                        whole = it
-                        prefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, it).apply()
-                    }, "Removes the entire stroke or shape you touch instead of cutting it.")
-                }
-                if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) PopoverSection("Scribble to erase") { ScribbleSettingsSection(showPracticeInitially = false) }
-                if (presets != null && tool in DrawingTools) PopoverSection("Tool presets") { ToolPresetSection(tool, options, presets, onApplyPreset) }
+                if (page == 0) ToolStylePage(tool, options, onChange, quick, presets, onApplyPreset, prefs)
+                else ToolBehaviourPage(tool, options, onChange, prefs)
             }
         }
     }
+}
+
+@Composable private fun ToolStylePage(
+    tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState,
+    presets: ToolPresetState?, onApplyPreset: ((ToolPreset) -> Unit)?, prefs: SharedPreferences
+) {
+    val range = WidthPresets.range(WidthPresets.group(tool))
+    val ink = Color(options.color).copy(alpha = options.opacity)
+    if (tool == Tool.ERASER) StrokeSample(options.width.coerceAtMost(24f), MaterialTheme.colorScheme.outline)
+    else StrokeSample(options.width, ink)
+    if (tool == Tool.PEN) PenNibRow(options, onChange, prefs)
+    PopoverSlider(if (tool == Tool.ERASER) "Eraser diameter" else "Width", String.format(Locale.ROOT, "%.1f pt", options.width), options.width, range,
+        { onChange(options.copy(width = WidthPresets.clamp(WidthPresets.group(tool), it))) })
+    if (tool != Tool.ERASER) {
+        PopoverSlider("Opacity", "${(options.opacity * 100).roundToInt()}%", options.opacity, 0.05f..1f, { onChange(options.copy(opacity = it)) })
+        InkColorsSection(options, onChange, quick, InkColors.groupOf(tool))
+    }
+    if (tool in ShapePickerTools) {
+        Text("Line style", style = MaterialTheme.typography.labelLarge)
+        // M3e button group: these are one choice, so they read as connected toggles.
+        StrokeStyle.entries.chunked(3).forEach { row ->
+            FolioButtonGroup { row.forEach { style -> toggleableItem(options.style == style, style.label, { onChange(options.copy(style = style)) }) } }
+        }
+    }
+    if (presets != null && tool in DrawingTools) PopoverSection("Presets") { ToolPresetSection(tool, options, presets, onApplyPreset) }
+}
+
+/** Fineliner … Brush: each fills the pressure response and the pen-feel switches in one tap. */
+@Composable private fun PenNibRow(options: ToolOptions, onChange: (ToolOptions) -> Unit, prefs: SharedPreferences) {
+    val speed by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
+    val taper by rememberPref(prefs, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
+    val current = PenNib.matching(options, speed, taper)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Nib", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+        Text(current?.label ?: "Custom", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    FolioButtonGroup(Modifier.fillMaxWidth()) {
+        PenNib.entries.forEach { nib ->
+            toggleableItem(current == nib, nib.label, {
+                prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, nib.speedWidth).putFloat(AppPrefs.INK_TAPER, nib.taper).apply()
+                onChange(nib.applyTo(options))
+            }, weight = 1f)
+        }
+    }
+}
+
+/** A preference slider that only writes when the finger lifts, for settings that are costly to apply per frame. */
+@Composable private fun CommitSlider(
+    label: String, value: Float, range: ClosedFloatingPointRange<Float>, text: (Float) -> String, onCommit: (Float) -> Unit
+) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val shown = dragging ?: value
+    PopoverSlider(label, text(shown), shown, range, { dragging = it }, onFinished = { dragging?.let(onCommit); dragging = null })
+}
+
+@Composable private fun ToolBehaviourPage(tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, prefs: SharedPreferences) {
+    if (tool == Tool.PEN) {
+        val smoothing by rememberPref(prefs, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
+        CommitSlider("Smoothing", smoothing, 0f..1f, { if (it == 0f) "Off" else "${(it * 100).roundToInt()}%" }) {
+            prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)).apply()
+        }
+        // Soft ends restyle every pen stroke, so the costly re-render happens once, on release.
+        val taper by rememberPref(prefs, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
+        CommitSlider("Soft stroke ends", taper, 0f..1f, { if (it == 0f) "Off" else "${(it * 100).roundToInt()}%" }) {
+            prefs.edit().putFloat(AppPrefs.INK_TAPER, AppPrefs.inkTaper(it)).apply()
+        }
+        val thinner by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
+        SwitchRow("Thinner when fast", thinner, { prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, it).apply() })
+        SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })
+        if (options.pressure) {
+            FolioButtonGroup(Modifier.fillMaxWidth()) {
+                PenPressure.Feel.entries.forEach { feel ->
+                    toggleableItem(PenPressure.Feel.matching(options.pressureCurve, options.pressureSensitivity) == feel, feel.label,
+                        { onChange(options.copy(pressureCurve = feel.curve, pressureSensitivity = feel.sensitivity)) }, weight = 1f)
+                }
+            }
+            PopoverSection("Fine-tune pressure") {
+                PopoverSlider("Sensitivity", String.format(Locale.ROOT, "%.2f×", options.pressureSensitivity), PenPressure.sensitivity(options.pressureSensitivity),
+                    PenPressure.sensitivityRange, { onChange(options.copy(pressureSensitivity = it)) }, description = "Pen pressure sensitivity")
+                PopoverSlider("Width variation", "${(options.pressureVariation * 100).roundToInt()}%", PenPressure.variation(options.pressureVariation),
+                    PenPressure.variationRange, { onChange(options.copy(pressureVariation = it)) }, description = "Pen pressure width variation")
+                PopoverSlider("Response curve", String.format(Locale.ROOT, "%.2f", options.pressureCurve), PenPressure.curve(options.pressureCurve),
+                    PenPressure.curveRange, { onChange(options.copy(pressureCurve = it)) }, description = "Pen pressure response curve")
+                TextButton({ onChange(options.copy(pressure = true, pressureSensitivity = 1f, pressureVariation = 1f, pressureCurve = 1f)) }, shapes = ButtonDefaults.shapes()) { Text("Reset pressure") }
+            }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val lowLatency by rememberPref(prefs, AppPrefs.LOW_LATENCY_INK) { it.getBoolean(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK) }
+            SwitchRow("Low-latency ink (experimental)", lowLatency, { prefs.edit().putBoolean(AppPrefs.LOW_LATENCY_INK, it).apply() },
+                hint = "Ink follows the tip more closely. Turn off if it flickers on lift.")
+        }
+    }
+    if (tool == Tool.HIGHLIGHTER) {
+        val tilt by rememberPref(prefs, AppPrefs.HIGHLIGHTER_TILT) { it.getBoolean(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT) }
+        SwitchRow("Tilt widens the highlighter", tilt, { prefs.edit().putBoolean(AppPrefs.HIGHLIGHTER_TILT, it).apply() })
+    }
+    if (tool in ShapePickerTools) {
+        val measurements by rememberPref(prefs, EditorQuickPrefs.SHAPE_MEASUREMENTS) { it.getBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, true) }
+        SwitchRow("Live measurements", measurements, { prefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, it).apply() })
+        val snap by rememberPref(prefs, "mathSnap") { it.getBoolean("mathSnap", true) }
+        SwitchRow("Snap to grid and 15°", snap, { prefs.edit().putBoolean("mathSnap", it).apply() })
+        if (tool == Tool.GRAPH) PopoverSection("Graph axes") { GraphStyleSection(options) }
+    }
+    if (tool == Tool.ERASER) {
+        val pressure by rememberPref(prefs, EditorQuickPrefs.ERASER_PRESSURE) { it.getBoolean(EditorQuickPrefs.ERASER_PRESSURE, true) }
+        SwitchRow("Pressure-sensitive size", pressure, { prefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, it).apply() })
+        val whole by rememberPref(prefs, EditorQuickPrefs.ERASER_WHOLE_STROKE) { it.getBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, false) }
+        SwitchRow("Erase whole strokes", whole, { prefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, it).apply() })
+        val single by rememberPref(prefs, EditorQuickPrefs.ERASER_SINGLE_STROKE) { it.getBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, false) }
+        SwitchRow("Return to previous tool", single, { prefs.edit().putBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, it).apply() },
+            hint = "After one eraser stroke.")
+    }
+    if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool in ShapePickerTools) PopoverSection("Shape assist") { ShapeAssistSettings() }
+    if (tool == Tool.PEN || tool == Tool.HIGHLIGHTER || tool == Tool.ERASER) PopoverSection("Scribble to erase") { ScribbleSettingsSection(showPracticeInitially = false) }
 }
 
 /**

@@ -185,6 +185,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val toolbarLayouts = rememberToolbarLayoutState(LocalNotebookToolbarPreferences.current ?: appPrefs)
     var options by editor.tools.options
     fun changeOptions(value: ToolOptions) = editor.tools.changeOptions(value)
+    DisposableEffect(editor.tools) { onDispose { editor.tools.flushSave() } }
     fun applyPreset(preset: ToolPreset) {
         editor.tools.apply(preset)
     }

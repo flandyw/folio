@@ -42,6 +42,18 @@ notes and across pages. The highlighter keeps its colour, opacity, width and opt
 with **Tidy up shapes** and **Straighten highlighter** enabled, a separate end hold straightens it
 and supports the usual adjustment and undo. Lift, cancellation and tool changes clear the borrowed tool.
 
+## Tool popover and nibs
+
+The tool popover has two pages: **Style** (sample, nib, width, opacity, colours, line style, presets) and
+**Behaviour** (smoothing, soft ends, speed, pressure, low-latency ink, shape assist, scribble to erase).
+Only the open page is composed. Option changes reach the page at once, but `EditorToolState.changeOptions`
+writes the preference 250 ms after the last change (flushed on tool change and when the editor leaves), and
+the smoothing and soft-ends sliders commit on release, since a taper change restyles every pen stroke.
+
+**Nib** (pen only) is pure `PenNib`: Fineliner / Ballpoint / Fountain / Brush each fill the pen's pressure
+response plus the global *Thinner when fast* and *Soft stroke ends* preferences. Nothing new is stored; the
+row shows *Custom* once any of those is changed by hand.
+
 ## Width
 
 - **Response curve + Light / Normal / Firm** (pen tool options › Pressure). `PenPressure.sample` raises the raw
