@@ -64,6 +64,7 @@ import com.folio.notes.ink.pen.StrokePrediction
 import com.folio.notes.ink.pen.StrokeRefit
 import com.folio.notes.ink.recognition.InkGestureRecognizer
 import com.folio.notes.ink.recognition.InkRecognitionSnapshot
+import com.folio.notes.ink.recognition.ScribbleRecognition
 import com.folio.notes.ink.recognition.ScribbleSensitivity
 import com.folio.notes.ink.shapes.ShapeAdjustment
 import com.folio.notes.ink.shapes.ShapeAssistOptions
@@ -155,6 +156,9 @@ class InkView(context: Context) : View(context) {
             if (value && isAttachedToWindow) InkGestureRecognizer.prepare(InkGestureRecognizer.Model.GESTURES)
         }
     var scribbleSensitivity = ScribbleSensitivity.DEFAULT
+    /** A scrub held still at its end erases what it covers without asking the classifier. */
+    var scribbleHold = true
+        set(value) { if (field != value) { field = value; clearShapeHold(); invalidate() } }
     var eraserWholeStroke = false
     private var inputRouter = StylusInputRouter(pinchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
     /** Main-window proximity is also seen by reference panes and controls in popup windows. */
@@ -575,7 +579,7 @@ class InkView(context: Context) : View(context) {
             shapeFitPointCount = draft!!.points.size
             shapeHold.sample(originX + contact.x * scale, originY + contact.y * scale,
                 SystemClock.uptimeMillis(), ShapeHold.SLOP_DP * resources.displayMetrics.density)
-            if (shapeRecognition) postDelayed(shapeHoldRunnable, shapeHoldMs)
+            if (holdRecognition) postDelayed(shapeHoldRunnable, shapeHoldMs)
         }
         performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         if (target != Tool.ERASER) onPenInput(false)
@@ -583,19 +587,26 @@ class InkView(context: Context) : View(context) {
         invalidate()
     }
     private val shapeHold = ShapeHold()
+    /** The end-of-stroke hold serves shape assist and hold-to-erase; a scrub is never a shape. */
+    private val holdRecognition get() = shapeRecognition || (scribbleToErase && scribbleHold)
     private var heldShape: List<Stroke>? = null
+    /** Page ink a held scrub will erase on lift; non-null while the hold-to-erase preview shows. */
+    private var heldErase: List<Stroke>? = null
+    internal val documentHeldErase get() = heldErase != null
     private var shapeAdjustment: ShapeAdjustment? = null
     private var shapeContact: InkPoint? = null
     private var shapeFitPointCount = 0
     internal val documentHeldShape get() = heldShape
     private val shapeHoldRunnable: Runnable = Runnable {
-        if (shapeRecognition && draft?.tool in FREEHAND_TOOLS && !readOnly && !inputBlocked && !navigating &&
+        if (holdRecognition && draft?.tool in FREEHAND_TOOLS && !readOnly && !inputBlocked && !navigating &&
             PageLayers.editable(page.layers, activeLayer)) {
             if (!shapeHold.attempt(SystemClock.uptimeMillis(), shapeHoldMs)) {
                 shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
                 return@Runnable
             }
             val source = draft ?: return@Runnable
+            if (scribbleToErase && scribbleHold && holdErase(source)) return@Runnable
+            if (!shapeRecognition) return@Runnable
             val drawing = ShapeHold.drawing(source.copy(points = source.points.toList()), shapeFitPointCount)
             val request = ++shapeRequest
             val pageId = page.id
@@ -620,7 +631,21 @@ class InkView(context: Context) : View(context) {
             }
         }
     }
+    /** Geometry and repeated contact only: the deliberate hold is the confirmation. */
+    private fun holdErase(source: Stroke): Boolean {
+        if (!canClassifyScribble(source)) return false
+        val (paths, notes) = scribblePaths(source.copy(points = source.points.toList()), localCapture?.let(::routedLocal))
+        val after = ScribbleRecognition.prepare(mapOf(page.id to page), mapOf(page.id to paths),
+            mapOf(page.id to notes), scribbleSensitivity, held = true)?.contents?.get(page.id) ?: return false
+        val kept = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>()).apply { addAll(after.strokes) }
+        heldErase = page.strokes.filter { it !in kept }
+        removeCallbacks(longPressRunnable)
+        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        invalidate()
+        return true
+    }
     private fun clearShapeHold() {
+        heldErase = null
         shapeRequest++
         removeCallbacks(shapeHoldRunnable)
         shapeHold.reset()
@@ -630,7 +655,7 @@ class InkView(context: Context) : View(context) {
         shapeFitPointCount = 0
     }
     private fun trackShapeHold(event: MotionEvent, index: Int): Boolean {
-        if (!shapeRecognition || draft?.tool !in FREEHAND_TOOLS) return false
+        if (!holdRecognition || draft?.tool !in FREEHAND_TOOLS) return false
         var contact = point(event, index)
         if (rulerEdge != 0) contact = snapToRuler(contact)
         shapeContact = contact
@@ -646,7 +671,11 @@ class InkView(context: Context) : View(context) {
                 event.getHistoricalEventTime(h), slop) || moved
         }
         moved = shapeHold.sample(event.getX(index), event.getY(index), event.eventTime, slop) || moved
-        if (moved) { shapeRequest++; shapeFitPointCount = draft!!.points.size }
+        if (moved) {
+            shapeRequest++; shapeFitPointCount = draft!!.points.size
+            // Scrubbing on after the hold cancels it; the stroke is ordinary ink again until held anew.
+            if (heldErase != null) { heldErase = null; invalidate() }
+        }
         removeCallbacks(shapeHoldRunnable)
         shapeHold.remaining(SystemClock.uptimeMillis(), shapeHoldMs)?.let { postDelayed(shapeHoldRunnable, it) }
         return moved
@@ -2056,6 +2085,7 @@ class InkView(context: Context) : View(context) {
         val draftStroke = draft
         // Live freehand ink retains settled spline segments and resamples only the changing tip.
         // Drawing/tapering still visits the centreline, but smoothing no longer grows with the line.
+        heldErase?.forEach { InkRenderer.stroke(canvas, it.copy(color = HELD_ERASE_COLOR, opacity = .6f)) }
         if (heldShape != null) heldShape!!.forEach { InkRenderer.stroke(canvas, it) }
         else if (draftStroke == null) resetDraftGeometry()
         else {
@@ -2717,11 +2747,43 @@ class InkView(context: Context) : View(context) {
             ShapeMath.length(stroke.points) * scale >= 48f * resources.displayMetrics.density &&
             ShapeMath.span(stroke.points) * scale >= 16f * resources.displayMetrics.density
 
+    /** The scrub as page ink and as ink on the sticky notes it was drawn on. */
+    private fun scribblePaths(drawn: Stroke, local: DocumentInkCapture?): Pair<List<Stroke>, Map<String, List<Stroke>>> {
+        val paths = local?.strokes()?.get(page.id)?.map { it.copy(points = it.points.toList()) }
+            ?: if (noteTarget == null) listOf(drawn) else emptyList()
+        val notes = local?.noteStrokes()?.get(page.id)?.mapValues { (_, ink) -> ink.map { it.copy(points = it.points.toList()) } }
+            ?: noteTarget?.let { id -> page.texts.find { it.id == id }?.let { box ->
+                mapOf(id to listOf(StickyNotes.toNote(box, drawn)))
+            } }.orEmpty()
+        return paths to notes
+    }
+
+    /** A held scrub never becomes ink: the erasure is the gesture's only, single undo step. */
+    private fun finishHeldErase(drawing: Stroke): Boolean {
+        val (paths, notes) = scribblePaths(drawing.copy(points = drawing.points.toList()), localCapture?.let(::routedLocal))
+        val after = ScribbleRecognition.prepare(mapOf(page.id to page), mapOf(page.id to paths),
+            mapOf(page.id to notes), scribbleSensitivity, held = true)?.contents?.get(page.id)
+            ?: return false.also { heldErase = null }
+        cancelGesture()
+        if (readOnly || inputBlocked) { invalidate(); return true }
+        val strokesChanged = page.strokes != after.strokes
+        val textsChanged = page.texts != after.texts
+        page = page.copy(strokes = after.strokes, texts = after.texts)
+        when {
+            strokesChanged && textsChanged -> onContentChanged(after.strokes, after.texts, after.images)
+            strokesChanged -> onStrokesChanged(after.strokes)
+            textsChanged -> onTextsChanged(after.texts)
+        }
+        invalidate()
+        return true
+    }
+
     /** Commit visible ink immediately; a model-approved erasure is a separate, guarded undo step. */
     private fun finishInkGesture() {
         val drawing = draft
         // Spanning document gestures are interpreted by DocumentInputCoordinator instead.
         val external = documentGesture && localCapture == null && documentSpanning
+        if (drawing != null && heldErase != null && !external && finishHeldErase(drawing)) return
         if (drawing == null || !scribbleToErase || heldShape != null || drawing.tool !in FREEHAND_TOOLS ||
             external || !canClassifyScribble(drawing)) {
             if (finishDocument()) cancelGesture() else finishGesture()
@@ -2729,13 +2791,7 @@ class InkView(context: Context) : View(context) {
         }
         val before = page
         val drawn = drawing.copy(points = drawing.points.toList())
-        val local = localCapture?.let(::routedLocal)
-        val paths = local?.strokes()?.get(before.id)?.map { it.copy(points = it.points.toList()) }
-            ?: if (noteTarget == null) listOf(drawn) else emptyList()
-        val notes = local?.noteStrokes()?.get(before.id)?.mapValues { (_, ink) -> ink.map { it.copy(points = it.points.toList()) } }
-            ?: noteTarget?.let { id -> before.texts.find { it.id == id }?.let { box ->
-                mapOf(id to listOf(StickyNotes.toNote(box, drawn)))
-            } }.orEmpty()
+        val (paths, notes) = scribblePaths(drawn, localCapture?.let(::routedLocal))
         val sensitivity = scribbleSensitivity
         if (finishDocument()) cancelGesture() else finishGesture()
         val expected = page.content()
@@ -3861,6 +3917,8 @@ class InkView(context: Context) : View(context) {
     override fun performClick(): Boolean { super.performClick(); return true }
     private companion object {
         const val UNPLACED_RESPONSE = "Start writing where your response begins"
+        /** Tint over the ink a held scrub is about to erase. */
+        const val HELD_ERASE_COLOR = 0xFFE53935.toInt()
         /** Freehand tools grow sample-by-sample; shapes re-derive from two corners. */
         val FREEHAND_TOOLS = setOf(Tool.PEN, Tool.HIGHLIGHTER)
         /** Shapes that show live measurements while drawn. */

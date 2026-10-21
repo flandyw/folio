@@ -3,8 +3,10 @@ package com.folio.notes.ink.recognition
 import android.os.Handler
 import android.os.Looper
 import com.folio.notes.ink.shapes.ShapeAssistOptions
+import com.folio.notes.ink.shapes.ShapeMath
 import com.folio.notes.ink.shapes.ShapeRecognition
 import com.folio.notes.ink.shapes.Tidied
+import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Stroke
 import com.folio.notes.storage.PageContent
@@ -18,6 +20,7 @@ import com.google.mlkit.vision.digitalink.recognition.Ink
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.Executors
+import kotlin.math.max
 
 /** Process-wide on-device classifiers. Ink capture, fitting and persistence remain independent. */
 internal object InkGestureRecognizer {
@@ -64,7 +67,9 @@ internal object InkGestureRecognizer {
         worker.execute {
             try {
                 val points = Ink.Stroke.builder()
-                stroke.points.forEach { points.addPoint(Ink.Point.create(it.x, it.y)) }
+                if (model == Model.GESTURES) paced(stroke.points).forEachIndexed { i, it ->
+                    points.addPoint(Ink.Point.create(it.x, it.y, i * PACE_MS))
+                } else stroke.points.forEach { points.addPoint(Ink.Point.create(it.x, it.y)) }
                 val ink = Ink.builder().addStroke(points.build()).build()
                 c.client.recognize(ink).addOnCompleteListener { task ->
                     synchronized(c) { c.busy = false }
@@ -76,6 +81,14 @@ internal object InkGestureRecognizer {
             }
         }
     }
+
+    /**
+     * Speed-blind gesture input: even spacing on a steady clock, so a slow, densely sampled scrub
+     * reaches the model shaped like a quick one (~240 samples at 250 Hz, whatever the real pace).
+     */
+    private fun paced(points: List<InkPoint>) =
+        ShapeMath.resample(points, max(ShapeMath.length(points) / 240f, .5f))
+    private const val PACE_MS = 4L
 
     /** Keep Folio's additional families; use Google to choose among its four supported shapes. */
     fun shape(stroke: Stroke, options: ShapeAssistOptions, result: (Tidied?) -> Unit) {

@@ -11,16 +11,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import kotlinx.coroutines.delay
 import com.folio.notes.ui.FolioMenuItem
 import com.folio.notes.ui.FolioMenuPopover
-import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import com.folio.notes.ink.InkView
 import com.folio.notes.editor.PeekControl
@@ -69,32 +64,6 @@ internal class WritingFollowActions(
 )
 
 private enum class FollowSub { AREAS, LINES, PEEK }
-
-/**
- * Held, blocked and end-of-area messages show briefly above the follow controls, because
- * otherwise a still view looks broken; the full status stays in the options menu.
- */
-@Composable internal fun BoxScope.WritingFollowHint(status: WritingFollowStatus, enabled: Boolean, hand: WritingHand, inset: Dp, pageId: String) {
-    var hint by remember(pageId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(status.message, status.attention, enabled) {
-        val message = status.message
-        if (!status.attention || !enabled) return@LaunchedEffect
-        hint = message
-        try { delay(2800) } finally { if (hint == message) hint = null }
-    }
-    hint?.let { shown ->
-        Surface(
-            Modifier.align(if (hand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
-                .padding(inset).padding(bottom = 44.dp + FolioSpacing.dp8).widthIn(max = 320.dp).zIndex(11f),
-            shape = FolioShapes.large,
-            color = MaterialTheme.colorScheme.inverseSurface,
-            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-        ) {
-            Text(shown, Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)
-                .semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
 
 /**
  * The floating writing-follow bar on the writing hand's side: response/follow switch, See all

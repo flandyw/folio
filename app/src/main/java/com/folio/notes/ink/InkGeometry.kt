@@ -621,9 +621,21 @@ object InkGeometry {
         val width = bounds[2] - bounds[0]; val height = bounds[3] - bounds[1]
         val span = hypot(width, height)
         if (span < 14f) return emptyList()
-        val horizontal = width >= height
-        fun axis(p: InkPoint) = if (horizontal) p.x else p.y
-        val minLeg = max(8f - 2f * ease, span * (.18f - .06f * ease))
+        // The scrub's own back-and-forth direction, not the box: a slow scrub that steps far between
+        // passes is taller than it is wide, and diagonal scrubs are common.
+        val (ux, uy) = motionAxis(points, span / 16f)
+        fun axis(p: InkPoint) = p.x * ux + p.y * uy
+        var axisMin = Float.MAX_VALUE; var axisMax = -Float.MAX_VALUE
+        var sideMin = Float.MAX_VALUE; var sideMax = -Float.MAX_VALUE
+        for (p in points) {
+            val a = axis(p); axisMin = min(axisMin, a); axisMax = max(axisMax, a)
+            val side = p.y * ux - p.x * uy; sideMin = min(sideMin, side); sideMax = max(sideMax, side)
+        }
+        val axisSpan = axisMax - axisMin
+        // Handwriting (`www`, `mm`, loops) zigzags while running far along the line; a scrub stays
+        // about as deep as it is long.
+        if (sideMax - sideMin > axisSpan * (1f + .6f * ease)) return emptyList()
+        val minLeg = max(8f - 2f * ease, axisSpan * (.18f - .06f * ease))
         val turns = ArrayList<Int>()
         turns.add(0)
         var extreme = 0
@@ -662,10 +674,26 @@ object InkGeometry {
         val travel = corners.zipWithNext().sumOf { (a, b) -> abs(axis(b) - axis(a)).toDouble() }.toFloat()
         if (travel <= 0f) return emptyList()
         val net = abs(axis(points.last()) - axis(points.first()))
-        val axisSpan = if (horizontal) width else height
         if (net / travel > .32f + .13f * ease || axisSpan / travel > .32f + .13f * ease) return emptyList()
         // Keep the sampled curve for contact checks: a chord can cross ink the pen never touched.
         return turns.zipWithNext().map { (a, b) -> points.subList(a, b + 1) }
+    }
+
+    /**
+     * Unit principal direction of travel (orientation, so back and forth agree), from moves of at
+     * least [step] so a slow pen's dense, jittery samples weigh no more than a fast pen's.
+     */
+    private fun motionAxis(points: List<InkPoint>, step: Float): Pair<Float, Float> {
+        var xx = 0.0; var yy = 0.0; var xy = 0.0
+        var anchor = points.first()
+        for (p in points) {
+            val dx = (p.x - anchor.x).toDouble(); val dy = (p.y - anchor.y).toDouble()
+            if (dx * dx + dy * dy < step * step) continue
+            xx += dx * dx; yy += dy * dy; xy += dx * dy
+            anchor = p
+        }
+        val angle = .5 * atan2(2 * xy, xx - yy)
+        return cos(angle).toFloat() to sin(angle).toFloat()
     }
 
     /** Share of the longer 1-D segment covered by the overlap, 0 when they only touch. */

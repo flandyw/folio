@@ -94,6 +94,7 @@ object EditorQuickPrefs {
     const val ERASER_PRESSURE = "eraserPressure"
     const val SCRIBBLE_TO_ERASE = "scribbleToErase"
     const val SCRIBBLE_SENSITIVITY = "scribbleSensitivity"
+    const val SCRIBBLE_HOLD = "scribbleHold"
     const val ERASER_WHOLE_STROKE = "eraserWholeStroke"
     const val SHAPE_MEASUREMENTS = "shapeMeasurements"
     const val MULTI_TOUCH_UNDO = "multiTouchUndo"

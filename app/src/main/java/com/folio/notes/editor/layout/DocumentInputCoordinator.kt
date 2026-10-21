@@ -105,10 +105,10 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     }
     private fun toolOptions(current: DocumentInkCapture): DocumentToolEdits.Options {
         val view = surfaces.find(EditorSurfaceRole.MAIN, current.sourceId)
+        val held = view?.documentHeldErase == true
         return DocumentToolEdits.Options(current.template.tool == Tool.ERASER, view?.eraserWholeStroke == true,
-            view?.eraserPressureEnabled == true && view.hasDocumentStylusContact,
-            false,
-            view?.scribbleSensitivity ?: ScribbleSensitivity.DEFAULT)
+            view?.eraserPressureEnabled == true && view.hasDocumentStylusContact, held,
+            view?.scribbleSensitivity ?: ScribbleSensitivity.DEFAULT, scribbleInk = !held)
     }
     private fun contentAfter(current: DocumentInkCapture): Map<String, PageContent> {
         val strokes = current.strokes(); val notes = current.noteStrokes()
@@ -120,7 +120,8 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     }
     private fun commitContents(current: DocumentInkCapture): List<Map<String, PageContent>> {
         val options = toolOptions(current)
-        if (options.erasing) return listOf(contentAfter(current))
+        // A held scrub is erasure only: its drawing is never committed first.
+        if (options.erasing || options.scribble) return listOf(contentAfter(current))
         val strokes = current.strokes(); val notes = current.noteStrokes()
         val steps = (strokes.keys + notes.keys).associateWith { id ->
             DocumentToolEdits.contentSteps(pageById.getValue(id), strokes[id].orEmpty(), notes[id].orEmpty(), options)
@@ -234,7 +235,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
             if (routed.blocked) { model.reportError("A crossed surface is locked or unavailable; draw again"); return true }
             val originalPages = pageById
             val source = surfaces.find(EditorSurfaceRole.MAIN, sourceId)
-            val drawn = if (source?.scribbleToErase == true && source.documentHeldShape == null &&
+            val drawn = if (source?.scribbleToErase == true && source.documentHeldShape == null && !source.documentHeldErase &&
                     current.template.tool in setOf(Tool.PEN, Tool.HIGHLIGHTER))
                 current.dragStroke().let { it.copy(points = it.points.toList()) } else null
             val scribble = drawn != null && source!!.canClassifyScribble(drawn)

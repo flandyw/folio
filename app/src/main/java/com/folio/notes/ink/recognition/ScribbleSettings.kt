@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.toolbar.EditorQuickPrefs
 import com.folio.notes.ink.InkView
 import com.folio.notes.input.LocalStylusActivity
@@ -23,6 +24,7 @@ import com.folio.notes.model.NotePage
 import com.folio.notes.model.Paper
 import com.folio.notes.model.Stroke
 import com.folio.notes.model.Tool
+import com.folio.notes.settings.rememberPref
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import kotlin.math.roundToInt
@@ -33,11 +35,16 @@ import kotlin.math.roundToInt
     var enabled by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, true)) }
     var sensitivity by remember { mutableFloatStateOf(ScribbleSensitivity.normalize(
         prefs.getFloat(EditorQuickPrefs.SCRIBBLE_SENSITIVITY, ScribbleSensitivity.DEFAULT))) }
+    var hold by remember { mutableStateOf(prefs.getBoolean(EditorQuickPrefs.SCRIBBLE_HOLD, true)) }
+    val holdMs by rememberPref(prefs, AppPrefs.SHAPE_HOLD_MS) {
+        AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS))
+    }
     var showPractice by rememberSaveable { mutableStateOf(showPracticeInitially) }
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
                 EditorQuickPrefs.SCRIBBLE_TO_ERASE -> enabled = prefs.getBoolean(key, true)
+                EditorQuickPrefs.SCRIBBLE_HOLD -> hold = prefs.getBoolean(key, true)
                 EditorQuickPrefs.SCRIBBLE_SENSITIVITY -> sensitivity = ScribbleSensitivity.normalize(
                     prefs.getFloat(key, ScribbleSensitivity.DEFAULT))
             }
@@ -69,11 +76,22 @@ import kotlin.math.roundToInt
         }
         Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. Every setting requires Google’s scribble recognition and repeated contact with existing ink. Until the model is ready, scribbles stay as ink.",
             style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Hold to erase", style = MaterialTheme.typography.titleSmall)
+                Text("Scrub, then keep the pen still until the ink turns red. Lifting erases it every time, without waiting for recognition; moving on cancels. Uses the shape hold speed.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(hold, {
+                hold = it
+                prefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_HOLD, it).apply()
+            }, enabled = enabled, modifier = Modifier.semanticsLabel("Hold to erase"))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             TextButton({ setSensitivity(ScribbleSensitivity.DEFAULT) }, shapes = ButtonDefaults.shapes()) { Text("Reset sensitivity") }
             TextButton({ showPractice = !showPractice }, shapes = ButtonDefaults.shapes()) { Text(if (showPractice) "Hide test area" else "Test scribble to erase") }
         }
-        if (showPractice) ScribblePractice(enabled, sensitivity)
+        if (showPractice) ScribblePractice(enabled, sensitivity, hold, holdMs)
     }
 }
 
@@ -86,7 +104,7 @@ private fun scribblePracticePage() = NotePage(
 )
 
 /** A disposable page using the editor's real input and erasing pipeline; never saved to a notebook. */
-@Composable private fun ScribblePractice(enabled: Boolean, sensitivity: Float) {
+@Composable private fun ScribblePractice(enabled: Boolean, sensitivity: Float, hold: Boolean, holdMs: Long) {
     val inputStylusActivity = LocalStylusActivity.current
     var page by remember { mutableStateOf(scribblePracticePage()) }
     var feedback by remember { mutableStateOf("Try scrubbing across the blue ink, or write your own sample.") }
@@ -106,6 +124,8 @@ private fun scribblePracticePage() = NotePage(
                 if (view.page !== page) view.bind(page, null)
                 view.scribbleToErase = enabled
                 view.scribbleSensitivity = sensitivity
+                view.scribbleHold = hold
+                view.shapeHoldMs = holdMs
                 view.onStrokesChanged = { strokes ->
                     val erased = page.strokes.size - strokes.size
                     feedback = when {

@@ -80,6 +80,7 @@ import com.folio.notes.model.NotePage
             val eraserPressureEnabled = surface.eraserPressureEnabled
             val scribbleToErase = surface.scribbleToErase
             val scribbleSensitivity = surface.scribbleSensitivity
+            val scribbleHold = surface.scribbleHold
             val eraserWholeStroke = surface.eraserWholeStroke
             val shapeMeasurements = surface.shapeMeasurements
             val multiTouchUndo = surface.multiTouchUndo
@@ -161,7 +162,7 @@ import com.folio.notes.model.NotePage
                 view.peekRegion = peekRegion
                 view.activeLayer = activeLayer
                 view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
-                view.rulerEnabled = rulerEnabled; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
+                view.rulerEnabled = rulerEnabled; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.scribbleHold = scribbleHold; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
                 view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
                 if (zoomWritingPane && writingWindowTarget != null) view.frameWritingWindow(writingWindowTarget)
                 view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd

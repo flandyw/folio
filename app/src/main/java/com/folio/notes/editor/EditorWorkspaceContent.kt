@@ -176,6 +176,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     val eraserPressure = preferences.eraserPressure
     val scribbleToErase = preferences.scribbleToErase
     val scribbleSensitivity = preferences.scribbleSensitivity
+    val scribbleHold = preferences.scribbleHold
     val eraserWholeStroke = preferences.eraserWholeStroke
     val shapeMeasurements = preferences.shapeMeasurements
     val multiTouchUndo = preferences.multiTouchUndo
@@ -889,6 +890,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         eraserPressureEnabled = eraserPressure,
         scribbleToErase = scribbleToErase,
         scribbleSensitivity = scribbleSensitivity,
+        scribbleHold = scribbleHold,
         eraserWholeStroke = eraserWholeStroke,
         shapeMeasurements = shapeMeasurements,
         multiTouchUndo = multiTouchUndo,

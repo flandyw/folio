@@ -37,6 +37,7 @@ internal data class InkSurfaceConfig(
     val eraserPressureEnabled: Boolean = true,
     val scribbleToErase: Boolean = true,
     val scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT,
+    val scribbleHold: Boolean = true,
     val eraserWholeStroke: Boolean = false,
     val shapeMeasurements: Boolean = true,
     val multiTouchUndo: Boolean = true,

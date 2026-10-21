@@ -14,7 +14,9 @@ import com.folio.notes.storage.content
 /** Shared surface edits for continuous pages, single sheets and canvases. No Android state. */
 internal object DocumentToolEdits {
     data class Options(val erasing: Boolean = false, val wholeStroke: Boolean = false, val pressure: Boolean = false,
-        val scribble: Boolean = false, val scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT)
+        val scribble: Boolean = false, val scribbleSensitivity: Float = ScribbleSensitivity.DEFAULT,
+        /** False for a held scrub, which is erasure only: where it wipes nothing it leaves no ink. */
+        val scribbleInk: Boolean = true)
     fun content(page: NotePage, strokes: List<Stroke>, notes: Map<String, List<Stroke>>, options: Options): PageContent =
         page.content().copy(strokes = apply(page.strokes, strokes, options) { PageLayers.editable(page.layers, it.layer) },
             texts = page.texts.map { box -> notes[box.id]?.let { paths -> box.copy(stickyInk = apply(box.stickyInk, paths, options) { true }) } ?: box })
@@ -54,7 +56,7 @@ internal object DocumentToolEdits {
             if (options.scribble) {
                 var scrubbed = ink
                 paths.forEach { scrubbed = InkGeometry.scribbleErase(scrubbed, it, 14f, options.scribbleSensitivity, canErase = editable) }
-                if (scrubbed !== ink) return scrubbed
+                if (scrubbed !== ink || !options.scribbleInk) return scrubbed
             }
             return ink + paths.map { it.copy(points = it.points.toList()) }
         }

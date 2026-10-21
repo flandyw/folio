@@ -6,15 +6,18 @@ import com.folio.notes.model.Stroke
 import com.folio.notes.storage.PageContent
 import com.folio.notes.storage.content
 
-/** A candidate is inert until Google's classifier approves it. Geometry only narrows the targets. */
-internal class ScribbleRecognition private constructor(private val contents: Map<String, PageContent>) {
+/**
+ * A candidate is inert until Google's classifier approves it. Geometry only narrows the targets.
+ * Hold-to-erase reads [contents] directly: the deliberate end hold is its confirmation.
+ */
+internal class ScribbleRecognition private constructor(val contents: Map<String, PageContent>) {
     fun confirmed(label: String?): Map<String, PageContent> = if (label == "scribble") contents else emptyMap()
 
     companion object {
         fun prepare(before: Map<String, NotePage>, paths: Map<String, List<Stroke>>,
-            notes: Map<String, Map<String, List<Stroke>>>, sensitivity: Float): ScribbleRecognition? {
+            notes: Map<String, Map<String, List<Stroke>>>, sensitivity: Float, held: Boolean = false): ScribbleRecognition? {
             val after = before.mapValues { (id, page) -> DocumentToolEdits.content(page, paths[id].orEmpty(), notes[id].orEmpty(),
-                DocumentToolEdits.Options(scribble = true, scribbleSensitivity = sensitivity)) }
+                DocumentToolEdits.Options(scribble = true, scribbleSensitivity = sensitivity, scribbleInk = !held)) }
             val removedInk = before.any { (id, page) ->
                 val content = after.getValue(id)
                 content.strokes.size < page.strokes.size || page.texts.any { box ->
