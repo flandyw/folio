@@ -47,6 +47,10 @@ import com.folio.notes.mistakes.review.PreviousAttemptDialog
 import com.folio.notes.mistakes.review.handwritingTab
 import com.folio.notes.mistakes.review.unfinishedAttempt
 import com.folio.notes.mistakes.review.unfinishedAttempts
+import com.folio.notes.mistakes.review.practiceQueue
+import com.folio.notes.app.AppPrefs
+import com.folio.notes.settings.rememberPref
+import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.mistakes.sync.ExamContext
 import com.folio.notes.mistakes.sync.isSyncTrouble
 import com.folio.notes.model.Notebook
@@ -87,6 +91,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     onShareLongPress: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
+    val preferences = rememberPrefs()
+    val recordStudy by rememberPref(preferences, AppPrefs.MISTAKE_RECORD_STUDY) {
+        it.getBoolean(AppPrefs.MISTAKE_RECORD_STUDY, AppPrefs.DEFAULT_MISTAKE_RECORD_STUDY)
+    }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var activeReview by rememberSaveable { mutableStateOf<String?>(null) }
@@ -175,6 +183,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val todayStats = remember(mistakes, schedules, clockNow) { MistakeToday.stats(mistakes, schedules, clockNow) }
     val active = state.cache.attempts.find { it.reviewId == activeReview && it.userId == state.userId }
     val card = active?.let { state.cache.mistakes[it.mistakeId] }
+    LaunchedEffect(active?.reviewId, card?.id) {
+        if (active != null && card != null) model.showPracticeStudyQuestion(active, card, state.cache.contexts[card.attemptId])
+        else if (activeReview == null) model.finishPracticeStudy()
+    }
     LaunchedEffect(Unit) { model.requestSync() }
     // Recover a rating saved to the cache just before a process interruption of the notebook save.
     LaunchedEffect(state.cache.attempts, folioState.notes.size) {
@@ -200,6 +212,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     BackHandler {
         if (working) return@BackHandler
         if (activeReview != null) {
+            model.finishPracticeStudy()
             activeReview = null; reviewQueue = emptyList(); folio.close()
             if (sessionCompleted > 0) { showSummary = true; destination = "Today" }
         }
@@ -254,6 +267,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
     /** Leaving part-way still ends on the summary, so finished work is acknowledged. */
     fun leaveReview() {
+        model.finishPracticeStudy()
         activeReview = null; reviewQueue = emptyList(); folio.close()
         if (sessionCompleted > 0) { showSummary = true; destination = "Today" }
     }
@@ -273,6 +287,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         val user = state.userId ?: return
         if (working) return
         if (reviewQueue.isEmpty() || mistake.id !in reviewQueue) {
+            model.beginPracticeStudy()
             reviewQueue = listOf(mistake.id)
             sessionTotal = 1; sessionCompleted = 0; sessionWeek = null; sessionInitialXP = practiceProgress.xp
             sessionRatings = emptyList()
@@ -295,15 +310,18 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             finally { working = false }
         }
     }
-    fun startSession(candidates: List<ExamTrackMistake>, weekly: Boolean = false, limit: Int = sessionLimit) {
-        if (candidates.isEmpty() || working) return
-        val ids = (if (shuffle) candidates.shuffled() else candidates).take(limit).map { it.id }
+    fun startSession(candidates: List<ExamTrackMistake>, weekly: Boolean = false, limit: Int = sessionLimit,
+                     first: ExamTrackMistake? = null) {
+        if ((candidates.isEmpty() && first == null) || working) return
+        model.beginPracticeStudy()
+        val cards = practiceQueue(candidates, limit, first, shuffle)
+        val ids = cards.map { it.id }
         sessionTotal = ids.size; sessionCompleted = 0; sessionRatings = emptyList()
         sessionInitialXP = practiceProgress.xp
         sessionWeek = if (weekly) practiceProgress.week else null
         sessionChallengeSize = if (weekly) practiceProgress.weeklyTarget else 0
         reviewQueue = ids
-        ids.firstOrNull()?.let { id -> candidates.find { it.id == id }?.let(::start) }
+        cards.firstOrNull()?.let(::start)
     }
     fun toggleShuffle() {
         shuffle = !shuffle
@@ -326,6 +344,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         // Push the skipped card to the end; its unfinished page stays saved for later.
         val user = state.userId ?: return
         working = true
+        model.pausePracticeStudy()
         scope.launch {
             try {
                 val next = state.cache.mistakes[remaining.first()]
@@ -337,7 +356,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     showTransient("Skipped for now — your page is kept and the card moves to the end.")
                 }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { showTransient("Could not skip this card. Please try again.") }
+            catch (_: Exception) {
+                card?.let { model.showPracticeStudyQuestion(current, it, state.cache.contexts[it.attemptId]) }
+                showTransient("Could not skip this card. Please try again.")
+            }
             finally { working = false }
         }
     }
@@ -346,6 +368,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         if (working) return
         actionMessage = null
         working = true
+        model.pausePracticeStudy()
         scope.launch {
             try {
                 val deletedId = current.mistakeId
@@ -361,6 +384,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     reviewQueue = validNext.map { it.id }
                     start(validNext.first())
                 } else {
+                    model.finishPracticeStudy()
                     activeReview = null; folio.close()
                     reviewQueue = emptyList()
                     showSummary = sessionCompleted > 0
@@ -368,6 +392,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) {
+                card?.let { model.showPracticeStudyQuestion(current, it, state.cache.contexts[it.attemptId]) }
                 showTransient("Could not delete this card. Please try again.")
                 working = false
             }
@@ -381,7 +406,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     SideEffect { if (currentFrame != null) previousFrame = currentFrame }
     val reviewFrame = currentFrame ?: previousFrame?.takeIf { activeReview != null && (working || (active != null && card != null)) }
     LaunchedEffect(reviewFrame != null) { onReviewMode(reviewFrame != null) }
-    DisposableEffect(Unit) { onDispose { onReviewMode(false) } }
+    DisposableEffect(Unit) { onDispose { model.pausePracticeStudy(); onReviewMode(false) } }
     if (reviewFrame != null) {
         val active = reviewFrame.attempt
         val card = reviewFrame.card
@@ -396,10 +421,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             onDelete = ::deleteCurrentCard,
             celebration = celebration,
             sessionXP = maxOf(0, practiceProgress.xp - sessionInitialXP),
+            recordStudy = recordStudy, onRecordStudy = model::setPracticeStudyRecording,
             onRate = onRate@{ rating, confidence ->
             if (working || currentFrame == null || folio.state.value.saveFailed) return@onRate
             actionMessage = null
             working = true
+            model.pausePracticeStudy()
             scope.launch {
                 try {
                     // Lock the review once, then let autosave finish before recording the
@@ -431,6 +458,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                         reviewQueue = validNext.map { it.id }
                         start(validNext.first())
                     } else {
+                        model.finishPracticeStudy()
                         activeReview = null; folio.close()
                         reviewQueue = emptyList()
                         showSummary = true
@@ -438,6 +466,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) {
+                    model.showPracticeStudyQuestion(active, card, reviewFrame.context)
                     showTransient("Could not save the review. Your page is kept — please retry.")
                     working = false
                 }
@@ -491,7 +520,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 attachments = model.attachments,
                 attempts = folioState.notes.flatMap { note -> note.mistakeReviews.map { note to it } }
                     .filter { (_, a) -> a.userId == state.userId && a.mistakeId == selected.id },
-                onPractice = { start(selected) },
+                onPractice = { if (selected in dueSet) startSession(reviewCandidates, first = selected)
+                    else { reviewQueue = emptyList(); start(selected) } },
                 onDelete = { deleteCard(selected.id) },
                 onOpenAttempt = { noteId, pageId, reviewId, completed ->
                     if (completed) {
@@ -503,10 +533,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             val note = folioState.notes.find { it.id == noteId } ?: return@launch
                             val attempt = note.mistakeReviews.find { it.reviewId == reviewId } ?: return@launch
                             model.addAttempt(attempt)
+                            model.beginPracticeStudy()
                             val idx = note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0)
                             folio.openAt(note.id, idx)
-                            reviewQueue = listOf(attempt.mistakeId)
-                            sessionTotal = 1; sessionCompleted = 0; showSummary = false; sessionWeek = null; sessionInitialXP = practiceProgress.xp
+                            reviewQueue = if (selected in dueSet) practiceQueue(reviewCandidates, sessionLimit, selected, shuffle).map { it.id }
+                                else listOf(attempt.mistakeId)
+                            sessionTotal = reviewQueue.size; sessionCompleted = 0; showSummary = false; sessionWeek = null; sessionInitialXP = practiceProgress.xp
                             sessionRatings = emptyList()
                             detail = null
                             activeReview = attempt.reviewId
@@ -606,9 +638,11 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 attempts = attemptCountMap,
                                 working = working,
                                 now = maxOf(clockNow, System.currentTimeMillis()),
+                                recordStudy = recordStudy,
                             ),
                             actions = TodayActions(
                                 onStart = { startSession(focusedDue) },
+                                onRecordStudy = model::setPracticeStudyRecording,
                                 onMission = { cards, weekly -> startSession(cards, weekly, cards.size) },
                                 onRoutine = { showPacing = true },
                                 onPreferences = { preferences -> scope.launch {
@@ -626,7 +660,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 onOrder = { order -> shuffle = order == TodayOrder.SHUFFLE; if (order != TodayOrder.SHUFFLE) newestDueFirst = order == TodayOrder.NEWEST },
                                 onDismissSummary = { showSummary = false },
                                 onOpen = { m -> detail = m.id; destination = "Library" },
-                                onPractice = { m -> reviewQueue = emptyList(); start(m) },
+                                onPractice = { m -> startSession(focusedDue, first = m) },
                                 onDelete = { m -> confirmDelete = m },
                             ),
                             wide = layout.splitToday,
@@ -707,7 +741,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             if (visible.isEmpty()) fullWidthItem { EmptyMistakesCard(mistakes.isNotEmpty(), filter, scopeCount > 0 || query.isNotBlank(), ::clearFilters) }
                             items(visible, key = { it.id }) { m ->
                                 MistakeLibraryRow(m, state.cache.contexts[m.attemptId], schedules[m.id], m.id in unfinishedByMistake,
-                                    attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, { reviewQueue = emptyList(); start(m) }, working, selected = m.id == detail,
+                                    attemptCountMap[m.id] ?: 0, { detail = m.id; destination = "Library" }, {
+                                        if (m in dueSet) startSession(reviewCandidates, first = m)
+                                        else { reviewQueue = emptyList(); start(m) }
+                                    }, working, selected = m.id == detail,
                                     onDelete = { confirmDelete = m }, now = clockNow)
                             }
                         }

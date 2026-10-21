@@ -39,10 +39,14 @@ object FocalSubjects {
 
     fun suggest(note: Notebook, subjects: List<FocalSubject> = builtIn): String? {
         folioIds[note.exam.subject]?.let { return it }
-        val source = note.exam.subjectText.ifBlank { note.title }.trim()
+        return find(note.exam.subjectText.ifBlank { note.title }, subjects)
+    }
+
+    fun find(text: String, subjects: List<FocalSubject> = builtIn): String? {
+        val source = text.trim()
         if (source.isBlank()) return null
         val normalized = source.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
-        val exact = subjects.firstOrNull { it.name.equals(source, true) }
+        val exact = subjects.firstOrNull { it.id.equals(source, true) || it.name.equals(source, true) }
         if (exact != null) return exact.id
         // Longest names win: English Language before English, Specialist before Mathematics.
         return subjects.sortedByDescending { it.name.length }.firstOrNull { subject ->
@@ -82,7 +86,9 @@ data class FocalStudyEntry(
     /** Pending plan details kept separate from the last acknowledged server row. */
     val planDraft: String? = null,
     /** A timeline move, resize or done/not-done waiting to replace the server's blocks. */
-    val pendingBlocks: List<FocalStudyInterval>? = null
+    val pendingBlocks: List<FocalStudyInterval>? = null,
+    /** Local integration details, sent with each lifecycle boundary. */
+    val metadata: String? = null
 ) {
     val active: Boolean get() = !completed && !planned && !deleted
     val minutes: Int get() = (activeMillis / 60_000L).toInt().coerceAtLeast(if (completed) 1 else 0)
@@ -364,6 +370,7 @@ data class FocalFocus(
         const val PARK_EXAM = "exam"
         /** The user installed an app update, which restarts Folio. */
         const val PARK_UPDATE = "update"
+        const val PARK_PRACTICE = "practice"
     }
 }
 
@@ -565,6 +572,7 @@ internal fun focalFocusStatus(focus: FocalFocus): String? = when {
     focus.parkReason == FocalFocus.PARK_CLOSED -> "Recovered after Folio closed"
     focus.parkReason == FocalFocus.PARK_EXAM -> "Paused for the exam timer"
     focus.parkReason == FocalFocus.PARK_UPDATE -> "Paused for the app update"
+    focus.parkReason == FocalFocus.PARK_PRACTICE -> "Paused for mistake practice"
     else -> "Paused"
 }
 
@@ -577,6 +585,7 @@ internal fun focalFocusStatusDetail(focus: FocalFocus): String? = when {
         "Recovered at the last saved time. Time since that save was not counted. Resume to carry on."
     focus.parkReason == FocalFocus.PARK_EXAM -> "Resume regular study after the exam timer stops."
     focus.parkReason == FocalFocus.PARK_UPDATE -> "Folio paused your session to install an update. Resume to carry on."
+    focus.parkReason == FocalFocus.PARK_PRACTICE -> "Practice is recorded separately. Resume regular study when you finish."
     else -> null
 }
 
@@ -690,10 +699,28 @@ data class FocalStudyState(
 
 /** A crash-recoverable copy; the app-owned running focus is never changed by a disk write. */
 internal fun focalStudyCheckpoint(state: FocalStudyState, now: Long): FocalStudyState {
-    val focus = state.focus ?: return state
-    if (focus.resumedAt == null) return state
+    // A practice visit ends with the process; never count time after its last heartbeat.
+    val checkpoint = state.copy(entries = state.entries.map { entry ->
+        if (!entry.active || entry.id == state.focus?.sessionId ||
+            entry.metadata?.let { JSONObject(it).optBoolean("mistakePractice") } != true) entry
+        else {
+            val intervals = entry.intervals.map { interval ->
+                if (interval.endAt == null) interval.copy(endAt = now.coerceAtLeast(interval.startAt)) else interval
+            }
+            val metadata = JSONObject(entry.metadata)
+            metadata.optJSONObject("examtrack")?.optJSONArray("questions")?.let { questions ->
+                intervals.forEachIndexed { index, interval -> questions.optJSONObject(index)?.put("endAt", interval.endAt) }
+            }
+            entry.copy(intervals = intervals, completed = true, paused = true, synced = false,
+                changeId = UUID.randomUUID().toString(), metadata = metadata.toString(),
+                endedAt = intervals.lastOrNull()?.endAt ?: now,
+                activeMillis = intervals.sumOf { it.endAt!! - it.startAt })
+        }
+    })
+    val focus = checkpoint.focus ?: return checkpoint
+    if (focus.resumedAt == null) return checkpoint
     val parked = focus.pause(now, FocalFocus.PARK_CLOSED)
-    return state.copy(focus = parked, entries = state.entries.map { entry ->
+    return checkpoint.copy(focus = parked, entries = checkpoint.entries.map { entry ->
         if (entry.id == focus.sessionId && entry.active) focalRecoverFocus(entry, parked) else entry
     })
 }

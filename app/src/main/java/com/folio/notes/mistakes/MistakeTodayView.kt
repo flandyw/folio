@@ -92,6 +92,7 @@ internal data class TodayContent(
     val attempts: Map<String, Int>,
     val working: Boolean,
     val now: Long,
+    val recordStudy: Boolean,
 ) {
     val due get() = overdue.size + dueToday.size
     val sessionSize get() = minOf(due, limit)
@@ -99,6 +100,7 @@ internal data class TodayContent(
 
 internal class TodayActions(
     val onStart: () -> Unit,
+    val onRecordStudy: (Boolean) -> Unit,
     val onMission: (List<ExamTrackMistake>, Boolean) -> Unit,
     val onRoutine: () -> Unit,
     val onPreferences: (MistakeReviewPreferences) -> Unit,
@@ -330,6 +332,15 @@ private fun TodaySessionCard(content: TodayContent, actions: TodayActions, modif
     Box {
     Surface(Modifier.fillMaxWidth(), shape = FolioShapes.panel, color = scheme.primaryContainer, contentColor = scheme.onPrimaryContainer) {
         Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Record in Study timer", style = MaterialTheme.typography.titleSmall)
+                    Text("One session, a block for each question", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(content.recordStudy, actions.onRecordStudy,
+                    modifier = Modifier.semantics { contentDescription = "Record mistake practice in Study timer" })
+            }
             content.completed?.let { SessionDone(it, ratingTally(content.ratings), content.pending, actions.onDismissSummary) }
             if (content.completed != null) {
                 if (content.sessionXP > 0) Text("+${content.sessionXP} XP this session", style = MaterialTheme.typography.titleMedium)

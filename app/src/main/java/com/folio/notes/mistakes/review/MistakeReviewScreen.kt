@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
     actionMessage: String? = null,
     celebration: Int = 0,
     sessionXP: Int = 0,
+    recordStudy: Boolean = true, onRecordStudy: (Boolean) -> Unit = {},
     onRate: (ReviewRating, String?) -> Unit,
     onDelete: () -> Unit = {}) {
     val mistakesState by model.state.collectAsStateWithLifecycle()
@@ -236,6 +237,9 @@ import kotlinx.coroutines.launch
                             }
                         }
                         MistakeResponseModeSwitch(responseMode, hasInk, hasTyped, !busy, roomyHeader, ::selectResponseMode)
+                        IconToggleButton(checked = recordStudy, onCheckedChange = onRecordStudy, enabled = !busy) {
+                            Icon(Icons.Rounded.Timer, "Record in Study timer · ${if (recordStudy) "on" else "off"}")
+                        }
                         var menu by remember { mutableStateOf(false) }
                         Box {
                             IconButton({ menu = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "More review options") }

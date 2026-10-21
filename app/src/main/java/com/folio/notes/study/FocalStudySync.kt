@@ -256,6 +256,10 @@ internal fun focalStudyCommand(
     val canonicalMetadata = raw?.optJSONObject("metadata")
     val metadata = if (canonicalMetadata != null) JSONObject(canonicalMetadata.toString())
         else JSONObject().put("legacy_metadata", focalLegacyMetadata(raw))
+    entry.metadata?.let { local ->
+        val details = JSONObject(local)
+        details.keys().forEach { key -> metadata.put(key, details.get(key)) }
+    }
     val folio = metadata.optJSONObject("folio") ?: JSONObject().also { metadata.put("folio", it) }
     folio.put("kind", if (entry.kind == "exam") "exam" else "focus")
         .put("notebook_id", entry.notebookId ?: JSONObject.NULL)
@@ -423,6 +427,7 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
             ?: metadata.optJSONObject("examtrack")?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") }
             ?: examtrack?.optString("phaseBeforePause")?.takeIf { it in setOf("reading", "writing") },
         intervals = intervals, remotePayload = payload.toString(),
+        metadata = metadata.takeIf { it.optBoolean("mistakePractice") }?.toString(),
         notebookTitle = folio?.optString("notebook_title")?.takeIf { it.isNotBlank() && it != "null" }
     )
 }.getOrNull()

@@ -5,7 +5,11 @@ import android.net.ConnectivityManager
 import android.net.Network
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.folio.notes.FolioApplication
+import com.folio.notes.app.AppPrefs
+import com.folio.notes.mistakes.review.MistakeStudySession
 import com.folio.notes.mistakes.review.MistakeReviewPreferences
+import com.folio.notes.mistakes.sync.ExamContext
 import com.folio.notes.mistakes.sync.ExamTrackAuthRepository
 import com.folio.notes.mistakes.sync.ExamTrackSyncService
 import com.folio.notes.mistakes.sync.FileMistakeCacheStore
@@ -50,8 +54,57 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     private var rerunSync = false
     private var lastRequest = 0L
     private val foreground = MutableStateFlow(false)
+    private val preferences = application.getSharedPreferences("preferences", 0)
+    private val study get() = (getApplication<Application>() as FolioApplication).focalStudy
+    private var practiceStudy: MistakeStudySession? = null
+    private var studyQuestion: Triple<LocalMistakeReviewAttempt, ExamTrackMistake, ExamContext?>? = null
+
+    fun beginPracticeStudy() {
+        finishPracticeStudy()
+        _state.value.userId?.let { practiceStudy = MistakeStudySession(it) }
+    }
+
+    fun showPracticeStudyQuestion(attempt: LocalMistakeReviewAttempt, card: ExamTrackMistake, context: ExamContext?) {
+        if (studyQuestion?.first?.reviewId != attempt.reviewId) pausePracticeStudy(clearQuestion = false)
+        studyQuestion = Triple(attempt, card, context)
+        if (practiceStudy == null) practiceStudy = MistakeStudySession(attempt.userId)
+        resumePracticeStudy()
+    }
+
+    private fun resumePracticeStudy() {
+        if (!foreground.value || !preferences.getBoolean(AppPrefs.MISTAKE_RECORD_STUDY, AppPrefs.DEFAULT_MISTAKE_RECORD_STUDY)) return
+        val (attempt, card, context) = studyQuestion ?: return
+        practiceStudy?.resume(attempt, card, context, study.state.value.subjects, study.now())
+        savePracticeStudy()
+    }
+
+    fun pausePracticeStudy(clearQuestion: Boolean = true) {
+        practiceStudy?.pause(study.now())
+        savePracticeStudy()
+        if (clearQuestion) studyQuestion = null
+    }
+
+    fun setPracticeStudyRecording(enabled: Boolean) {
+        preferences.edit().putBoolean(AppPrefs.MISTAKE_RECORD_STUDY, enabled).apply()
+        if (enabled) resumePracticeStudy() else pausePracticeStudy(clearQuestion = false)
+    }
+
+    fun finishPracticeStudy() {
+        practiceStudy?.pause(study.now())
+        savePracticeStudy(completed = true)
+        practiceStudy = null
+        studyQuestion = null
+    }
+
+    private fun savePracticeStudy(completed: Boolean = false) {
+        val entry = practiceStudy?.entry(study.now(), completed) ?: return
+        if (!study.saveMistakeStudy(entry)) _state.update { it.copy(error = "Could not save practice to Study. Your response is kept; check Study for saving errors.") }
+    }
+
     fun setForeground(value: Boolean) {
+        if (value == foreground.value) return
         foreground.value = value
+        if (value) resumePracticeStudy() else pausePracticeStudy(clearQuestion = false)
         if (value) { auth.lifecycle.retry(); requestSync(force = true) }
     }
     private val connectivity = application.getSystemService(ConnectivityManager::class.java)
@@ -72,6 +125,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                 if (signingOut) return@collect
                 account.user?.let { acceptUser(it.id, it.email) }
                 if (account.status == FocalAccountStatus.SIGNED_OUT) {
+                    finishPracticeStudy()
                     syncJob?.cancel()
                     _state.value = MistakesState(status = account.message, accountStatus = account.status)
                 } else {
@@ -109,6 +163,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     }
     private suspend fun acceptUser(id: String, email: String?) {
         if (_state.value.userId == id) return
+        finishPracticeStudy()
         _state.value = MistakesState(userId = id, email = email, status = "Loading saved mistakes…")
         reload(id)
     }
@@ -159,6 +214,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     }
     fun signOut() {
         if (signingOut) return
+        finishPracticeStudy()
         signingOut = true
         rerunSync = false
         _state.value = MistakesState(busy = true) // Hide outgoing data before any asynchronous work.
@@ -269,6 +325,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         }
     }
     override fun onCleared() {
+        finishPracticeStudy()
         connectivity.unregisterNetworkCallback(callback)
         // The Supabase client is process-scoped and shared with study sessions, so it is not closed here.
         super.onCleared()

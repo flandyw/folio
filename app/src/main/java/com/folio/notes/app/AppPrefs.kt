@@ -106,6 +106,8 @@ object AppPrefs {
     const val MISTAKE_PAPER = "mistake.paper"
     /** Last explicitly chosen response mode; existing stylus users keep handwriting by default. */
     const val MISTAKE_RESPONSE_MODE = "mistake.responseMode"
+    const val MISTAKE_RECORD_STUDY = "mistake.recordStudy"
+    const val DEFAULT_MISTAKE_RECORD_STUDY = true
     const val DEFAULT_MISTAKE_RESPONSE_MODE = "write"
     fun mistakeResponseMode(raw: String?): String = if (raw == "type") "type" else DEFAULT_MISTAKE_RESPONSE_MODE
     const val DEFAULT_COVER = "notebook.defaultCover"

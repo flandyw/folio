@@ -146,7 +146,9 @@ class FocalStudyManager(context: Context) {
         scope.launch {
             while (true) {
                 delay(FOCUS_CHECKPOINT_INTERVAL_MS)
-                if (_state.value.focus?.resumedAt != null) persist()
+                if (_state.value.focus?.resumedAt != null || _state.value.entries.any {
+                    it.active && !it.paused && it.metadata != null
+                }) persist()
             }
         }
         scope.launch {
@@ -206,6 +208,7 @@ class FocalStudyManager(context: Context) {
                 examPhaseBeforePause = row.optString("examPhaseBeforePause").lowercase().ifBlank { null },
                 remotePayload = row.optString("remotePayload").ifBlank { null },
                 planDraft = row.optString("planDraft").ifBlank { null },
+                metadata = row.optString("metadata").ifBlank { null },
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
                 examLastBoundaryAt = row.optLong("examLastBoundaryAt").takeIf { it > 0L },
                 examBoundaries = (row.optJSONArray("examBoundaries") ?: JSONArray()).let { saved ->
@@ -274,6 +277,7 @@ class FocalStudyManager(context: Context) {
             .put("paused", entry.paused).put("examPhase", entry.examPhase)
             .put("examPhaseBeforePause", entry.examPhaseBeforePause)
             .put("remotePayload", entry.remotePayload).put("planDraft", entry.planDraft).put("notebookTitle", entry.notebookTitle)
+            .put("metadata", entry.metadata)
             .put("examLastBoundaryAt", entry.examLastBoundaryAt)
             .put("pendingBlocks", entry.pendingBlocks?.let(::focalEncodeIntervals))
             .put("examBoundaries", JSONArray().also { array -> entry.examBoundaries.forEach { event ->
@@ -454,6 +458,21 @@ class FocalStudyManager(context: Context) {
         }
         val entry = saved ?: return
         if (persist()) scope.launch { publishEntry(entry) }
+    }
+
+    /** Practice owns its intervals; keep the server receipt when adding the next question. */
+    internal fun saveMistakeStudy(entry: FocalStudyEntry): Boolean {
+        val previous = _state.value.entries.firstOrNull { it.id == entry.id }
+        if (entry.userId == null || previous?.deleted == true ||
+            previous != null && previous.userId != entry.userId ||
+            previous?.completed == true && !entry.completed) return false
+        if (entry.active && !entry.paused) {
+            parkFocus(FocalFocus.PARK_PRACTICE)
+            _state.value.visibleEntries.filter { it.id != entry.id && it.kind == "study" && it.active && !it.paused }
+                .forEach { controlEntry(it.id, "pause") }
+        }
+        return saveEntry(entry.copy(revision = previous?.revision ?: 0L,
+            remotePayload = previous?.remotePayload))
     }
 
     private fun saveEntry(entry: FocalStudyEntry): Boolean {
