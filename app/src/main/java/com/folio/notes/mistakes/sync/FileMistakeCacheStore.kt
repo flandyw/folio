@@ -14,14 +14,30 @@ class FileMistakeCacheStore(context: Context) : MistakeCacheStore {
     }
     override suspend fun load(userId: String): MistakeCache = withContext(Dispatchers.IO) {
         val f = file(userId)
-        if (!f.baseFile.exists() && !File(f.baseFile.path + ".bak").exists()) MistakeCache()
+        val key = f.baseFile.path
+        synchronized(memo) { memo[key] }?.let { return@withContext it }
+        val cache = if (!f.baseFile.exists() && !File(f.baseFile.path + ".bak").exists()) MistakeCache()
         else f.openRead().bufferedReader().use { MistakeCacheCodec.decode(it.readText()) }
+        synchronized(memo) { memo[key] = cache }
+        cache
     }
     override suspend fun save(userId: String, cache: MistakeCache) = withContext(Dispatchers.IO) {
         val f = file(userId)
         f.baseFile.parentFile!!.mkdirs()
         val stream = f.startWrite()
-        try { stream.write(MistakeCacheCodec.encode(cache).toByteArray()); f.finishWrite(stream) }
-        catch (e: Exception) { f.failWrite(stream); throw e }
+        try {
+            stream.bufferedWriter().apply { write(MistakeCacheCodec.encode(cache)); flush() }
+            f.finishWrite(stream)
+            synchronized(memo) { memo[f.baseFile.path] = cache }
+        }
+        catch (e: Exception) { f.failWrite(stream); synchronized(memo) { memo.remove(f.baseFile.path) }; throw e }
+    }
+
+    private companion object {
+        /**
+         * The last cache read or written per file, so each review action stops re-reading and
+         * re-parsing the whole JSON. Every write goes through [save], so the copy never goes stale.
+         */
+        val memo = HashMap<String, MistakeCache>()
     }
 }

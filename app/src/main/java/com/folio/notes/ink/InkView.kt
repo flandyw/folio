@@ -442,7 +442,14 @@ class InkView(context: Context) : View(context) {
      */
     private var noteErasing: MutableMap<String, List<Stroke>>? = null
     /** Visible notes, bottom to top, for hit-testing ink against them. */
-    private fun visibleNotes(): List<TextBox> = layerView().texts.filter { it.isSticky }
+    private var visibleNotesSource: NotePage? = null
+    private var visibleNotesValue: List<TextBox> = emptyList()
+    /** Hit-tested per pen sample, so it is only re-filtered when the layer view changes. */
+    private fun visibleNotes(): List<TextBox> {
+        val view = layerView()
+        if (visibleNotesSource !== view) { visibleNotesValue = view.texts.filter { it.isSticky }; visibleNotesSource = view }
+        return visibleNotesValue
+    }
     /** Keeps the menu and typing field on the note while an infinite canvas pans or the view resizes. */
     private fun followStickyFrame() {
         val box = stickyNotes.shown() ?: return
@@ -2501,7 +2508,7 @@ class InkView(context: Context) : View(context) {
                         val raw = ArrayList<InkPoint>(event.historySize + 1)
                         for (history in 0 until event.historySize) raw += point(event, index, history)
                         raw += point(event, index)
-                        if (!documentSamples(raw)) raw.forEach { backing += if (visibleNotes().isNotEmpty()) it else clampToPage(it) }
+                        if (!documentSamples(raw)) { val onNotes = visibleNotes().isNotEmpty(); raw.forEach { backing += if (onNotes) it else clampToPage(it) } }
                         lasso = backing
                     }
                 } else if (navigating) {

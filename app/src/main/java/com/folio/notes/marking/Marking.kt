@@ -98,7 +98,8 @@ object Marking {
     }
 
     fun cleanComment(text: String): String =
-        text.replace(SEPARATOR, ' ').replace(Regex("\\s+"), " ").trim().take(MAX_COMMENT_LENGTH)
+        text.replace(SEPARATOR, ' ').replace(whitespace, " ").trim().take(MAX_COMMENT_LENGTH)
+    private val whitespace = Regex("\\s+")
 
     // ---- Content builders -----------------------------------------------------------------------
 

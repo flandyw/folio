@@ -61,7 +61,8 @@ class PageThumbnailCache(private val context: Context, private val repository: N
         val key = "$noteId/${page.id}r${page.revision}w$width"
         memory.get(key)?.let { return@withContext it }
         val bitmap = renderCrisp(noteId, page, width) ?: return@withContext null
-        memory.put(key, bitmap)
+        // A crisp page can outweigh the whole cache; putting it would evict every preview, itself included.
+        if (bitmap.byteCount <= MAX_BYTES / 4) memory.put(key, bitmap)
         bitmap
     }
 
@@ -114,7 +115,8 @@ class PageThumbnailCache(private val context: Context, private val repository: N
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val background = if (content.pdfIndex != null) repository.pdfs.cachedPdfBackground(noteId, content, widthPx) else null
             currentCoroutineContext().ensureActive()
-            val images = repository.loadImages(noteId, content)
+            // A preview never needs a picture larger than itself; decoding at 1600px per photo was most of the cost.
+            val images = repository.loadImages(noteId, content, maxSize = widthPx * 2)
             try {
                 val canvas = Canvas(bitmap)
                 canvas.scale(widthPx / content.width, heightPx / content.height)

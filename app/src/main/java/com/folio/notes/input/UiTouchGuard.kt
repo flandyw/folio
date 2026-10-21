@@ -71,8 +71,8 @@ internal fun Modifier.guardUiTouches(): Modifier = composed {
         awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
-                event.changes.filter { it.type == PointerType.Stylus || it.type == PointerType.Eraser }
-                    .forEach { stylus.record(it.uptimeMillis) }
+                // Runs for every hover sample over every guarded control, so no per-event list.
+                event.changes.forEach { if (it.type == PointerType.Stylus || it.type == PointerType.Eraser) stylus.record(it.uptimeMillis) }
                 // A pen over any guarded control is over chrome: the editor's eraser ring stays out of it.
                 event.changes.firstOrNull { isPen(it.type) }?.let { tip ->
                     val inside = event.type != PointerEventType.Exit && tip.position.x in 0f..size.width.toFloat() && tip.position.y in 0f..size.height.toFloat()

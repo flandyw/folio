@@ -79,5 +79,6 @@ object LoggedMatcher {
         logged.asSequence().filter { it.id != ignoreId }.map { score(candidate, it) }
             .filter { it.confidence >= POSSIBLE }.maxByOrNull { it.confidence }
 
-    private fun normalised(text: String) = text.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+    private val nonAlnum = Regex("[^a-z0-9]+")
+    private fun normalised(text: String) = text.lowercase().replace(nonAlnum, " ").trim()
 }

@@ -35,7 +35,9 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -63,6 +65,8 @@ import kotlin.math.roundToLong
 private const val DAY = 24 * 60f
 private const val MIN_SPAN = 30f
 private const val SNAP = 5f
+// Dragging an edge or a whole block moves it to the minute.
+private const val STEP = 1f
 // The razor cuts to the minute, one minute in from either end.
 private const val CUT_EDGE = 1f
 private val TICK_STEPS = listOf(5f, 10f, 15f, 30f, 60f, 120f, 180f, 360f)
@@ -105,6 +109,7 @@ private fun pack(blocks: List<Block>): Pair<Map<String, Int>, Int> {
 }
 
 private fun snap(minute: Float) = (minute / SNAP).roundToInt() * SNAP
+private fun step(minute: Float) = (minute / STEP).roundToInt() * STEP
 private fun clock(minute: Float): String {
     val total = minute.roundToInt()
     val h = (total / 60) % 24
@@ -142,10 +147,14 @@ private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -
     val end by rememberUpdatedState(onEnd)
     val canDrag by rememberUpdatedState(draggable)
     val maxEdge = with(LocalDensity.current) { 18.dp.toPx() }
-    return pointerInput(key) {
+    // The block or handle follows the finger, so travel is measured in window pixels: in its own
+    // moving coordinates the finger would look still after each step, and the block would flicker back.
+    val left = remember { mutableFloatStateOf(0f) }
+    return onGloballyPositioned { left.floatValue = it.positionInWindow().x }.pointerInput(key) {
         awaitEachGesture {
             val down = awaitFirstDown()
             down.consume()
+            val downX = down.position.x + left.floatValue
             val edge = minOf(maxEdge, size.width / 3f)
             val grip = fixed ?: when {
                 down.position.x <= edge -> Grip.START
@@ -160,7 +169,7 @@ private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -
                 if (event.changes.count { it.pressed } > 1) { abandoned = true; break }
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if (!change.pressed) break
-                val dx = change.position.x - down.position.x
+                val dx = change.position.x + left.floatValue - downX
                 val dy = change.position.y - down.position.y
                 if (!moved) {
                     if (abs(dy) > viewConfiguration.touchSlop && abs(dy) > abs(dx)) { abandoned = true; break }
@@ -331,11 +340,11 @@ internal fun StudyTimeline(
         // Finished study can't run into the future: it stops at now instead of being refused on drop.
         val limit = if (live.entry.completed) nowMin.coerceIn(live.end, DAY) else DAY
         val next = when (grip) {
-            Grip.START -> Span(minOf(snap(live.start + delta), live.end - SNAP), live.end)
-            Grip.END -> Span(live.start, maxOf(snap(live.end + delta), live.start + SNAP))
+            Grip.START -> Span(minOf(step(live.start + delta), live.end - STEP), live.end)
+            Grip.END -> Span(live.start, maxOf(step(live.end + delta), live.start + STEP))
             Grip.MOVE -> {
                 val length = live.end - live.start
-                val start = snap(live.start + delta).coerceIn(0f, limit - length)
+                val start = step(live.start + delta).coerceIn(0f, limit - length)
                 Span(start, start + length)
             }
         }
@@ -496,11 +505,11 @@ internal fun StudyTimeline(
                 (draftOrigin ?: draft?.also { draftOrigin = it })?.let { origin ->
                     val delta = dx / trackWidth.floatValue * span
                     draft = when (grip) {
-                        Grip.START -> Span(minOf(snap(origin.start + delta).coerceAtLeast(0f), origin.end - SNAP), origin.end)
-                        Grip.END -> Span(origin.start, maxOf(snap(origin.end + delta).coerceAtMost(DAY - 1f), origin.start + SNAP))
+                        Grip.START -> Span(minOf(step(origin.start + delta).coerceAtLeast(0f), origin.end - STEP), origin.end)
+                        Grip.END -> Span(origin.start, maxOf(step(origin.end + delta).coerceAtMost(DAY - 1f), origin.start + STEP))
                         Grip.MOVE -> {
                             val length = origin.end - origin.start
-                            val start = snap(origin.start + delta).coerceIn(0f, DAY - length)
+                            val start = step(origin.start + delta).coerceIn(0f, DAY - length)
                             Span(start, start + length)
                         }
                     }

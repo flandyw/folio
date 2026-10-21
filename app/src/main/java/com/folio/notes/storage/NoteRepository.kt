@@ -1134,11 +1134,11 @@ class NoteRepository(private val context: Context) {
     }
 
     /** Every picture on [page] decoded for drawing; missing files are simply skipped. */
-    suspend fun loadImages(noteId: String, page: NotePage): Map<String, Bitmap> = withContext(Dispatchers.IO) {
+    suspend fun loadImages(noteId: String, page: NotePage, maxSize: Int = 1600): Map<String, Bitmap> = withContext(Dispatchers.IO) {
         if (page.images.isEmpty()) return@withContext emptyMap()
         coroutineScope {
             page.images.map { image ->
-                async { loadImage(noteId, image.id)?.let { image.id to it } }
+                async { loadImage(noteId, image.id, maxSize)?.let { image.id to it } }
             }.awaitAll().filterNotNull().toMap()
         }
     }

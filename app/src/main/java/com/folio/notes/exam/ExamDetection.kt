@@ -78,10 +78,19 @@ object ExamEvidenceCollector {
         ExamType.TOPIC_TEST to listOf("topic test")
     )
 
+    // Compiled once: detection normalizes every line of every inspected page.
+    private val aPlus = Regex("\\ba\\s*\\+")
+    private val letterDigit = Regex("(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])")
+    private val nonWord = Regex("[^a-z0-9]+")
+    private val examWords = Regex("\\b(exam|examination|paper)(?: [12]| ii?)?\\b|\\be [12]\\b")
+    private val yearPattern = Regex("\\b(?:19|20)[0-9]{2}\\b")
+    private val historicalLine = Regex("(?i)copyright|©|study design|accreditation|past papers|from |adapted|based on|\\b(?:19|20)\\d{2}\\s*[–−-]\\s*(?:19|20)\\d{2}")
+    private val subtotalLine = Regex("(?i)section|question|subtotal")
+
     private fun normalize(text: String): String = text.lowercase(java.util.Locale.ROOT)
-        .replace(Regex("\\ba\\s*\\+"), "a plus ")
-        .replace(Regex("(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])"), " ")
-        .replace(Regex("[^a-z0-9]+"), " ").trim()
+        .replace(aPlus, "a plus ")
+        .replace(letterDigit, " ")
+        .replace(nonWord, " ").trim()
 
     private fun contains(text: String, phrase: String) = " $phrase " in " $text "
 
@@ -93,7 +102,7 @@ object ExamEvidenceCollector {
             val filenameSource = source == ExamEvidenceSource.FILENAME
             val pdf = source == ExamEvidenceSource.PDF_TEXT || source == ExamEvidenceSource.OCR
             val location = if (pdf) "page ${page!! + 1}" else if (filenameSource) "filename" else "PDF metadata"
-            val examContext = Regex("\\b(exam|examination|paper)(?: [12]| ii?)?\\b|\\be [12]\\b").containsMatchIn(text) ||
+            val examContext = examWords.containsMatchIn(text) ||
                 contains(text, "victorian certificate of education") || contains(text, "reading time")
             fun score(phrase: String, short: Boolean = false): Double = when {
                 filenameSource -> if (short) (if (examContext) 0.61 else 0.44) else 0.68
@@ -112,10 +121,8 @@ object ExamEvidenceCollector {
                 aliases.firstOrNull { contains(text, it) }?.let { phrase ->
                     val short = phrase.length <= 3
                     // Everyday words in prose are not document titles (e.g. 'methods used').
-                    val titleLine = lines.any { line ->
-                        Regex("^(?:(?:vce|20[0-9]{2}) )*${Regex.escape(phrase)} (?:.* )?(?:exam|examination)(?: [12])?$")
-                            .matches(line)
-                    }
+                    val title = Regex("^(?:(?:vce|20[0-9]{2}) )*${Regex.escape(phrase)} (?:.* )?(?:exam|examination)(?: [12])?$")
+                    val titleLine = lines.any(title::matches)
                     val weakProse = pdf && phrase !in lines && !titleLine && !phrase.contains(' ')
                     add(ExamField.SUBJECT, subject, phrase, if (weakProse) 0.40 else score(phrase, short))
                 }
@@ -162,9 +169,9 @@ object ExamEvidenceCollector {
             var lineOffset = 0
             raw.lineSequence().forEach { line ->
                 val normalizedLine = normalize(line)
-                Regex("\\b(?:19|20)[0-9]{2}\\b").findAll(normalizedLine).forEach { match ->
+                yearPattern.findAll(normalizedLine).forEach { match ->
                     val year = match.value.toInt()
-                    val historical = Regex("(?i)copyright|©|study design|accreditation|past papers|from |adapted|based on|\\b(?:19|20)\\d{2}\\s*[–−-]\\s*(?:19|20)\\d{2}").containsMatchIn(line)
+                    val historical = historicalLine.containsMatchIn(line)
                     val explicit = normalizedLine == match.value || Regex("\\b${match.value} (exam|examination)\\b|\\b(exam|examination) ${match.value}\\b").containsMatchIn(normalizedLine)
                     val strength = when {
                         filenameSource -> 0.66
@@ -197,7 +204,7 @@ object ExamEvidenceCollector {
                         val marks = match.groupValues[1].toInt()
                         val line = raw.substring(0, match.range.first).substringAfterLast('\n') +
                             raw.substring(match.range.first).substringBefore('\n')
-                        if (marks in 1..300 && !Regex("(?i)section|question|subtotal").containsMatchIn(line))
+                        if (marks in 1..300 && !subtotalLine.containsMatchIn(line))
                             add(ExamField.MARKS_TOTAL, marks, match.value, if (page == 0) 0.92 else 0.79)
                     } }
                 if (examContext && listOf("reading time", "writing time", "question and answer book").any { contains(text, it) }) {

@@ -44,7 +44,8 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
                         if (next == note) note else next.copy(updated = now)
                     }
                 }
-                changed = updated.filter { it.id in ids && state.notes.find { n -> n.id == it.id } != it }
+                // map keeps order and returns the same instance for untouched notes, so identity is the diff.
+                changed = updated.filterIndexed { i, note -> note !== state.notes[i] }
                 state.copy(notes = updated)
             }
             if (changed.isEmpty()) return

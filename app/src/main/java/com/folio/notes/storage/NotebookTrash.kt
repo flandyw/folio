@@ -10,8 +10,9 @@ data class TrashedNotebook(val notebook: Notebook, val deletedAt: Long)
 
 /** Called under the repository lock. Same-filesystem renames make each lifecycle change atomic. */
 internal class NotebookTrash(private val notebooks: File, private val trash: File) {
+    private val idPattern = Regex("[a-zA-Z0-9-]+")
     private fun directory(root: File, id: String): File {
-        require(id.matches(Regex("[a-zA-Z0-9-]+"))) { "Invalid notebook id" }
+        require(id.matches(idPattern)) { "Invalid notebook id" }
         return File(root, id)
     }
 
@@ -21,7 +22,7 @@ internal class NotebookTrash(private val notebooks: File, private val trash: Fil
         // A purge that was interrupted has already been explicitly confirmed and detached.
         trash.listFiles().orEmpty().filter { it.name.startsWith(".purge-") }.forEach { it.deleteRecursively() }
         return trash.listFiles().orEmpty().filter {
-            it.isDirectory && it.name.matches(Regex("[a-zA-Z0-9-]+")) &&
+            it.isDirectory && it.name.matches(idPattern) &&
                 (File(it, "note.json").exists() || File(it, "note.json.bak").exists())
         }
     }

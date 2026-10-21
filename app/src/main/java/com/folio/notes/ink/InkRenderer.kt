@@ -42,6 +42,10 @@ object InkRenderer {
     private val paperMathMajorPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(214, 214, 210); strokeWidth = .9f } }
     private val graphAxisPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(140, 145, 150); strokeWidth = 1.4f } }
     private val graphTickPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(175, 180, 185); strokeWidth = 0.85f } }
+    // A dot drawn as a round point is the same disc as drawCircle(r = 1.2), but a whole page goes in one call.
+    private val paperDotPaint by lazy { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE0E0DA.toInt(); strokeWidth = 2.4f; strokeCap = Paint.Cap.ROUND } }
+    /** Two reusable coordinate buffers per thread, so a paper pattern is one draw call per paint, not one per line or dot. */
+    private val paperBatchPool by lazy { ThreadLocal.withInitial { arrayOf(PaperBatch(), PaperBatch()) } }
     private val arrowPathPool by lazy { ThreadLocal.withInitial { Path() } }
     private val strokePathPool by lazy { ThreadLocal.withInitial { Path() } }
     private val clipRectPool by lazy { ThreadLocal.withInitial { android.graphics.Rect() } }
@@ -557,6 +561,17 @@ object InkRenderer {
         override fun close() { path!!.close() }
     }
     private val pathSinkPool = ThreadLocal.withInitial { PathSink() }
+
+    /** Growable float buffer for batched [Canvas.drawLines] / [Canvas.drawPoints]. */
+    private class PaperBatch {
+        var coords = FloatArray(1024); var size = 0
+        fun point(x: Float, y: Float) { ensure(2); coords[size++] = x; coords[size++] = y }
+        fun line(x0: Float, y0: Float, x1: Float, y1: Float) { ensure(4); coords[size++] = x0; coords[size++] = y0; coords[size++] = x1; coords[size++] = y1 }
+        private fun ensure(more: Int) { if (size + more > coords.size) coords = coords.copyOf(max(coords.size * 2, size + more)) }
+        fun lines(canvas: Canvas, paint: Paint) { if (size > 0) canvas.drawLines(coords, 0, size, paint); size = 0 }
+        fun points(canvas: Canvas, paint: Paint) { if (size > 0) canvas.drawPoints(coords, 0, size, paint); size = 0 }
+    }
+    private fun paperBatches(): Array<PaperBatch> = paperBatchPool.get()!!.also { batches -> batches.forEach { it.size = 0 } }
     /** Width spread (page units) below which a pen stroke draws as a plain line rather than an outline. */
     private const val EVEN_WIDTH = .02f
 
@@ -729,16 +744,19 @@ object InkRenderer {
         val lastX = ceil(bounds.right / spacing).toInt()
         val firstY = floor(bounds.top / spacing).toInt()
         val lastY = ceil(bounds.bottom / spacing).toInt()
+        val batch = paperBatches()[0]
         for (row in firstY..lastY) {
             val y = row * spacing
             if (page.paper == Paper.DOTS) {
-                for (column in firstX..lastX) canvas.drawCircle(column * spacing, y, 1.2f, paint)
-            } else canvas.drawLine(bounds.left.toFloat(), y, bounds.right.toFloat(), y, paint)
+                for (column in firstX..lastX) batch.point(column * spacing, y)
+            } else batch.line(bounds.left.toFloat(), y, bounds.right.toFloat(), y)
         }
+        if (page.paper == Paper.DOTS) batch.points(canvas, paperDotPaint)
         if (page.paper.isGrid) for (column in firstX..lastX) {
             val x = column * spacing
-            canvas.drawLine(x, bounds.top.toFloat(), x, bounds.bottom.toFloat(), paint)
+            batch.line(x, bounds.top.toFloat(), x, bounds.bottom.toFloat())
         }
+        batch.lines(canvas, paint)
         if (page.paper == Paper.SPLIT_RULED) {
             canvas.drawLine(page.width / 2f, bounds.top.toFloat(), page.width / 2f, bounds.bottom.toFloat(), paperMinorPaint)
         }
@@ -864,6 +882,19 @@ object InkRenderer {
         return layout
     }
 
+    /**
+     * Notes draw every frame above the page raster, so their ink would be re-smoothed per frame.
+     * Strokes are immutable, so geometry is memoized by identity per thread; bounded, and dropped
+     * when the stroke-end look ([InkTaper.version]) changes.
+     */
+    private class StickyGeometry { val strokes = java.util.IdentityHashMap<Stroke, RenderedStroke>(); var taper = -1 }
+    private val stickyGeometry by lazy { ThreadLocal.withInitial { StickyGeometry() } }
+    private fun stickyRendered(stroke: Stroke): RenderedStroke {
+        val memo = stickyGeometry.get()!!
+        if (memo.taper != InkTaper.version || memo.strokes.size > 2048) { memo.strokes.clear(); memo.taper = InkTaper.version }
+        return memo.strokes.getOrPut(stroke) { rendered(stroke) }
+    }
+
     private class StickyPaints {
         val fill = Paint(Paint.ANTI_ALIAS_FLAG)
         val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f; style = Paint.Style.STROKE }
@@ -898,7 +929,7 @@ object InkRenderer {
                 textLayout(box.copy(width = (w - StickyNotes.PADDING * 2).coerceAtLeast(1f), stickyInk = emptyList())).draw(canvas)
                 canvas.restore()
             }
-            box.stickyInk.forEach { drawRendered(canvas, it, rendered(it)) }
+            box.stickyInk.forEach { drawRendered(canvas, it, stickyRendered(it)) }
             canvas.restore()
         } else textLayout(box).draw(canvas)
         canvas.restore()
@@ -912,7 +943,9 @@ object InkRenderer {
         // Align to the ruled spacing so culling never shifts the lines.
         y -= ((y - 70f) % spacing + spacing) % spacing
         val endY = min(page.height, clip.bottom.toFloat())
-        while (y < endY) { canvas.drawLine(36f, y, page.width - 36f, y, paint); y += spacing }
+        val batch = paperBatches()[0]
+        while (y < endY) { batch.line(36f, y, page.width - 36f, y); y += spacing }
+        batch.lines(canvas, paint)
         if (page.paper == Paper.SPLIT_RULED) canvas.drawLine(page.width / 2f, 70f, page.width / 2f, page.height, paint)
     }
 
@@ -947,7 +980,7 @@ object InkRenderer {
     }
 
     private fun drawDots(canvas: Canvas, page: NotePage) {
-        val paint = paperMinorPaint
+        val batch = paperBatches()[0]
         val spacing = 28f
         val clip = clipRectPool.get()!!.also { canvas.getClipBounds(it) }
         val firstY = (floor(clip.top / spacing).toInt() * spacing).coerceAtLeast(spacing)
@@ -957,9 +990,10 @@ object InkRenderer {
         var y = firstY
         while (y < lastY) {
             var x = firstX
-            while (x < lastX) { canvas.drawCircle(x, y, 1.2f, paint); x += spacing }
+            while (x < lastX) { batch.point(x, y); x += spacing }
             y += spacing
         }
+        batch.points(canvas, paperDotPaint)
     }
 
     private fun drawGrid(canvas: Canvas, page: NotePage, spacing: Float, minorAlpha: Int, majorEvery: Int) {
@@ -969,18 +1003,18 @@ object InkRenderer {
         val clip = clipRectPool.get()!!.also { canvas.getClipBounds(it) }
         val left = max(0f, clip.left.toFloat()); val right = min(page.width, clip.right.toFloat())
         val top = max(0f, clip.top.toFloat()); val bottom = min(page.height, clip.bottom.toFloat())
+        val (minorLines, majorLines) = paperBatches()
         var x = (ceil(left / spacing).toInt() * spacing).coerceAtLeast(spacing)
         var idx = (x / spacing).roundToInt()
         while (x < right) {
-            val p = if (majorEvery > 0 && idx % majorEvery == 0) major else minor
-            canvas.drawLine(x, top, x, bottom, p); x += spacing; idx++
+            (if (majorEvery > 0 && idx % majorEvery == 0) majorLines else minorLines).line(x, top, x, bottom); x += spacing; idx++
         }
         var y = (ceil(top / spacing).toInt() * spacing).coerceAtLeast(spacing)
         idx = (y / spacing).roundToInt()
         while (y < bottom) {
-            val p = if (majorEvery > 0 && idx % majorEvery == 0) major else minor
-            canvas.drawLine(left, y, right, y, p); y += spacing; idx++
+            (if (majorEvery > 0 && idx % majorEvery == 0) majorLines else minorLines).line(left, y, right, y); y += spacing; idx++
         }
+        minorLines.lines(canvas, minor); majorLines.lines(canvas, major)
     }
 
     /**
@@ -996,18 +1030,18 @@ object InkRenderer {
         val left = max(0f, clip.left.toFloat()); val right = min(page.width, clip.right.toFloat())
         val top = max(0f, clip.top.toFloat()); val bottom = min(page.height, clip.bottom.toFloat())
         // Minor grid culled to the viewport; major every 5.
+        val (minorLines, majorLines) = paperBatches()
         var x = (ceil(left / spacing).toInt() * spacing).coerceAtLeast(spacing)
         var i = (x / spacing).roundToInt()
         while (x < right) {
-            val p = if (i % 5 == 0) major else minor
-            canvas.drawLine(x, top, x, bottom, p); x += spacing; i++
+            (if (i % 5 == 0) majorLines else minorLines).line(x, top, x, bottom); x += spacing; i++
         }
         var y = (ceil(top / spacing).toInt() * spacing).coerceAtLeast(spacing)
         i = (y / spacing).roundToInt()
         while (y < bottom) {
-            val p = if (i % 5 == 0) major else minor
-            canvas.drawLine(left, y, right, y, p); y += spacing; i++
+            (if (i % 5 == 0) majorLines else minorLines).line(left, y, right, y); y += spacing; i++
         }
+        minorLines.lines(canvas, minor); majorLines.lines(canvas, major)
     }
 
     /**
@@ -1047,18 +1081,20 @@ object InkRenderer {
         p.reset(); p.moveTo(cx - ah / 1.9f, page.height - ah); p.lineTo(cx, page.height); p.lineTo(cx + ah / 1.9f, page.height - ah); canvas.drawPath(p, axis)
         // Short tick marks on axes every 20 px (one grid unit) inside the central band
         val spacing = Paper.GRAPH.gridSpacing
+        val ticks = paperBatches()[0]
         var tx = cx + spacing
         while (tx < page.width - spacing) {
-            canvas.drawLine(tx, cy - 4f, tx, cy + 4f, tick)
-            canvas.drawLine(cx - (tx - cx), cy - 4f, cx - (tx - cx), cy + 4f, tick)
+            ticks.line(tx, cy - 4f, tx, cy + 4f)
+            ticks.line(cx - (tx - cx), cy - 4f, cx - (tx - cx), cy + 4f)
             tx += spacing
         }
         var ty = cy + spacing
         while (ty < page.height - spacing) {
-            canvas.drawLine(cx - 4f, ty, cx + 4f, ty, tick)
-            canvas.drawLine(cx - 4f, cy - (ty - cy), cx + 4f, cy - (ty - cy), tick)
+            ticks.line(cx - 4f, ty, cx + 4f, ty)
+            ticks.line(cx - 4f, cy - (ty - cy), cx + 4f, cy - (ty - cy))
             ty += spacing
         }
+        ticks.lines(canvas, tick)
     }
 
     /**

@@ -28,8 +28,9 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
+private val whitespace = Regex("\\s+")
 internal fun paperKey(o: JSONObject): String = listOf(o.optString("subject"), o.optString("provider"),
-    o.optString("examYear"), o.optString("paper")).joinToString("\u0000") { it.trim().lowercase().replace(Regex("\\s+"), " ") }
+    o.optString("examYear"), o.optString("paper")).joinToString("\u0000") { it.trim().lowercase().replace(whitespace, " ") }
 internal fun LoggedExam.paperKey() = paperKey(json)
 
 internal fun validatePlan(raw: String): JSONObject {

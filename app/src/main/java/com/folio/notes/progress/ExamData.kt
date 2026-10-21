@@ -35,8 +35,22 @@ data class LoggedExam(val id: String, val subject: String, val provider: String,
 fun examDate(value: String): LocalDate? = runCatching { LocalDate.parse(value) }.getOrNull()
     ?: runCatching { Instant.parse(value).atZone(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
 
-fun comparisonName(value: String): String = value.lowercase().replace(Regex("\\bwritten\\b"), "")
-    .replace(Regex("\\b(examination|paper)\\b"), "exam").replace(Regex("[^a-z0-9]+"), " ").trim()
+// Compiled once: comparisonName runs inside nested filters over every reference and logged exam.
+private val writtenWord = Regex("\\bwritten\\b")
+private val examWord = Regex("\\b(examination|paper)\\b")
+private val nonAlnum = Regex("[^a-z0-9]+")
+private val nhtWord = Regex("\\bnht\\b", RegexOption.IGNORE_CASE)
+private val nhtTitle = Regex("^\\d{4}\\s+(?:VCE\\s+)?(.+?)\\s+(?:written\\s+)?exam(?:ination)?(?:\\s+[1-9])?$", RegexOption.IGNORE_CASE)
+private val paperNumber = Regex("\\b(?:exam(?:ination)?|paper)\\s*([1-9])\\b|\\b([1-9])\\s+(?:exam(?:ination)?|paper)\\b", RegexOption.IGNORE_CASE)
+private val nhtPath = Regex("(?:^|[-/])nht(?:[-/]|$)", RegexOption.IGNORE_CASE)
+private val digits = Regex("\\d+")
+private val nhtProvider = Regex("\\b(nht|northern hemisphere)\\b", RegexOption.IGNORE_CASE)
+private val providerPatterns = listOf("iTute" to "\\bitute\\b", "MAV" to "\\bmav\\b|mathematical association of victoria", "Kilbaha" to "\\bkilbaha\\b",
+    "VCAA" to "\\bvcaa\\b|victorian curriculum and assessment authority", "NEAP" to "\\bneap\\b", "Insight" to "\\binsight\\b",
+    "Heffernan" to "\\b(?:heffernan|hefferman)\\b", "TSSM" to "\\btssm\\b").map { it.first to Regex(it.second, RegexOption.IGNORE_CASE) }
+
+fun comparisonName(value: String): String = value.lowercase().replace(writtenWord, "")
+    .replace(examWord, "exam").replace(nonAlnum, " ").trim()
 
 data class GradeBand(val grade: String, val min: Double?, val max: Double?, val percentage: Double?, val count: Int?)
 data class ExamReference(val id: String, val subject: String, val year: Int, val paper: String,
@@ -82,8 +96,9 @@ fun distributionStats(reference: ExamReference): DistributionStats {
 }
 
 fun referenceFor(exam: LoggedExam, references: List<ExamReference>, year: Int = exam.examYear): ExamReference? {
-    val candidates = references.filter { it.year == year && comparisonName(it.subject) == comparisonName(exam.subject) }
-    return candidates.find { comparisonName(it.paper) == comparisonName(exam.paper) }
+    val subject = comparisonName(exam.subject); val paper = comparisonName(exam.paper)
+    val candidates = references.filter { it.year == year && comparisonName(it.subject) == subject }
+    return candidates.find { comparisonName(it.paper) == paper }
         ?: candidates.singleOrNull()
         ?: references.find { it.id == exam.json.optString("referenceId") && it.year == year }
 }
@@ -91,23 +106,24 @@ fun referenceFor(exam: LoggedExam, references: List<ExamReference>, year: Int = 
 data class ExamResource(val label: String, val url: String, val kind: String, val year: Int?)
 data class OfficialStudy(val subject: String, val pageUrl: String, val resources: List<ExamResource>)
 data class OfficialExam(val study: OfficialStudy, val resource: ExamResource) {
-    val subject get() = if (Regex("\\bnht\\b", RegexOption.IGNORE_CASE).containsMatchIn(study.subject))
-        Regex("^\\d{4}\\s+(?:VCE\\s+)?(.+?)\\s+(?:written\\s+)?exam(?:ination)?(?:\\s+[1-9])?$", RegexOption.IGNORE_CASE)
-            .find(resource.label)?.groupValues?.get(1)?.trim() ?: study.subject
-        else study.subject
+    val subject by lazy { if (nhtWord.containsMatchIn(study.subject))
+        nhtTitle.find(resource.label)?.groupValues?.get(1)?.trim() ?: study.subject
+        else study.subject }
     val year get() = resource.year!!
-    val paper get() = Regex("\\b(?:exam(?:ination)?|paper)\\s*([1-9])\\b|\\b([1-9])\\s+(?:exam(?:ination)?|paper)\\b", RegexOption.IGNORE_CASE)
-        .find(resource.label)?.let { match -> "Exam ${match.groupValues[1].ifBlank { match.groupValues[2] }}" } ?: "Exam"
-    val provider get() = if (Regex("(?:^|[-/])nht(?:[-/]|$)", RegexOption.IGNORE_CASE).containsMatchIn("${study.pageUrl} ${resource.url}")) "VCAA NHT" else "VCAA"
-    fun logged(attempts: List<LoggedExam>) = attempts.filter { it.examYear == year &&
-        comparisonName(it.subject) == comparisonName(subject) && comparisonName(it.provider) == comparisonName(provider) &&
-        (paper == "Exam" || comparisonName(it.paper) == comparisonName(paper)) }.maxByOrNull { it.completedAt }
+    val paper by lazy { paperNumber.find(resource.label)?.let { match -> "Exam ${match.groupValues[1].ifBlank { match.groupValues[2] }}" } ?: "Exam" }
+    val provider by lazy { if (nhtPath.containsMatchIn("${study.pageUrl} ${resource.url}")) "VCAA NHT" else "VCAA" }
+    fun logged(attempts: List<LoggedExam>): LoggedExam? {
+        val subjectKey = comparisonName(subject); val providerKey = comparisonName(provider); val paperKey = comparisonName(paper)
+        return attempts.filter { it.examYear == year &&
+            comparisonName(it.subject) == subjectKey && comparisonName(it.provider) == providerKey &&
+            (paper == "Exam" || comparisonName(it.paper) == paperKey) }.maxByOrNull { it.completedAt }
+    }
     fun draft(): JSONObject = JSONObject().put("subject", subject).put("provider", provider)
         .put("examYear", year).put("paper", paper).put("rawMax", knownExamMarks(subject, paper) ?: 100)
 }
 
 fun knownExamMarks(subject: String, paper: String): Int? {
-    val n = Regex("\\d+").find(paper)?.value?.toIntOrNull()
+    val n = digits.find(paper)?.value?.toIntOrNull()
     return when (comparisonName(subject)) {
         "mathematical methods", "mathematical methods cas", "specialist mathematics" -> when (n) { 1 -> 40; 2 -> 80; else -> null }
         "general mathematics" -> when (n) { 1 -> 40; 2 -> 60; else -> null }
@@ -148,13 +164,11 @@ fun performance(exam: LoggedExam, settings: JSONObject? = null): ExamPerformance
     if (settings?.optBoolean("enabled", true) == false) return ExamPerformance(exam.percentage, 1.0, 0.0)
     val order = settings?.optJSONArray("providerOrder")?.strings()?.distinctBy { comparisonName(it) }
         ?.let { if (it.none { p -> comparisonName(p) == "vcaa" }) it + "VCAA" else it } ?: defaultProviderOrder
-    val provider = if (Regex("\\b(nht|northern hemisphere)\\b", RegexOption.IGNORE_CASE).containsMatchIn("${exam.provider} ${exam.title} ${exam.paper}")) "VCAA NHT"
-        else listOf("iTute" to "\\bitute\\b", "MAV" to "\\bmav\\b|mathematical association of victoria", "Kilbaha" to "\\bkilbaha\\b",
-            "VCAA" to "\\bvcaa\\b|victorian curriculum and assessment authority", "NEAP" to "\\bneap\\b", "Insight" to "\\binsight\\b",
-            "Heffernan" to "\\b(?:heffernan|hefferman)\\b", "TSSM" to "\\btssm\\b")
-            .firstOrNull { Regex(it.second, RegexOption.IGNORE_CASE).containsMatchIn(exam.provider) }?.first
+    val provider = if (nhtProvider.containsMatchIn("${exam.provider} ${exam.title} ${exam.paper}")) "VCAA NHT"
+        else providerPatterns.firstOrNull { it.second.containsMatchIn(exam.provider) }?.first
             ?: order.find { comparisonName(it) == comparisonName(exam.provider) }
-    val rank = order.indexOfFirst { comparisonName(it) == provider?.let(::comparisonName) }; val baseline = order.indexOfFirst { comparisonName(it) == "vcaa" }
+    val providerKey = provider?.let(::comparisonName)
+    val rank = order.indexOfFirst { comparisonName(it) == providerKey }; val baseline = order.indexOfFirst { comparisonName(it) == "vcaa" }
     if (rank < 0 || baseline < 0) return ExamPerformance(exam.percentage, .55, 0.0)
     val strength = when (settings?.optString("strength")) { "light" -> 1.0; "strong" -> 2.0; else -> 1.5 }
     val aligned = (exam.percentage + ((baseline - rank) * strength).coerceIn(-8.0, 8.0)).coerceIn(0.0, 100.0)
