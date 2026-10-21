@@ -1,5 +1,15 @@
 package com.folio.notes
 
+import com.folio.notes.ink.shapes.ShapeAssistOptions
+import com.folio.notes.ink.shapes.ShapeCleanup
+import com.folio.notes.ink.shapes.ShapeFit
+import com.folio.notes.ink.shapes.ShapeKind
+import com.folio.notes.ink.shapes.ShapeMath
+import com.folio.notes.ink.shapes.ShapeRecognition
+import com.folio.notes.ink.shapes.Tidied
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.Tool
 import java.util.Random
 import kotlin.math.*
 

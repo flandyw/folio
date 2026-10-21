@@ -46,7 +46,7 @@ try {
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['PalmRejection.kt', 'TouchChord.kt'].map(file => path.join(source, file)),
+    ...['input/PalmRejection.kt', 'input/TouchChord.kt'].map(file => path.join(source, file)),
     path.join(__dirname, 'PalmRejectionSmoke.kt')]);
   run(['-cp', [classes, stdlib].join(path.delimiter), 'com.folio.notes.PalmRejectionSmokeKt']);
 } finally {

@@ -1,5 +1,17 @@
 package com.folio.notes
 
+import com.folio.notes.exam.ExamClassifier
+import com.folio.notes.exam.ExamDetectionResult
+import com.folio.notes.exam.ExamDocumentEvidence
+import com.folio.notes.exam.ExamEvidenceCollector
+import com.folio.notes.exam.ExamEvidenceSource
+import com.folio.notes.exam.ExamField
+import com.folio.notes.exam.ExamTags
+import com.folio.notes.exam.ExamType
+import com.folio.notes.exam.VceSubject
+import com.folio.notes.exam.detectImportedExam
+import com.folio.notes.exam.smartImportedNotebookName
+import com.folio.notes.pdf.PdfPageText
 import kotlinx.coroutines.CancellationException
 
 private var checks = 0

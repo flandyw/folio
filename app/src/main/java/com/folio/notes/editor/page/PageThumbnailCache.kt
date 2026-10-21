@@ -1,0 +1,165 @@
+package com.folio.notes.editor.page
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.util.LruCache
+import com.folio.notes.ink.InkRenderer
+import com.folio.notes.model.NotePage
+import com.folio.notes.storage.NoteRepository
+import com.folio.notes.storage.ThumbnailKeys
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * Renders and remembers one small preview per page revision.
+ *
+ * A preview is named after the page's revision, so an edited page gets a new name and its old copy
+ * becomes unreachable — there is nothing to invalidate and no stale preview to show. Previews live on
+ * disk, which is what keeps the page browser instant on a long notebook: a page whose preview was
+ * drawn before is read from cache and its page file is never opened. Only a page that has no preview
+ * yet is loaded and drawn, and the result is kept for next time.
+ *
+ * Rendered from memory when the page is already loaded (it is the copy being edited), otherwise from
+ * the page file, so the preview always matches what is on screen or on disk.
+ */
+class PageThumbnailCache(private val context: Context, private val repository: NoteRepository) {
+    private val root = File(context.cacheDir, "thumbnails")
+    private val memory = object : LruCache<String, Bitmap>(MAX_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    /**
+     * The page's preview at roughly [widthPx] wide, drawn now if it has never been drawn before.
+     * The width is rounded to one of a few sizes, so the page browser's small preview and a library
+     * card's large one never compete for the same cache entry nor redraw each other.
+     */
+    suspend fun thumbnail(noteId: String, page: NotePage, widthPx: Int): Bitmap? = withContext(Dispatchers.IO) {
+        val width = bucket(widthPx)
+        val name = ThumbnailKeys.name(page.id, page.revision, width)
+        val key = "$noteId/$name"
+        memory.get(key)?.let { return@withContext it }
+        val dir = File(root, noteId).apply { mkdirs() }
+        val file = File(dir, name)
+        val preview = if (file.exists()) decode(file) else render(noteId, page, width)?.also { store(dir, page, width, it) }
+        preview?.also { memory.put(key, it) }
+    }
+
+    /**
+     * Full-resolution page image for read-only review (e.g. previous mistake working).
+     * Unlike [thumbnail] this is not bucketed to 420px and never goes through lossy
+     * disk JPEG: the bitmap is rendered at the requested width so handwriting stays
+     * crisp when shown full-width or pinch-zoomed. Memory-cached only; callers should
+     * request display width × density (× supersample for zoom headroom).
+     */
+    suspend fun fullPage(noteId: String, page: NotePage, widthPx: Int): Bitmap? = withContext(Dispatchers.IO) {
+        val width = widthPx.coerceIn(1, FULL_MAX_WIDTH)
+        val key = "$noteId/${page.id}r${page.revision}w$width"
+        memory.get(key)?.let { return@withContext it }
+        val bitmap = renderCrisp(noteId, page, width) ?: return@withContext null
+        memory.put(key, bitmap)
+        bitmap
+    }
+
+    /** Forgets a notebook's previews and their in-memory copies, used when a notebook is deleted. */
+    fun clear(noteId: String) {
+        memory.snapshot().keys.filter { it.startsWith("$noteId/") }.forEach { memory.remove(it) }
+        File(root, noteId).deleteRecursively()
+    }
+
+    private suspend fun renderCrisp(noteId: String, page: NotePage, widthPx: Int): Bitmap? {
+        currentCoroutineContext().ensureActive()
+        val loaded = if (page.loaded) page else try { repository.loadPage(noteId, page) } catch (_: Exception) { return null }
+        currentCoroutineContext().ensureActive()
+        val content = InkRenderer.exportPage(loaded)
+        if (content.width <= 0f || content.height <= 0f) return null
+        return try {
+            // Keep zoomed ink sharp without risking a huge allocation on infinite canvases.
+            var heightPx = (widthPx * content.height / content.width).toInt().coerceIn(1, FULL_MAX_HEIGHT)
+            var width = widthPx
+            if (width.toLong() * heightPx > FULL_MAX_PIXELS) {
+                heightPx = (FULL_MAX_PIXELS / width).coerceAtLeast(1)
+            }
+            val bitmap = Bitmap.createBitmap(width, heightPx, Bitmap.Config.ARGB_8888)
+            val background = if (content.pdfIndex != null) repository.pdfs.cachedPdfBackground(noteId, content, width) else null
+            currentCoroutineContext().ensureActive()
+            val images = repository.loadImages(noteId, content)
+            try {
+                val canvas = Canvas(bitmap)
+                // Exact scale (no aspect distortion): letterbox if height was clamped.
+                val scale = minOf(width / content.width, heightPx / content.height)
+                val dx = (width - content.width * scale) / 2f
+                val dy = (heightPx - content.height * scale) / 2f
+                canvas.translate(dx, dy)
+                canvas.scale(scale, scale)
+                InkRenderer.page(canvas, content, background, images = images)
+            } finally { images.values.forEach { it.recycle() } }
+            bitmap
+        } catch (_: Exception) { null }
+    }
+
+    private suspend fun render(noteId: String, page: NotePage, widthPx: Int): Bitmap? {
+        // A page still only on disk is read here; a failure simply leaves no preview, never a crash.
+        currentCoroutineContext().ensureActive()
+        val loaded = if (page.loaded) page else try { repository.loadPage(noteId, page) } catch (_: Exception) { return null }
+        currentCoroutineContext().ensureActive()
+        val content = InkRenderer.exportPage(loaded)
+        return try {
+            // Clamp height so an infinite canvas with huge bounds cannot allocate a 6MB+ bitmap.
+            val heightPx = (widthPx * content.height / content.width).toInt().coerceIn(1, 2048)
+            val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+            val background = if (content.pdfIndex != null) repository.pdfs.cachedPdfBackground(noteId, content, widthPx) else null
+            currentCoroutineContext().ensureActive()
+            val images = repository.loadImages(noteId, content)
+            try {
+                val canvas = Canvas(bitmap)
+                canvas.scale(widthPx / content.width, heightPx / content.height)
+                InkRenderer.page(canvas, content, background, images = images)
+            } finally { images.values.forEach { it.recycle() } }
+            bitmap
+        } catch (_: Exception) { null }
+    }
+
+    private fun store(dir: File, page: NotePage, width: Int, bitmap: Bitmap) {
+        // JPEG is 3-5x faster to encode and far smaller than PNG for opaque page previews.
+        runCatching { File(dir, ThumbnailKeys.name(page.id, page.revision, width)).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) } }
+        // Earlier revisions at this size can no longer be asked for, so they go with it. Other sizes
+        // of the page are still in use by whoever asked for them, so they are left alone.
+        dir.listFiles()?.forEach { file ->
+            if (ThumbnailKeys.isStale(file.name, page.id, page.revision, width)) file.delete()
+        }
+    }
+
+    private fun decode(file: File): Bitmap? = try {
+        file.inputStream().use { BitmapFactory.decodeStream(it) }
+    } catch (_: Exception) { null }
+
+    private companion object {
+        /** Preview sizes the cache keeps: the page browser, then a library card's full face. */
+        const val SMALL = 80
+        const val MEDIUM = 200
+        const val LARGE = 420
+
+        /** Crisp review renders: wide enough for 2x supersampled phones/tablets, bounded for safety. */
+        const val FULL_MAX_WIDTH = 2560
+        const val FULL_MAX_HEIGHT = 4096
+        const val FULL_MAX_PIXELS = 10_000_000
+
+        /**
+         * A shelf of covers plus an open page browser fits comfortably; the disk copies are the
+         * cache that actually persists, this only keeps scrolling from re-decoding PNGs.
+         */
+        const val MAX_BYTES = 24 * 1024 * 1024
+
+        /** Rounds a requested width to the nearest size the cache keeps, so layouts share previews. */
+        fun bucket(widthPx: Int) = when {
+            widthPx <= SMALL -> SMALL
+            widthPx <= MEDIUM -> MEDIUM
+            else -> LARGE
+        }
+    }
+}

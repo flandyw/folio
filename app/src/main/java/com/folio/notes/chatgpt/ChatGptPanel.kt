@@ -16,12 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.folio.notes.FolioPanel
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
-import com.folio.notes.FolioViewModel
-import com.folio.notes.PageLayers
-import com.folio.notes.hiddenFromLibrary
+import com.folio.notes.app.FolioViewModel
+import com.folio.notes.model.PageLayers
+import com.folio.notes.model.hiddenFromLibrary
+import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 

@@ -54,11 +54,13 @@ try {
   const source = path.join(root, 'app/src/main/java/com/folio/notes');
   // Exercise the actual native overlay logic without loading Compose or an Android runtime.
   // Platform stand-ins model coordinates/events; they do not establish device rendering results.
-  const overlay = fs.readFileSync(path.join(source, 'DocumentStickyWorkspace.kt'), 'utf8');
+  const overlay = fs.readFileSync(path.join(source, 'editor/sticky/DocumentStickyWorkspace.kt'), 'utf8');
+  const projectImports = overlay.match(/^import com\.folio\.notes\..*$/gm).join('\n');
   const native = overlay.slice(overlay.indexOf('private class StickyWorkspaceView'))
     .replace('private class StickyWorkspaceView', 'internal class StickyWorkspaceView');
   const overlayFile = path.join(temp, 'StickyWorkspaceView.kt');
-  fs.writeFileSync(overlayFile, `package com.folio.notes
+  fs.writeFileSync(overlayFile, `package com.folio.notes.editor.sticky
+${projectImports}
 import android.content.Context
 import android.graphics.Canvas
 import android.view.MotionEvent
@@ -71,7 +73,7 @@ ${native}`);
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-nowarn',
     '-classpath', runtime.join(path.delimiter), `-Xfriend-paths=${appClasses}`, '-d', classes,
-    ...['StickyNotes.kt', 'StickyNoteInput.kt', 'PageLayers.kt'].map(file => path.join(source, file)),
+    ...['editor/sticky/StickyNotes.kt', 'editor/sticky/StickyNoteInput.kt', 'model/PageLayers.kt'].map(file => path.join(source, file)),
     ...fs.readdirSync(stubs).filter(file => file.endsWith('.kt')).map(file => path.join(stubs, file)),
     overlayFile, path.join(__dirname, 'StickyNotesSmoke.kt')]);
   run(['-cp', [classes, ...runtime].join(path.delimiter), 'com.folio.notes.StickyNotesSmokeKt']);

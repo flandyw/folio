@@ -2,12 +2,12 @@ package com.folio.notes
 
 import android.content.Intent
 import android.hardware.display.DisplayManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.MotionEvent
-import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +17,17 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.folio.notes.app.AppPrefs
+import com.folio.notes.app.FolioApp
+import com.folio.notes.app.FolioViewModel
+import com.folio.notes.ink.InkRasterStore
+import com.folio.notes.ink.InkRenderer
+import com.folio.notes.ink.LocalPenPointer
+import com.folio.notes.ink.PenPointer
+import com.folio.notes.input.LocalStylusActivity
+import com.folio.notes.input.StylusActivity
+import com.folio.notes.input.StylusInputRouter
+import com.folio.notes.input.isStylusPointer
 
 class MainActivity : ComponentActivity() {
     private val stylusActivity = StylusActivity()

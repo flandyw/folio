@@ -1,5 +1,13 @@
 package com.folio.notes
 
+import com.folio.notes.ink.InkOutline
+import com.folio.notes.ink.InkTaper
+import com.folio.notes.ink.pen.PenPressure
+import com.folio.notes.ink.pen.StrokeEnds
+import com.folio.notes.ink.pen.StrokePrediction
+import com.folio.notes.ink.pen.StrokeRefit
+import com.folio.notes.ink.recognition.HandwritingTidy
+import com.folio.notes.model.InkPoint
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos

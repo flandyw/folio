@@ -6,11 +6,11 @@ choosing the numbers that were always stored.
 
 ## Latency
 
-- **Predicted tail.** `InkView` feeds every stylus event to `PredictedInkTail.record`, which wraps AndroidX
+- **Predicted tail.** `InkView` feeds every stylus event to `PenTipPrediction.record`, which wraps AndroidX
   `MotionEventPredictor` (platform model on newer Android, a Kalman filter before). After each move
   `InkView.refreshPrediction` asks it for the predicted path and `StrokePrediction.clip` (pure) shifts it to start at the
   *drawn* tip (the pen filter can hold that a pixel behind the real pen) and cuts it at 28 screen pixels.
-  `PredictedInkTail.drawTail` paints it past the tip; it never enters the stroke. While the predictor has nothing
+  `PenTipPrediction.drawTail` paints it past the tip; it never enters the stroke. While the predictor has nothing
   yet (the first samples of a stroke) the old two-sample linear guess (`StrokePrediction.predict`) is used.
 - **Low-latency ink (experimental, off).** Settings › Writing › Pen feel. `LowLatencyInk` puts one
   transparent `SurfaceView` over the window and draws each new piece of an opaque pen stroke straight into

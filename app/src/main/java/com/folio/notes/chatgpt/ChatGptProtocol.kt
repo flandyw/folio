@@ -1,5 +1,7 @@
 package com.folio.notes.chatgpt
 
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.math.BigInteger
 import java.net.URI
@@ -11,8 +13,6 @@ import java.security.SecureRandom
 import java.security.Signature
 import java.security.spec.RSAPublicKeySpec
 import java.util.Base64
-import org.json.JSONArray
-import org.json.JSONObject
 
 /** The OAuth, SSE and annotation contracts, without Android or network dependencies. */
 internal object ChatGptProtocol {

@@ -5,7 +5,16 @@ import android.net.ConnectivityManager
 import android.net.Network
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.folio.notes.focalSyncDeviceId
+import com.folio.notes.mistakes.review.MistakeReviewPreferences
+import com.folio.notes.mistakes.sync.ExamTrackAuthRepository
+import com.folio.notes.mistakes.sync.ExamTrackSyncService
+import com.folio.notes.mistakes.sync.FileMistakeCacheStore
+import com.folio.notes.mistakes.sync.FocalAccountStatus
+import com.folio.notes.mistakes.sync.MistakeAttachmentRepository
+import com.folio.notes.mistakes.sync.MistakeCache
+import com.folio.notes.mistakes.sync.MistakeRepository
+import com.folio.notes.mistakes.sync.mistakeSyncError
+import com.folio.notes.sync.focalSyncDeviceId
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction

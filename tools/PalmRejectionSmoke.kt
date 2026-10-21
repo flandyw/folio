@@ -1,6 +1,12 @@
 package com.folio.notes
 
-import com.folio.notes.PalmRejection.Action.*
+import com.folio.notes.input.PalmRejection
+import com.folio.notes.input.PalmRejection.Action.*
+import com.folio.notes.input.PinchNavigation
+import com.folio.notes.input.StylusActivity
+import com.folio.notes.input.TouchChord
+import com.folio.notes.input.filteredPointerAction
+import com.folio.notes.input.fingerDrawing
 
 private fun mask(vararg ids: Int) = ids.fold(0) { bits, id -> bits or (1 shl id) }
 

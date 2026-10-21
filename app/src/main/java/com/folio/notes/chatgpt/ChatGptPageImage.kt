@@ -3,13 +3,13 @@ package com.folio.notes.chatgpt
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.geometry.Rect
-import com.folio.notes.InkGeometry
-import com.folio.notes.InkRenderer
-import com.folio.notes.NotePage
-import com.folio.notes.NoteRepository
-import com.folio.notes.Notebook
-import com.folio.notes.PageLayers
-import com.folio.notes.StickyNotes
+import com.folio.notes.editor.sticky.StickyNotes
+import com.folio.notes.ink.InkGeometry
+import com.folio.notes.ink.InkRenderer
+import com.folio.notes.model.NotePage
+import com.folio.notes.model.Notebook
+import com.folio.notes.model.PageLayers
+import com.folio.notes.storage.NoteRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.min
@@ -30,7 +30,7 @@ internal data class ChatGptPageImage(val bitmap: Bitmap, val bounds: Rect) {
             var background: Bitmap? = null
             var images: Map<String, Bitmap> = emptyMap()
             try {
-                background = repository.pdfBackground(note.id, page, bitmap.width)
+                background = repository.pdfs.pdfBackground(note.id, page, bitmap.width)
                 images = repository.loadImages(note.id, page)
                 if (page.pdfIndex != null && background == null) throw ChatGptFailure("The PDF background could not be loaded. Reopen the page and try again.")
                 if (page.images.any { !images.containsKey(it.id) }) throw ChatGptFailure("A picture on this page could not be loaded. Reopen the page and try again.")

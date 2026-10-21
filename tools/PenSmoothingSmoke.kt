@@ -1,5 +1,7 @@
 package com.folio.notes
 
+import com.folio.notes.ink.pen.PenSmoothing
+import com.folio.notes.model.InkPoint
 import kotlin.math.abs
 import kotlin.math.hypot
 

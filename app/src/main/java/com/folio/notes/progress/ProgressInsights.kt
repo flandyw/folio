@@ -15,13 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioPanel
-import com.folio.notes.FolioSpacing
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
 import com.folio.notes.mistakes.ReviewRating
 import com.folio.notes.mistakes.isoTime
+import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
