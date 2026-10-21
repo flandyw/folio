@@ -1,13 +1,13 @@
 package com.folio.notes.progress
 
-import com.folio.notes.ExamAttempt
-import com.folio.notes.Notebook
-import com.folio.notes.VceSubject
+import com.folio.notes.exam.ExamAttempt
+import com.folio.notes.exam.VceSubject
 import com.folio.notes.mistakes.isoTime
+import com.folio.notes.model.Notebook
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.LocalDate
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.*
 

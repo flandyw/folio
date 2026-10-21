@@ -23,8 +23,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 
 private enum class LoginStep(val title: String, val action: String, val working: String) {
     SIGN_IN("Welcome to Focal", "Sign in", "Signing in…"),

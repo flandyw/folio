@@ -1,10 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
-import com.folio.notes.FolioMenuPopover
-import com.folio.notes.FolioMenuItem
-
-import com.folio.notes.FolioSpacing
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,13 +18,16 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioPanel
 import com.folio.notes.mistakes.isoTime
-import java.time.LocalDate
-import java.util.UUID
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
+import java.util.UUID
 
 @Composable internal fun ChoiceField(label: String, value: String, options: List<String>, onChange: (String) -> Unit,
     editable: Boolean = false) {

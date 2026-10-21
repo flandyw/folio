@@ -1,5 +1,20 @@
 package com.folio.notes
 
+import com.folio.notes.editor.layout.DocumentInkCapture
+import com.folio.notes.editor.layout.DocumentInkPage
+import com.folio.notes.editor.layout.DocumentMarking
+import com.folio.notes.editor.layout.DocumentPageGeometry
+import com.folio.notes.marking.MarkZones
+import com.folio.notes.marking.Marking
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.NotePage
+import com.folio.notes.model.PageImage
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.TextBox
+import com.folio.notes.model.Tool
+import com.folio.notes.storage.PageJournal
+import com.folio.notes.storage.content
+
 /** Geometry checks, using the same models and helpers as the editor. */
 fun main() {
     val original = NotePage(

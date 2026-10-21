@@ -10,8 +10,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Note
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Note
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,15 +29,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioMenuItem
-import com.folio.notes.FolioMenuPopover
-import com.folio.notes.FolioPanel
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
-import com.folio.notes.NotePage
-import com.folio.notes.Notebook
-import com.folio.notes.StickyNotes
+import com.folio.notes.editor.sticky.StickyNotes
 import com.folio.notes.math.KaTeXText
+import com.folio.notes.model.NotePage
+import com.folio.notes.model.Notebook
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 
 @Composable internal fun ChatGptPageCard(
     note: Notebook?, page: NotePage?, pageIndex: Int, image: ChatGptPageImage?, error: String?, wide: Boolean,

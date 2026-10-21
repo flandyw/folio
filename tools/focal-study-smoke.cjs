@@ -47,17 +47,13 @@ const runtime = [appClasses, stdlib, json];
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-study-'));
 try {
   const source = path.join(root, 'app/src/main/java/com/folio/notes');
-  const focal = fs.readFileSync(path.join(source, 'FocalStudy.kt'), 'utf8');
-  // Compile the actual session models, recovery and command helpers without the Android manager.
-  const pure = path.join(temp, 'FocalStudy.kt');
-  fs.writeFileSync(pure, 'package com.folio.notes\nimport org.json.*\nimport java.util.UUID\nimport java.time.Instant\n' +
-    focal.slice(focal.indexOf('data class FocalStudyEntry('), focal.indexOf('/** Durable local sessions.')) +
-    focal.slice(focal.indexOf('private fun focalLegacyMetadata(')));
+  // The session models, recovery rules and command helpers live apart from the Android manager.
+  const pure = ['study/FocalStudySessions.kt', 'study/FocalStudySync.kt'].map(file => path.join(source, file));
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
     '-classpath', runtime.join(path.delimiter), `-Xfriend-paths=${appClasses}`, '-d', classes,
-    path.join(source, 'VceModels.kt'), pure, path.join(__dirname, 'FocalStudySmoke.kt')]);
+    path.join(source, 'exam/VceModels.kt'), ...pure, path.join(__dirname, 'FocalStudySmoke.kt')]);
   run(['-cp', [classes, ...runtime].join(path.delimiter), 'com.folio.notes.FocalStudySmokeKt']);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

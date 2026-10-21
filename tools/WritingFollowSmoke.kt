@@ -1,5 +1,26 @@
 package com.folio.notes
 
+import com.folio.notes.editor.follow.CanvasWritingSession
+import com.folio.notes.editor.follow.FollowBackHistory
+import com.folio.notes.editor.follow.FollowFeel
+import com.folio.notes.editor.follow.FollowGlide
+import com.folio.notes.editor.follow.FollowLegibility
+import com.folio.notes.editor.follow.FollowMode
+import com.folio.notes.editor.follow.FollowNavigation
+import com.folio.notes.editor.follow.FollowPreferences
+import com.folio.notes.editor.follow.FollowReturnTarget
+import com.folio.notes.editor.follow.FollowRhythm
+import com.folio.notes.editor.follow.WritingAdvance
+import com.folio.notes.editor.follow.WritingDirection
+import com.folio.notes.editor.follow.WritingFollow
+import com.folio.notes.editor.follow.WritingFollowState
+import com.folio.notes.editor.follow.WritingGuide
+import com.folio.notes.editor.follow.WritingGuides
+import com.folio.notes.editor.follow.WritingHand
+import com.folio.notes.editor.follow.WritingLane
+import com.folio.notes.editor.follow.WritingProgress
+import com.folio.notes.editor.follow.ZoomWriting
+import com.folio.notes.model.InkPoint
 import kotlin.math.abs
 import kotlin.math.roundToInt
 

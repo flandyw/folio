@@ -2,38 +2,44 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.folio.notes.*
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import com.folio.notes.mistakes.richtext.RichText
+import com.folio.notes.mistakes.richtext.scaledBy
+import com.folio.notes.mistakes.sync.ExamContext
+import com.folio.notes.mistakes.sync.MistakeAttachmentRepository
+import com.folio.notes.model.Notebook
+import com.folio.notes.ui.EmptyHint
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.CancellationException
 import java.io.File
 
@@ -43,7 +49,7 @@ import java.io.File
 internal fun MistakeDetailCard(
     mistake: ExamTrackMistake, context: ExamContext?, schedule: MistakeSchedule?,
     due: Boolean, working: Boolean, userId: String, attachments: MistakeAttachmentRepository,
-    attempts: List<Pair<com.folio.notes.Notebook, LocalMistakeReviewAttempt>>,
+    attempts: List<Pair<Notebook, LocalMistakeReviewAttempt>>,
     onPractice: () -> Unit,
     onOpenAttempt: (noteId: String, pageId: String, reviewId: String, completed: Boolean) -> Unit,
     onDelete: () -> Unit = {}, now: Long = System.currentTimeMillis(),

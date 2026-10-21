@@ -1,5 +1,7 @@
 package com.folio.notes
 
+import com.folio.notes.editor.layout.DocumentPageGeometry
+import com.folio.notes.editor.layout.DocumentViewport
 import kotlin.math.abs
 
 fun documentGeometrySmoke() {

@@ -1,9 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
-import com.folio.notes.FolioMenuPopover
-import com.folio.notes.FolioMenuItem
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -19,11 +16,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
-import com.folio.notes.guardUiTouches
-import com.folio.notes.longPressAction
-import com.folio.notes.rememberLongPressGuard
+import com.folio.notes.input.guardUiTouches
+import com.folio.notes.input.longPressAction
+import com.folio.notes.input.rememberLongPressGuard
+import com.folio.notes.mistakes.richtext.RichText
+import com.folio.notes.mistakes.sync.ExamContext
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 
 /** One labelled chip group; [allowAll] adds an "All" chip and lets a second tap clear the choice. */
 @Composable internal fun MistakeFilterOptions(title: String, options: List<String>, selected: String, allowAll: Boolean = true, onSelect: (String) -> Unit) {

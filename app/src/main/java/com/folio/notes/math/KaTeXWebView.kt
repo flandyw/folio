@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.os.Looper
 import android.view.View
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -12,14 +13,13 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import org.json.JSONObject
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
 import kotlin.math.ceil

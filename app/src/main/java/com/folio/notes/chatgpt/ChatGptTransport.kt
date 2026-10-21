@@ -1,5 +1,8 @@
 package com.folio.notes.chatgpt
 
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody
+import okio.BufferedSink
 import java.io.EOFException
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -10,9 +13,6 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
-import okhttp3.OkHttpClient
-import okhttp3.RequestBody
-import okio.BufferedSink
 
 internal object ChatGptTransport {
     fun client(): OkHttpClient = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)

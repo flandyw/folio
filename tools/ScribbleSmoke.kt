@@ -1,5 +1,11 @@
 package com.folio.notes
 
+import com.folio.notes.ink.InkGeometry
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.PageLayer
+import com.folio.notes.model.PageLayers
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.Tool
 import kotlin.math.*
 
 /** Gesture and destructive-target regressions using the editor's real geometry. */

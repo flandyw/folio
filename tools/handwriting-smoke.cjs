@@ -43,14 +43,12 @@ function run(args) {
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-handwriting-'));
 try {
   const source = path.join(root, 'app/src/main/java/com/folio/notes');
-  // Reuse the actual primitive's declaration; Models.kt also contains Android-dependent models.
-  const point = fs.readFileSync(path.join(source, 'Models.kt'), 'utf8').match(/^data class InkPoint\([^\n]+/m)[0];
-  const primitive = path.join(temp, 'InkPoint.kt');
-  fs.writeFileSync(primitive, `package com.folio.notes\n${point}\n`);
+  // model/Ink.kt holds the pure ink primitives (tools, points, strokes) and has no Android imports.
+  const primitive = path.join(source, 'model/Ink.kt');
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['PenPressure.kt', 'StrokePrediction.kt', 'InkTaper.kt', 'StrokeRefit.kt', 'HandwritingTidy.kt', 'InkOutline.kt', 'StrokeEnds.kt'].map(file => path.join(source, file)),
+    ...['ink/pen/PenPressure.kt', 'ink/pen/StrokePrediction.kt', 'ink/InkTaper.kt', 'ink/pen/StrokeRefit.kt', 'ink/recognition/HandwritingTidy.kt', 'ink/InkOutline.kt', 'ink/pen/StrokeEnds.kt'].map(file => path.join(source, file)),
     primitive, path.join(__dirname, 'HandwritingSmoke.kt')]);
   run(['-cp', [classes, stdlib].join(path.delimiter), 'com.folio.notes.HandwritingSmokeKt']);
 } finally {

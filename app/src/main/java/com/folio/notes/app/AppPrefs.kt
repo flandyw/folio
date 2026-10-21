@@ -1,0 +1,345 @@
+package com.folio.notes.app
+
+import com.folio.notes.editor.sticky.StickyNotes
+import com.folio.notes.export.PageExportFormat
+import com.folio.notes.export.PdfExportMode
+import com.folio.notes.export.ShareShortcut
+import com.folio.notes.ink.InkTaper
+import com.folio.notes.ink.pen.PenSmoothing
+import com.folio.notes.library.CoverStyle
+import com.folio.notes.library.LibraryKind
+import com.folio.notes.library.LibrarySort
+import com.folio.notes.library.files.FileSort
+import com.folio.notes.model.Folder
+import com.folio.notes.model.Notebook
+import com.folio.notes.model.Paper
+import com.folio.notes.model.Tool
+import com.folio.notes.ui.BuiltInCoverColors
+import com.folio.notes.workspace.SplitPanes
+
+/**
+ * Central catalogue of customisable preferences.
+ *
+ * Existing keys (theme, finger, stylus, penHaptics, shapeRecognition, follow.*, text.*,
+ * toolbar.*, ink-tools) are left untouched for migration safety. Everything new lives
+ * here with a documented default, range and pure parsing helper so it stays JVM-testable
+ * and every screen reads the same value.
+ */
+object AppPrefs {
+    const val DEFAULT_UX_HINTS = true
+    const val DEFAULT_UX_LABELS = false
+    const val DEFAULT_UX_LARGE_CONTROLS = false
+    const val DEFAULT_UX_TOOL_KEYS = true
+    const val DEFAULT_UX_SNAP = false
+    const val DEFAULT_UX_REVIEW_CONFIRM = true
+    const val DEFAULT_UX_LOCAL_TOOLS = false
+    const val DEFAULT_UX_SEARCH_HANDWRITING = false
+    const val DEFAULT_UX_SWIPE_RIGHT = "FAVOURITE"
+    const val DEFAULT_UX_SWIPE_LEFT = "TRASH"
+    fun uxLinkOffset(value: Int?): Int = (value ?: 0).coerceIn(-99999, 99999)
+    const val UX_HINTS = "ux.hints"
+    const val UX_LABELS = "ux.labels"
+    const val UX_LARGE_CONTROLS = "ux.largeControls"
+    const val UX_TOOL_BINDINGS = "ux.toolBindings"
+    const val UX_SEARCH_HANDWRITING = "ux.searchHandwriting"
+    const val UX_EDITOR_HINT_DISMISSED = "ux.editorHintDismissed"
+    const val UX_LIBRARY_HINT_DISMISSED = "ux.libraryHintDismissed"
+    const val UX_TOOL_KEYS = "ux.toolKeys"
+    const val UX_SNAP = "ux.snapObjects"
+    const val UX_REVIEW_CONFIRM = "ux.reviewConfirm"
+    const val UX_SWIPE_RIGHT = "ux.swipeRight"
+    const val UX_SWIPE_LEFT = "ux.swipeLeft"
+    const val UX_LOCAL_TOOLS = "ux.localTools"
+    const val UX_NOTE_TOOL_PREFIX = "ux.noteTool."
+    const val UX_SAVED_VIEWS = "ux.savedViews"
+    const val UX_WORKSPACES = "ux.workspaces"
+    const val UX_LINK_OFFSET = "ux.linkOffset"
+    fun uxSwipe(raw: String?, fallback: String): String = raw?.takeIf { it in listOf("FAVOURITE", "TRASH", "TAGS", "SHARE", "MOVE") } ?: fallback
+
+    /** Tint opacity of the sideways-follow zone; zero hides it without changing its trigger. */
+    const val FOLLOW_EDGE_STRIP_OPACITY = "follow.edgeStripOpacity"
+    const val DEFAULT_FOLLOW_EDGE_STRIP_OPACITY = .1f
+    fun followEdgeStripOpacity(value: Float?): Float =
+        (value?.takeIf(Float::isFinite) ?: DEFAULT_FOLLOW_EDGE_STRIP_OPACITY).coerceIn(0f, .5f)
+    const val ZOOM_PANE_HEIGHT = "writing.zoomPaneHeight"
+    const val DEFAULT_ZOOM_PANE_HEIGHT = 280f
+    fun zoomPaneHeight(value: Float?): Float =
+        (value?.takeIf(Float::isFinite) ?: DEFAULT_ZOOM_PANE_HEIGHT).coerceIn(180f, 480f)
+    const val FULLSCREEN = "fullscreen"
+    const val KEEP_SCREEN_ON = "editor.keepScreenOn"
+    const val AUTO_UPDATE = "updates.auto"
+    /** Opt-in VPS builds; stable builds continue to come from GitHub. */
+    const val EXPERIMENTAL_UPDATES = "updates.experimental"
+    const val LAST_UPDATE_CHECK = "updates.lastCheck"
+    const val UPDATE_RETRY_AT = "updates.retryAt"
+    const val EXPERIMENTAL_LAST_UPDATE_CHECK = "updates.experimental.lastCheck"
+    const val EXPERIMENTAL_UPDATE_RETRY_AT = "updates.experimental.retryAt"
+    const val LIB_SORT = "library.sort"
+    const val LIB_KIND = "library.kind"
+    const val LIB_LIST = "library.listView"
+    /** Only explicitly connected device folders; an empty set is the default. */
+    const val EXPLORER_LOCATIONS = "explorer.locations"
+    fun explorerLocations(value: Set<String>?): Set<String> = value.orEmpty().filter { it.startsWith("content://") }.take(32).toSet()
+    /** Dot-prefixed device folders are hidden unless the user chooses to show them. */
+    const val EXPLORER_SHOW_HIDDEN_FOLDERS = "explorer.showHiddenFolders"
+    const val DEFAULT_EXPLORER_SHOW_HIDDEN_FOLDERS = false
+    /** Tablet files sort order, stored as a `FileSort` name; the explorer remembers its own choice. */
+    const val EXPLORER_SORT = "explorer.sort"
+    /** Tablet files narrows to PDF & Folio files when on. */
+    const val EXPLORER_PDF_ONLY = "explorer.pdfOnly"
+    const val DEFAULT_EXPLORER_PDF_ONLY = false
+    /** Music shelf shows rows instead of first-page covers; music keeps its own choice. */
+    const val MUSIC_LIST = "music.listView"
+    /** Music shelf order, stored as a `MusicSort` name; music keeps its own choice. */
+    const val MUSIC_SORT = "music.sort"
+    /** How far the reader dims the sheet, 0 = off; a pit-light score is easier on the eyes. */
+    const val MUSIC_DIM = "music.dim"
+    /** The reader keeps the ink tool strip visible; hiding it gives a calmer full-page score. */
+    const val MUSIC_TOOLBAR = "music.toolbar"
+    /** Metronome click, accent on the downbeat and subdivision are remembered app-wide. */
+    const val MUSIC_CLICK = "music.click"
+    const val MUSIC_ACCENT = "music.accent"
+    const val MUSIC_SUBDIVISION = "music.subdivision"
+    /** One bar of clicks before the metronome starts, so there is time to join in. */
+    const val MUSIC_COUNT_IN = "music.countIn"
+    const val DEFAULT_TOOL = "editor.defaultTool"
+    const val DEFAULT_PAPER = "notebook.defaultPaper"
+    /** Paper new mistake-practice pages start on; they are always infinite canvases. */
+    const val MISTAKE_PAPER = "mistake.paper"
+    /** Last explicitly chosen response mode; existing stylus users keep handwriting by default. */
+    const val MISTAKE_RESPONSE_MODE = "mistake.responseMode"
+    const val DEFAULT_MISTAKE_RESPONSE_MODE = "write"
+    fun mistakeResponseMode(raw: String?): String = if (raw == "type") "type" else DEFAULT_MISTAKE_RESPONSE_MODE
+    const val DEFAULT_COVER = "notebook.defaultCover"
+    const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
+    const val QUICK_FOLDER = "notebook.quickFolder"
+    const val PALM_MS = "input.palmMs"
+    /** Legacy key: an explicit finger-drawing choice. Absent means "follow [STYLUS_SEEN]" ([fingerDrawing]). */
+    const val FINGER = "finger"
+    /** Set the first time a pen tip touches the screen; from then on a finger scrolls unless the user chose otherwise. */
+    const val STYLUS_SEEN = "input.stylusSeen"
+    /** Position filtering for new freehand pen strokes; zero disables the input filter. */
+    const val PEN_SMOOTHING = "input.penSmoothing"
+    const val DEFAULT_PEN_SMOOTHING = PenSmoothing.DEFAULT
+    fun penSmoothing(value: Float): Float = PenSmoothing.strength(value)
+    /** Fast pen strokes lay down thinner ink, as with a real pen. Off by default. */
+    const val PEN_SPEED_WIDTH = "input.penSpeedWidth"
+    const val DEFAULT_PEN_SPEED_WIDTH = false
+    /** A tilted stylus lays a broader highlighter stroke. Off by default. */
+    const val HIGHLIGHTER_TILT = "input.highlighterTilt"
+    const val DEFAULT_HIGHLIGHTER_TILT = false
+    /** Holding the stylus still at pen-down borrows this tool until lift. */
+    const val PEN_START_HOLD = "input.penStartHold"
+    const val DEFAULT_PEN_START_HOLD = "highlighter"
+    fun penStartHold(raw: String?): String = when (raw) {
+        "eraser", "off" -> raw
+        else -> DEFAULT_PEN_START_HOLD
+    }
+    /** Draw the pen stroke in progress through a front-buffered layer (API 29+). Experimental; off by default. */
+    const val LOW_LATENCY_INK = "input.lowLatencyInk"
+    const val DEFAULT_LOW_LATENCY_INK = false
+    /** Soft pen stroke ends (render-time only, 0 = off). */
+    const val INK_TAPER = "input.inkTaper"
+    fun inkTaper(value: Float): Float = InkTaper.normalize(value)
+    /** Thin redundant samples when a pen stroke is finished: same drawing, smaller notebooks. */
+    const val REFIT_STROKES = "input.refitStrokes"
+    const val DEFAULT_REFIT_STROKES = true
+    /** Stationary time at the end of a pen stroke before a clean shape is previewed. */
+    const val SHAPE_ASSIST_OPTIONS = "input.shapeAssistOptions"
+    const val SHAPE_HOLD_MS = "input.shapeHoldMs"
+    const val DEFAULT_SHAPE_HOLD_MS = 650L
+    const val SHAPE_HOLD_MIN_MS = 300L
+    const val SHAPE_HOLD_MAX_MS = 1500L
+    fun shapeHoldMs(value: Long?): Long =
+        (value ?: DEFAULT_SHAPE_HOLD_MS).coerceIn(SHAPE_HOLD_MIN_MS, SHAPE_HOLD_MAX_MS)
+    const val FAST_PAN = "input.fastPan"
+    const val WRITING_FEEDBACK = "pen.writingFeedback"
+    const val WRITING_FEEL = "pen.writingFeel"
+    const val FAST_PAN_MULTIPLIER = "input.fastPanMultiplier"
+    const val TIMER_CUSTOM_MIN = "timer.customMinutes"
+    const val TIMER_READING_MIN = "timer.readingMinutes"
+    const val TIMER_AUTO_START = "timer.autoStart"
+    const val TIMER_IDLE_MIN = "timer.idleMinutes"
+    const val EXPORT_PNG_SCALE = "export.pngScale"
+    const val EXPORT_PDF_MODE = "export.pdfMode"
+    /** Format the "Export specific pages" dialog opens on; the page choice itself is per visit. */
+    const val EXPORT_PAGES_FORMAT = "export.pagesFormat"
+    /** Long-press action for the editor's share button, stored as a `ShareShortcut` name. */
+    const val SHARE_LONG_PRESS = "share.longPress"
+    /** What the toolbar shows beyond its tools (`ToolbarOptions`); both styles read the same values. */
+    const val TOOLBAR_UNDO = "toolbar.undoRedo"
+    const val TOOLBAR_COLOUR_DOTS = "toolbar.colourDots"
+    const val TOOLBAR_PINNED_PRESETS = "toolbar.showPinned"
+    const val TOOLBAR_TIMER = "toolbar.timer"
+    const val TOOLBAR_INK_OPTIONS_OPEN = "toolbar.inkOptionsOpen"
+    const val TOOLBAR_TABS = "toolbar.tabs"
+    /** Editor shows one fitted page at a time instead of the scrolling column. */
+    const val SINGLE_PAGE_VIEW = "singlePageView"
+    const val SPLIT_FRACTION = "workspace.splitFraction"
+    /** Which side the editor sits on when a companion pane is open; remembered between sessions. */
+    const val EDITOR_ON_RIGHT = "workspace.editorOnRight"
+    const val TEXT_SIZE_KEY = "text.size"
+    /** The user's own accent colour as `#RRGGBB`; absent means the palette's own colours. */
+    const val ACCENT = "theme.accent"
+    /** Notebook cover colours the user added, stored after the built-in ones. */
+    const val CUSTOM_COVERS = "notebook.customCovers"
+    /** Multiplier on the app's sp text, independent of the system font size. */
+    const val UI_TEXT_SCALE = "display.textScale"
+    const val AUTO_BACKUP_TREE_URI = "backup.auto.treeUri"
+    const val AUTO_BACKUP_LAST_SUCCESS = "backup.auto.lastSuccess"
+    const val AUTO_BACKUP_LAST_ERROR = "backup.auto.lastError"
+    /** Local notebook identities omitted from automatic and portable library backups. */
+    const val BACKUP_EXCLUDED_NOTEBOOKS = "backup.excludedNotebooks"
+    /** Notebook attempt ids dismissed from "Add notebook results" on this device; never synced to Focal. */
+    const val FOCAL_DISMISSED_RESULTS = "focal.dismissedResults"
+    /** Peek shows the whole current page instead of a pinned view. */
+    const val AUTO_PEEK = "peek.auto"
+
+    val DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS: Set<String> = emptySet()
+
+    const val DEFAULT_FULLSCREEN = true
+    const val DEFAULT_KEEP_SCREEN_ON = false
+    const val DEFAULT_AUTO_UPDATE = true
+    const val DEFAULT_EXPERIMENTAL_UPDATES = false
+    const val DEFAULT_LIST_VIEW = false
+    val DEFAULT_MISTAKE_PAPER = Paper.MATH_GRID
+    const val DEFAULT_PAGE_COVER_ENABLED = true
+    const val DEFAULT_COVER_INDEX = 0
+    const val DEFAULT_PALM_MS = 500L
+    const val PALM_MIN_MS = 0L
+    const val PALM_MAX_MS = 1500L
+    const val DEFAULT_FAST_PAN = false
+    const val DEFAULT_WRITING_FEEDBACK = true
+    const val DEFAULT_FAST_PAN_MULTIPLIER = 2f
+    const val FAST_PAN_MIN = 1.25f
+    const val FAST_PAN_MAX = 5f
+    const val DEFAULT_TIMER_CUSTOM_MIN = 90
+    const val TIMER_CUSTOM_MIN_RANGE = 1
+    const val TIMER_CUSTOM_MAX = 480
+    const val DEFAULT_TIMER_READING_MIN = 15
+    const val TIMER_READING_MIN_RANGE = 0
+    const val TIMER_READING_MAX = 60
+    const val DEFAULT_TIMER_AUTO_START = true
+    const val DEFAULT_TIMER_IDLE_MIN = 5
+    const val TIMER_IDLE_MIN_RANGE = 0
+    const val TIMER_IDLE_MAX = 60
+    const val DEFAULT_PNG_SCALE = 2f
+    const val PNG_SCALE_MIN = 1f
+    const val PNG_SCALE_MAX = 3f
+    const val DEFAULT_SPLIT = 0.5f
+    const val DEFAULT_EDITOR_ON_RIGHT = false
+    const val DEFAULT_TEXT_SIZE = 26f
+    const val TEXT_SIZE_MIN = 12f
+    const val TEXT_SIZE_MAX = 72f
+    const val DEFAULT_UI_TEXT_SCALE = 1f
+    const val UI_TEXT_SCALE_MIN = 0.85f
+    const val UI_TEXT_SCALE_MAX = 1.4f
+
+    const val DEFAULT_MUSIC_DIM = 0f
+    const val MUSIC_DIM_MAX = 0.7f
+    const val DEFAULT_MUSIC_TOOLBAR = true
+    const val DEFAULT_MUSIC_CLICK = false
+    const val DEFAULT_MUSIC_ACCENT = true
+    const val DEFAULT_MUSIC_SUBDIVISION = 0
+    const val MUSIC_SUBDIVISION_MAX = 4
+
+    fun lastUpdateCheckKey(experimental: Boolean): String =
+        if (experimental) EXPERIMENTAL_LAST_UPDATE_CHECK else LAST_UPDATE_CHECK
+
+    fun updateRetryAtKey(experimental: Boolean): String =
+        if (experimental) EXPERIMENTAL_UPDATE_RETRY_AT else UPDATE_RETRY_AT
+
+    fun backupExcludedNotebookIds(raw: Set<String>?): Set<String> =
+        (raw ?: DEFAULT_BACKUP_EXCLUDED_NOTEBOOKS).filter { it.length in 1..64 && it.matches(Regex("[a-zA-Z0-9-]+")) }.toSet()
+
+    /** A deliberate single-notebook export includes the chosen notebook even if it is excluded. */
+    fun notebooksForBackup(notes: List<Notebook>, excludedIds: Set<String>, includeExcluded: Boolean = false): List<Notebook> =
+        // A score's notebook belongs to Music, which keeps its PDFs out of notebook backups.
+        notes.filterNot { it.musicScoreId != null }.let { kept -> if (includeExcluded) kept else kept.filterNot { it.id in excludedIds } }
+
+    fun defaultTool(raw: String?): Tool =
+        runCatching { Tool.valueOf(raw ?: "") }.getOrDefault(Tool.PEN)
+
+    fun defaultPaper(raw: String?): Paper =
+        runCatching { Paper.valueOf(raw ?: "") }.getOrDefault(Paper.MATH_GRID)
+
+    /** Mistake practice pages are infinite canvases, so the paper only picks the printed guide. */
+    fun mistakePaper(raw: String?): Paper =
+        runCatching { Paper.valueOf(raw ?: "") }.getOrDefault(DEFAULT_MISTAKE_PAPER)
+
+    /** A folder deleted since it was chosen falls back to the Library top level. */
+    fun quickFolderId(raw: String?, folders: List<Folder>): String? =
+        raw?.takeIf { id -> folders.any { it.id == id } }
+
+    fun librarySort(raw: String?): LibrarySort =
+        runCatching { LibrarySort.valueOf(raw ?: "") }.getOrDefault(LibrarySort.RECENT)
+
+    fun libraryKind(raw: String?): LibraryKind =
+        runCatching { LibraryKind.valueOf(raw ?: "") }.getOrDefault(LibraryKind.ALL)
+
+    internal fun explorerSort(raw: String?): FileSort =
+        runCatching { FileSort.valueOf(raw ?: "") }.getOrDefault(FileSort.NAME)
+
+    /** The default cover keeps its design but its colour always points into the built-in covers, never a removable custom one. */
+    fun defaultCover(cover: Int): Int =
+        CoverStyle.withColor(cover, CoverStyle.colorIndex(cover).coerceIn(0, BuiltInCoverColors.lastIndex))
+
+    fun fingerDrawing(prefs: android.content.SharedPreferences): Boolean = com.folio.notes.input.fingerDrawing(
+        prefs.getBoolean(FINGER, true).takeIf { prefs.contains(FINGER) }, prefs.getBoolean(STYLUS_SEEN, false))
+
+    fun palmMs(value: Long?): Long =
+        (value ?: DEFAULT_PALM_MS).coerceIn(PALM_MIN_MS, PALM_MAX_MS)
+
+    fun fastPanMultiplier(value: Float?): Float =
+        (value ?: DEFAULT_FAST_PAN_MULTIPLIER).coerceIn(FAST_PAN_MIN, FAST_PAN_MAX)
+
+    /** The factor applied to finger/two-finger pan distance: 1 while fast pan is off. */
+    fun panFactor(enabled: Boolean, multiplier: Float?): Float = if (enabled) fastPanMultiplier(multiplier) else 1f
+
+    fun timerCustomMinutes(value: Int?): Int =
+        (value ?: DEFAULT_TIMER_CUSTOM_MIN).coerceIn(TIMER_CUSTOM_MIN_RANGE, TIMER_CUSTOM_MAX)
+
+    fun timerReadingMinutes(value: Int?): Int =
+        (value ?: DEFAULT_TIMER_READING_MIN).coerceIn(TIMER_READING_MIN_RANGE, TIMER_READING_MAX)
+
+    /** Minutes of pen idleness before the clock stops itself; 0 keeps it running until stopped. */
+    fun timerIdleMinutes(value: Int?): Int =
+        (value ?: DEFAULT_TIMER_IDLE_MIN).coerceIn(TIMER_IDLE_MIN_RANGE, TIMER_IDLE_MAX)
+
+    fun pngScale(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_PNG_SCALE
+        else value.coerceIn(PNG_SCALE_MIN, PNG_SCALE_MAX)
+
+    fun pdfExportMode(raw: String?): PdfExportMode = PdfExportMode.safeValueOf(raw)
+
+    fun exportPagesFormat(raw: String?): PageExportFormat = PageExportFormat.safeValueOf(raw)
+
+
+    fun shareShortcut(raw: String?): ShareShortcut = ShareShortcut.safeValueOf(raw)
+
+    fun splitFraction(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_SPLIT
+        else value.coerceIn(SplitPanes.MIN_FRACTION, SplitPanes.MAX_FRACTION)
+
+    fun textSize(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_TEXT_SIZE
+        else value.coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
+
+    /** Type size new sticky notes start with; existing notes keep the size they were given. */
+    const val STICKY_TEXT_SIZE = "sticky.textSize"
+    const val DEFAULT_STICKY_TEXT_SIZE = StickyNotes.TEXT_SIZE
+    fun stickyTextSize(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_STICKY_TEXT_SIZE
+        else StickyNotes.textSize(value)
+
+    fun uiTextScale(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_UI_TEXT_SCALE
+        else value.coerceIn(UI_TEXT_SCALE_MIN, UI_TEXT_SCALE_MAX)
+
+    /** Reader dimming, from untouched to as dark as a score stays legible (70%). */
+    fun musicDim(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_MUSIC_DIM else value.coerceIn(0f, MUSIC_DIM_MAX)
+
+    /** Metronome subdivision: 0 = off, otherwise the ticks inside each beat. */
+    fun musicSubdivision(value: Int?): Int = (value ?: DEFAULT_MUSIC_SUBDIVISION).coerceIn(0, MUSIC_SUBDIVISION_MAX)
+}

@@ -51,7 +51,7 @@ try {
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
     '-classpath', runtime.join(path.delimiter), `-Xfriend-paths=${appClasses}`, '-d', classes,
-    path.join(root, 'app/src/main/java/com/folio/notes/ExamDetection.kt'), path.join(__dirname, 'ImportSmoke.kt')]);
+    path.join(root, 'app/src/main/java/com/folio/notes/exam/ExamDetection.kt'), path.join(__dirname, 'ImportSmoke.kt')]);
   run(['-cp', [classes, ...runtime].join(path.delimiter), 'com.folio.notes.ImportSmokeKt']);
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

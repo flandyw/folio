@@ -2,29 +2,22 @@ package com.folio.notes.chatgpt
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.util.Base64
-import com.folio.notes.NotePage
-import com.folio.notes.NoteRepository
-import com.folio.notes.Notebook
 import androidx.compose.ui.geometry.Rect
-import com.folio.notes.hiddenFromLibrary
-import java.io.ByteArrayOutputStream
-import java.io.IOException
-import java.net.InetAddress
-import java.net.ServerSocket
-import java.net.SocketTimeoutException
-import java.net.URI
-import java.util.UUID
+import com.folio.notes.model.NotePage
+import com.folio.notes.model.Notebook
+import com.folio.notes.model.hiddenFromLibrary
+import com.folio.notes.storage.NoteRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -34,6 +27,13 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.SocketTimeoutException
+import java.net.URI
+import java.util.UUID
 
 internal data class ChatGptAccount(val client: String, val email: String, val connected: Boolean, val plan: Boolean, val pending: Boolean, val registered: Boolean)
 internal data class ChatGptFeedback(

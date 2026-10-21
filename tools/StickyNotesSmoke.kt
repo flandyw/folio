@@ -6,6 +6,22 @@ import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.ui.geometry.Rect
+import com.folio.notes.editor.EditorTransferCoordinator
+import com.folio.notes.editor.sticky.StickyDrop
+import com.folio.notes.editor.sticky.StickyLift
+import com.folio.notes.editor.sticky.StickyNoteInput
+import com.folio.notes.editor.sticky.StickyNotes
+import com.folio.notes.editor.sticky.StickyWorkspaceView
+import com.folio.notes.ink.InkRenderer
+import com.folio.notes.ink.InkView
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.NotePage
+import com.folio.notes.model.PageLayer
+import com.folio.notes.model.PageLayers
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.TextBox
+import com.folio.notes.model.Tool
+import com.folio.notes.storage.InkCodec
 import kotlin.math.abs
 
 private val note = TextBox(id = "note", x = 20f, y = 30f, width = 120f, stickyHeight = 90f, size = 8f,

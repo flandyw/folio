@@ -1,5 +1,15 @@
 package com.folio.notes
 
+import com.folio.notes.ink.graph.GraphAxes
+import com.folio.notes.ink.graph.GraphGlyphs
+import com.folio.notes.ink.graph.GraphOrigin
+import com.folio.notes.ink.graph.GraphStyle
+import com.folio.notes.ink.graph.graphNumber
+import com.folio.notes.ink.graph.graphPiLabel
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.Tool
+
 private var checks = 0
 private fun check(ok: Boolean, what: String) { checks++; if (!ok) throw AssertionError("FAILED: $what") }
 

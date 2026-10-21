@@ -1,22 +1,22 @@
 package com.folio.notes.chatgpt
 
-import java.io.StringReader
-import java.io.IOException
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.UnknownHostException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import com.sun.net.httpserver.HttpServer
 import okhttp3.Dns
 import okhttp3.FormBody
 import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.io.StringReader
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.UnknownHostException
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.security.interfaces.RSAPublicKey
 import java.util.Base64
-import org.json.JSONArray
-import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 private fun rejects(action: () -> Unit) { check(runCatching(action).isFailure) }
 private fun stream(vararg events: JSONObject): String = events.joinToString("\r\n\r\n") { "data: $it" }

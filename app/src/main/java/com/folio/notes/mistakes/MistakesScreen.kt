@@ -3,24 +3,22 @@
 package com.folio.notes.mistakes
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -36,24 +34,34 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.folio.notes.*
+import com.folio.notes.app.FolioState
+import com.folio.notes.app.FolioViewModel
+import com.folio.notes.mistakes.review.MistakePracticeProgress
+import com.folio.notes.mistakes.review.MistakeReviewControls
+import com.folio.notes.mistakes.review.MistakeReviewScreen
+import com.folio.notes.mistakes.review.PreviousAttemptDialog
+import com.folio.notes.mistakes.review.handwritingTab
+import com.folio.notes.mistakes.review.unfinishedAttempt
+import com.folio.notes.mistakes.review.unfinishedAttempts
+import com.folio.notes.mistakes.sync.ExamContext
+import com.folio.notes.mistakes.sync.isSyncTrouble
+import com.folio.notes.model.Notebook
+import com.folio.notes.study.FocalAccountButton
+import com.folio.notes.ui.FolioActionPopover
+import com.folio.notes.ui.FolioDestinationInset
+import com.folio.notes.ui.FolioScreenHeading
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
-import kotlin.math.roundToLong
 
 private val syncDateFormat = ThreadLocal.withInitial { SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()) }
 
@@ -64,45 +72,11 @@ private data class ReviewFrame(
     val editor: FolioState,
 )
 
-private fun formatSyncedAt(iso: String?): String {
+internal fun formatSyncedAt(iso: String?): String {
     if (iso == null) return "Never synced"
     return runCatching {
         "Last synced ${syncDateFormat.get()!!.format(Date(timestamp(iso)))}"
     }.getOrDefault("Last synced ${iso.replace('T', ' ').take(16)} UTC")
-}
-
-/** A stored UTC instant as a local calendar date, e.g. "20 Oct 2026"; never shows raw ISO text. */
-internal fun localDateLabel(iso: String, zone: ZoneId = ZoneId.systemDefault()): String =
-    runCatching { Instant.ofEpochMilli(timestamp(iso)).atZone(zone).format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())) }
-        .getOrDefault(iso.take(10))
-
-internal fun dueLabel(dueAt: String, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
-    val due = runCatching { Instant.ofEpochMilli(timestamp(dueAt)).atZone(zone) }.getOrNull()
-        ?: return "Unknown due date"
-    val days = ChronoUnit.DAYS.between(Instant.ofEpochMilli(now).atZone(zone).toLocalDate(), due.toLocalDate())
-    return when {
-        days < 0 -> "${-days}d overdue"
-        due.toInstant().toEpochMilli() <= now -> "Due today"
-        days == 0L -> "Later today · ${due.format(DateTimeFormatter.ofPattern("HH:mm"))}"
-        days == 1L -> "Due tomorrow"
-        days < 30 -> "Due in ${days}d"
-        else -> "Due ${due.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))}"
-    }
-}
-
-internal fun intervalLabel(schedule: MistakeSchedule): String {
-    if (schedule.intervalDays < 1) {
-        val minutes = (schedule.intervalDays * 24 * 60).roundToLong()
-        return if (minutes < 60) "${minutes.coerceAtLeast(1)} min" else "${(minutes + 30) / 60} h"
-    }
-    val days = schedule.intervalDays.toLong()
-    return when {
-        days <= 0 -> "today"
-        days == 1L -> "1 day"
-        days < 30 -> "$days days"
-        days < 365 -> "${days / 30} mo"
-        else -> "${days / 365} yr"
-    }
 }
 
 @Composable
@@ -848,169 +822,9 @@ private fun MistakesDestinationToolbar(
 // ---- Shared Focal account ----------------------------------------------------------------------
 
 @Composable
-internal fun FocalAccountContent(
-    model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    onBeforeSignOut: () -> Unit = {},
-    inlineSync: Boolean = true,
-    extra: @Composable ColumnScope.() -> Unit = {},
-) {
-    val state by model.state.collectAsStateWithLifecycle()
-    var confirmSignOut by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-        if (state.accountStatus == FocalAccountStatus.RESTORING ||
-            state.accountStatus == FocalAccountStatus.RECONNECTING && state.userId == null) {
-            Text(if (state.accountStatus == FocalAccountStatus.RESTORING) "Restoring Focal account…" else state.status,
-                style = MaterialTheme.typography.bodyMedium)
-            LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-        } else if (state.userId == null || state.needsSignIn) {
-            FocalLoginCard(state, model::signIn, model::signUp, model::resetPassword, model::clearAuthFeedback)
-            extra()
-        } else {
-            AccountCard(state.email, state.status, state.cache.lastSyncedAt, state.cache.pending.size, state.status == "Syncing…",
-                inlineSync, state.accountStatus == FocalAccountStatus.RECONNECTING) { model.requestSync(force = true) }
-            extra()
-        }
-        if (state.userId != null) {
-            OutlinedButton(onClick = { confirmSignOut = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = .4f))) {
-                Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(FolioSpacing.dp8))
-                Text("Sign out")
-            }
-        }
-    }
-    if (confirmSignOut) AlertDialog(
-        onDismissRequest = { confirmSignOut = false },
-        icon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
-        title = { Text("Sign out of Focal?") },
-        text = { Text("This disconnects both study sessions and mistake sync. Saved sessions, handwriting and the offline cache stay on this device.") },
-        dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
-        confirmButton = { TextButton({
-            confirmSignOut = false
-            onBeforeSignOut()
-            model.signOut()
-        }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Sign out") } },
-    )
-}
-
-@Composable
-private fun OfflineNoteCard() {
-    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalAlignment = Alignment.Top) {
-            Icon(Icons.Rounded.OfflinePin, null, tint = MaterialTheme.colorScheme.secondary)
-            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                Text("Works offline after the first sync", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Cards, images and ratings are kept on this device. Sync resumes when you are back online.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-/** The signed-in hero: who you are, whether Focal has everything, and what is still waiting. */
-@Composable
-private fun AccountCard(
-    email: String?, status: String, lastSyncedAt: String?, pending: Int,
-    syncing: Boolean, inlineSync: Boolean, reconnecting: Boolean, onSync: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(shape = FolioShapes.panel, color = Color.Transparent, contentColor = scheme.onPrimaryContainer) {
-        Box(Modifier.background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(scheme.primaryContainer, scheme.tertiaryContainer)))) {
-            // A soft halo in the corner; decoration only.
-            Box(Modifier.align(Alignment.TopEnd).offset(x = 48.dp, y = (-56).dp).size(180.dp)
-                .background(scheme.primary.copy(alpha = .10f), CircleShape))
-            Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    Box(Modifier.size(68.dp).background(scheme.surface.copy(alpha = .55f), CircleShape).padding(FolioSpacing.dp4)) {
-                        Surface(shape = CircleShape, color = scheme.primary, modifier = Modifier.fillMaxSize()) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    (email?.trim()?.firstOrNull()?.uppercase() ?: "F"),
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = scheme.onPrimary, fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                        Text(if (reconnecting) "Reconnecting to Focal" else "Signed in to Focal", style = MaterialTheme.typography.labelLarge,
-                            color = scheme.onPrimaryContainer.copy(alpha = .75f))
-                        Text(email ?: "Focal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (inlineSync) FocalSyncButton(syncing, onSync)
-                }
-                SyncStatusRow(status, pending)
-                if (syncing) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    AccountStat(Icons.Rounded.Schedule, "Last sync",
-                        formatSyncedAt(lastSyncedAt).removePrefix("Last synced "), Modifier.weight(1f).fillMaxHeight())
-                    AccountStat(Icons.Rounded.CloudUpload, "Waiting to upload",
-                        if (pending == 0) "Nothing" else "$pending ${if (pending == 1) "review" else "reviews"}", Modifier.weight(1f).fillMaxHeight())
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AccountStat(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surface.copy(alpha = .6f),
-        contentColor = MaterialTheme.colorScheme.onSurface) {
-        Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(value, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-/** Icon-only "sync now" used in the account panel header (and inline where there is no header). */
-@Composable
-internal fun FocalSyncButton(syncing: Boolean, onSync: () -> Unit) {
-    IconButton(onSync, enabled = !syncing, shapes = IconButtonDefaults.shapes()) {
-        if (syncing) LoadingIndicator(Modifier.size(22.dp)) else Icon(Icons.Rounded.Sync, "Sync now")
-    }
-}
-
-/** Signed-in sync state for the account panel header; null when signed out. */
-@Composable
-internal fun FocalAccountSyncAction(model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
-    val state by model.state.collectAsStateWithLifecycle()
-    if (state.userId != null && !state.needsSignIn) FocalSyncButton(state.status == "Syncing…") { model.requestSync(force = true) }
-}
-
-@Composable
-private fun SyncStatusRow(status: String, pending: Int) {
-    val (icon, container, content) = when {
-        status == "Syncing…" -> Triple(Icons.Rounded.Sync, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        status.startsWith(SYNC_OFFLINE) -> Triple(Icons.Rounded.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-        status.startsWith(SYNC_FOCAL) -> Triple(Icons.Rounded.Warning, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-        status.startsWith("Synced") && pending == 0 -> Triple(Icons.Rounded.CheckCircle, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-        else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    Surface(shape = CircleShape, color = container, contentColor = content) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Icon(icon, null, Modifier.size(18.dp))
-            Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            if (pending > 0) Text("$pending queued", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
 private fun FilterChipWithCount(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
     FilterChip(selected, onClick, { Text("$label · $count") })
 }
-
-internal fun trimMark(value: Double): String = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 @Composable
 private fun EmptyMistakesCard(hasCards: Boolean, status: String, narrowed: Boolean, onClear: () -> Unit) {

@@ -1,12 +1,12 @@
 package com.folio.notes.music
 
-import com.folio.notes.InkPoint
-import com.folio.notes.NotePage
-import com.folio.notes.ShapeTools
-import com.folio.notes.Stroke
-import com.folio.notes.StrokeStyle
-import com.folio.notes.TextBox
-import com.folio.notes.Tool
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.NotePage
+import com.folio.notes.model.ShapeTools
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.StrokeStyle
+import com.folio.notes.model.TextBox
+import com.folio.notes.model.Tool
 import java.util.UUID
 
 /**

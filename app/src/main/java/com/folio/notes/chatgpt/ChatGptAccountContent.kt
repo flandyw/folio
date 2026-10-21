@@ -16,8 +16,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 
 private fun accountStatus(account: ChatGptAccount): String = when {
     account.pending -> "Ready to finish connecting"
