@@ -34,8 +34,6 @@ object AppPrefs {
     const val DEFAULT_UX_REVIEW_CONFIRM = true
     const val DEFAULT_UX_LOCAL_TOOLS = false
     const val DEFAULT_UX_SEARCH_HANDWRITING = false
-    const val DEFAULT_UX_SWIPE_RIGHT = "FAVOURITE"
-    const val DEFAULT_UX_SWIPE_LEFT = "TRASH"
     fun uxLinkOffset(value: Int?): Int = (value ?: 0).coerceIn(-99999, 99999)
     const val UX_HINTS = "ux.hints"
     const val UX_LABELS = "ux.labels"

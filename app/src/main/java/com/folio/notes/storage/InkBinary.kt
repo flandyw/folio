@@ -457,14 +457,14 @@ internal object JournalBinary {
     /** The byte length of the longest prefix made only of complete, intact frames. */
     fun completePrefixLength(bytes: ByteArray): Int = scan(bytes) { _, _ -> true }
 
-    /** Every record before the first damaged or torn frame, in order. */
+    /**
+     * Every record before the first torn or checksum-failed frame, in order. An intact frame that
+     * will not decode is damage, not a torn tail: it throws, because the tail repair keeps such a
+     * frame and every record appended after it would otherwise vanish on the next read.
+     */
     fun readAll(bytes: ByteArray): List<PageTransaction> {
         val out = ArrayList<PageTransaction>()
-        scan(bytes) { offset, length ->
-            val record = try { decode(bytes, offset, length) } catch (_: Exception) { null }
-            if (record != null) out += record
-            record != null
-        }
+        scan(bytes) { offset, length -> out += decode(bytes, offset, length); true }
         return out
     }
 }

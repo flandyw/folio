@@ -36,7 +36,6 @@ data class ProgressCache(val rows: Map<String, SyncProtocol.RowState> = emptyMap
         if (row != null) return if (row.operation == "put") row.payload?.opt("value") else null
         return rows["user_state:user_state"]?.takeIf { it.operation == "put" }?.payload?.opt(id)
     }
-    val completedIds get() = (value("completedExamIds") as? JSONArray)?.strings().orEmpty().toSet()
     val difficulty get() = value("examDifficulty") as? JSONObject
     val progression get() = value("examProgression") as? JSONObject
 }

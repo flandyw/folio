@@ -32,15 +32,6 @@ object DocumentViewport {
     fun pageAt(fraction: Float, pageCount: Int): Int =
         if (pageCount <= 0) 0 else (fraction.coerceIn(0f, 1f) * pageCount).toInt().coerceIn(0, pageCount - 1)
 
-    /**
-     * The page the fast-scroll label shows: the first visible page, pinned to the last
-     * page once the list cannot scroll forward. Without the pin, a viewport showing
-     * the last two pages at once still reports the second-last as first visible,
-     * so the end reads "19 / 20" instead of "20 / 20".
-     */
-    fun displayedPage(firstIndex: Int, canScrollForward: Boolean, pageCount: Int): Int =
-        if (pageCount <= 0) 0 else if (!canScrollForward) pageCount - 1 else firstIndex.coerceIn(0, pageCount - 1)
-
     data class VisiblePage(val index: Int, val offset: Int, val size: Int)
 
     /**

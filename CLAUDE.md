@@ -24,5 +24,5 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Working notes
 
 - CI (`.github/workflows/release.yml`) only publishes signed releases; it does not run checks, so run `./build.sh -p` locally before finishing.
-- Features have design docs in `docs/` (`marking.md`, `writing-follow.md`, `backups.md`, `examtrack.md`, `sync.md`, …). Read the relevant one before changing that area.
-- Storage-format or journal/snapshot changes can't be verified by tests here; say so explicitly and point to the manual on-device check in `docs/examtrack.md` / `docs/sync.md`.
+- Features have design docs in `docs/` (`writing-follow.md`, `document-transactions.md`, `focal-sync.md`, `pen-feel.md`, `split-view.md`, …). Read the relevant one before changing that area.
+- Storage-format or journal/snapshot changes can't be verified by tests here; say so explicitly and point to the manual on-device check in `docs/document-transactions.md` (*Required device round-trip*).

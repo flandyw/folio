@@ -15,8 +15,6 @@ import kotlin.math.sin
 object InkStamps {
     enum class Kind { ARROW, DOUBLE_ARROW, STAR, CHECKBOX, CALLOUT, UNDERLINE }
 
-    val kinds: List<Kind> = Kind.entries.toList()
-
     fun label(kind: Kind): String = when (kind) {
         Kind.ARROW -> "Arrow"
         Kind.DOUBLE_ARROW -> "Double arrow"

@@ -166,19 +166,8 @@ object InkCodec {
 object NoteMetaCodec {
     const val VERSION = 7
 
-    /** Single-parse version probe; prefer [versionOf] over the legacy per-version checks. */
+    /** Single-parse version probe. */
     fun versionOf(value: String): Int = try { JSONObject(value).optInt("version", -1) } catch (_: Exception) { -1 }
-
-    fun isCurrent(value: String): Boolean = versionOf(value) in 6..VERSION
-
-    /** True when [value] is the version-2 split index, which carries no ink but no exam tags either. */
-    fun isSplitIndex(value: String): Boolean = versionOf(value) == 2
-
-    /** True for a version-3 index, which is current except for the cover choice (defaults to page cover). */
-    fun isVersion3(value: String): Boolean = versionOf(value) == 3
-
-    /** True for a version-4 index, which is compatible with the current score records. */
-    fun isVersion4(value: String): Boolean = versionOf(value) == 4
 
     fun encode(note: Notebook): String = JSONObject().apply {
         put("version", if (note.documentHistory.enabled) VERSION else 6); put("id", note.id); put("title", note.title)

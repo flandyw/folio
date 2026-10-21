@@ -103,47 +103,7 @@ data class FollowPreferences(
 
         fun fromMm(mm: Float): Float = (mm * UNITS_PER_MM).coerceIn(MIN_SPACING, MAX_SPACING)
 
-        /** Named line-spacing presets: raw page units paired with their mm label. */
-        val spacingPresets: List<Pair<String, Float>> = listOf(
-            "Narrow · 5 mm" to 20f,
-            "Ruled · 7 mm" to 28f,
-            "Comfortable · 8 mm" to 32f,
-            "Roomy · 10 mm" to 40f,
-            "Large · 12 mm" to 48f,
-        )
-
-        fun spacingLabel(spacing: Float): String {
-            val mm = spacing / UNITS_PER_MM
-            val name = when {
-                spacing <= 22f -> "Narrow"
-                spacing <= 30f -> "Ruled-like"
-                spacing <= 35f -> "Comfortable"
-                spacing <= 44f -> "Roomy"
-                else -> "Large"
-            }
-            return "$name · ${"%.1f".format(mm)} mm"
-        }
-
-        fun positionLabel(position: Float): String = when {
-            position < .42f -> "Near the top"
-            position < .52f -> "Slightly high"
-            position < .60f -> "Comfortable"
-            position < .66f -> "Lower"
-            else -> "Near the bottom"
-        }
-
-        fun horizontalLabel(fraction: Float): String = when {
-            fraction < .43f -> "Left of centre"
-            fraction <= .57f -> "Centred"
-            else -> "Right of centre"
-        }
-
         fun returnDelayLabel(ms: Int): String = "${(if (ms % 100 == 0) "%.1f" else "%.2f").format(ms / 1000f)} s"
-        fun roomLabel(room: Float): String = when {
-            room < .3f -> "Moves early"
-            room <= .6f -> "Some room"
-            else -> "Near the edge"
-        }
         fun paceLabel(pace: Float): String = when {
             pace < .35f -> "Gentle"
             pace <= .75f -> "Smooth"

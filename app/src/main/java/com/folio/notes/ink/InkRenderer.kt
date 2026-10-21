@@ -444,14 +444,6 @@ object InkRenderer {
             bounds[3] + margin >= clip.top && bounds[1] - margin <= clip.bottom
     }
 
-    /** True when the cached bounds (plus stroke width margin) intersect the viewport clip. */
-    fun isVisible(rendered: RenderedStroke, strokeWidth: Float, clip: Rect): Boolean {
-        if (rendered.centre.isEmpty()) return false
-        val margin = strokeWidth * 2f + 8f
-        return rendered.maxX + margin >= clip.left && rendered.minX - margin <= clip.right &&
-            rendered.maxY + margin >= clip.top && rendered.minY - margin <= clip.bottom
-    }
-
     /**
      * Draws [stroke] from its precomputed [rendered] geometry. Identical output to
      * [stroke], but without repeating the spline, taper or bounds math per frame.

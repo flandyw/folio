@@ -401,24 +401,6 @@ class NoteRepository(private val context: Context) {
     }
 
     /**
-     * One page's persisted undo/redo stacks, rebuilt rather than stored. The snapshot carries the
-     * stacks as of the last journal record it folded in, and every record after it says what it did
-     * to them, so folding the log onto the snapshot is the same history the editor had. Records the
-     * snapshot already holds are skipped, exactly as they are for ink: a crash between the snapshot
-     * landing and the journal being cleared must not push the same step twice. A JSON-era page is
-     * converted first, which folds its old history file and journal into the binary snapshot.
-     */
-    suspend fun loadHistory(noteId: String, pageId: String): PageJournal.History = withContext(Dispatchers.IO) {
-        lock.withLock {
-        recoverDocumentLocked(noteId)
-        if (hasLegacyFiles(noteId, pageId)) convertLegacyLocked(noteId, pageId)
-        val snapshot = storedPageFile(noteId, pageId).takeIf { it.exists() }?.let { readSnapshot(it) }
-        PageJournal.foldHistory(snapshot?.history ?: PageJournal.History.EMPTY,
-            readJournal(storedJournalFile(noteId, pageId)), snapshot?.journalSeq ?: 0)
-        }
-    }
-
-    /**
      * Marks a page for background compaction and remembers where its current content and undo stacks
      * can be read. Registering is cheap enough to sit on the pen path; the fold itself happens in
      * [compactPending], off the queue, once the writer has drained.
@@ -771,10 +753,6 @@ class NoteRepository(private val context: Context) {
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
         return note
     }
-
-    /** Save the entire shelf through a SAF document, including folder organization. */
-    suspend fun exportLibrary(uri: Uri, notes: List<Notebook>, folders: List<Folder>) =
-        stageLibrary(notes, folders).use { writeStaged(it, uri) }
 
     /** Captures a consistent native file set. Call under the app storage gate. Immutable files
      * are pinned with hard links; only appendable journals need copying. Hashing, compression and
@@ -1279,14 +1257,15 @@ class NoteRepository(private val context: Context) {
      * checksum. A process killed mid-append leaves at most a torn final frame, which is discarded;
      * the records before it are intact.
      */
-    private fun readJournal(file: File): List<PageTransaction> {
-        if (!file.exists()) return emptyList()
-        return try { JournalBinary.readAll(file.readBytes()) } catch (_: Exception) { emptyList() }
-    }
+    private fun readJournal(file: File): List<PageTransaction> =
+        if (!file.exists()) emptyList() else JournalBinary.readAll(file.readBytes())
 
-    /** Reads a snapshot whole; an unreadable or damaged one reads as absent rather than half a page. */
-    private fun readSnapshot(file: File): PageSnapshotBinary.Snapshot? =
-        runCatching { PageSnapshotBinary.read(AtomicFile(file).readFully()) }.getOrNull()
+    /**
+     * Reads a snapshot whole. A damaged one throws, so the page fails to open instead of showing
+     * only its journal tail, which the next compaction would write over the snapshot for good.
+     */
+    private fun readSnapshot(file: File): PageSnapshotBinary.Snapshot =
+        PageSnapshotBinary.read(AtomicFile(file).readFully())
 
     /** The highest record folded into a page's snapshot or still sitting in its journal. */
     private fun storedMaxSeq(noteId: String, pageId: String): Int = maxOf(
@@ -1349,7 +1328,7 @@ class NoteRepository(private val context: Context) {
         val page = summary.copy(strokes = content.strokes, texts = content.texts, images = content.images,
             revision = revision, loaded = true)
         writeSnapshotFile(target, page, seq, history)
-        val check = readSnapshot(target)
+        val check = runCatching { readSnapshot(target) }.getOrNull()
         val sound = check != null && check.strokes == content.strokes && check.texts == content.texts &&
             check.images == content.images && check.journalSeq == seq && check.revision == revision &&
             check.history.undo.size == history.undo.size && check.history.redo.size == history.redo.size

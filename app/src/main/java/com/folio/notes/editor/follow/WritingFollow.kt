@@ -95,18 +95,6 @@ internal class FollowReturnTarget {
 
 class WritingFollow {
     var state = WritingFollowState()
-    /** Corrections behind the writing frontier must not move the page. */
-    fun progresses(points: List<InkPoint>, direction: WritingDirection): Boolean {
-        if (points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) return false
-        val baseline = state.baselineY ?: return true
-        val bottom = points.maxOf { it.y }
-        // A confirmed new lane is handled by completed(); an isolated descender is not progress.
-        if (abs(bottom - baseline) > maxOf(28f, laneHeight() * 1.5f)) return false
-        // Keep the whole lane's frontier even after old strokes leave the median window.
-        return if (direction == WritingDirection.LTR)
-            state.frontierRight?.let { points.maxOf { p -> p.x } > it + 2f } ?: true
-        else state.frontierLeft?.let { points.minOf { p -> p.x } < it - 2f } ?: true
-    }
 
     /** Keep a real dead band even when the preferred writing column is near an edge. */
     fun horizontalShift(fraction: Float, target: Float, direction: WritingDirection, edgeThreshold: Float = .72f): Float {
@@ -414,10 +402,6 @@ class WritingFollow {
     }
 
     fun placed() { state = state.copy(needsPlacement = false) }
-    fun verticalVelocity(baselineFraction: Float, zoom: Float, now: Long): Float {
-        if (zoom < 1.4f || now < state.suspendedUntil) return 0f
-        return when { baselineFraction > .75f -> -160f; baselineFraction < .35f -> 160f; else -> 0f }
-    }
     /** Median stroke height of the current lane, in page units; drives line spacing. */
     fun laneHeight(): Float {
         val line = state.recent.map { it.bottom - it.top }
@@ -453,23 +437,6 @@ class WritingFollow {
         val end = if (direction == WritingDirection.LTR) right else left
         state = state.copy(lineEnds = (state.lineEnds + end).takeLast(6))
     }
-    /** A return is possible only at a detected rule's endpoint with a real rule below it. */
-    fun advanceFor(points: List<InkPoint>, guides: List<WritingGuide>, zoom: Float,
-                   hand: WritingHand, now: Long): WritingAdvance? {
-        if (zoom < 1.4f || now < state.suspendedUntil || points.isEmpty()) return null
-        val left = points.minOf { it.x }
-        val right = points.maxOf { it.x }
-        val bottom = points.maxOf { it.y }
-        val top = points.minOf { it.y }
-        val line = guides.filter { left >= it.left - 6f && right <= it.right + 6f && abs(bottom - it.y) <= 10f }
-            .minByOrNull { abs(bottom - it.y) } ?: return null
-        if (line == state.completedGuide) return null
-        val next = WritingGuides.next(line, guides) ?: return null
-        // Tall marks and long strokes are diagrams/underlines, not the end of a word.
-        if (bottom - top > (next.y - line.y) * .9f || right - left > 80f) return null
-        val atEnd = if (hand == WritingHand.RIGHT) right >= line.right - 4f else left <= line.left + 4f
-        return if (atEnd) WritingAdvance(line, next) else null
-    }
 
     fun arrived(advance: WritingAdvance, direction: WritingDirection = WritingDirection.LTR) {
         // Going back up a line is a correction, not the end of a line.
@@ -478,9 +445,6 @@ class WritingFollow {
             frontierLeft = null, frontierRight = null, candidateLane = null, candidateAt = null,
             lineStrokeCount = 0, markerEdge = null, needsPlacement = false)
     }
-
-    fun lineAdvanceProgress(liftedAt: Long, now: Long, durationMs: Int = DEFAULT_GLIDE_MS): Float =
-        ((now - liftedAt).toFloat() / durationMs.coerceIn(120, 800).toFloat()).coerceIn(0f, 1f)
 
     companion object {
         /** Shared by movement and the visible strip, including the minimum gap from the landing column. */

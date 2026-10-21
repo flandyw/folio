@@ -20,13 +20,13 @@ Folio is a native Android notebook built with Kotlin and Jetpack Compose. Write 
 - Pressure-sensitive handwriting, drawing tools, and undo/redo
 - [Writing follow](docs/writing-follow.md) that measures your lines from the ink, holds still for corrections, and offers one-tap or automatic line return, plus a pinned peek view (hold to glance, tap to keep open)
 - Typed notes, photos, and PDF annotation
-- [Long responses](docs/long-responses.md): pinned questions, plans, linked drafts and marked copies, side-by-side comparison, and feedback actions
+- Long responses: pinned questions, plans, linked drafts and marked copies, side-by-side comparison, and feedback actions
 - Ruled, dotted, grid, maths, and infinite-canvas pages
 - Graph tool: centred or corner axes, optional grid, ticks, unit numbers and x/y labels
 - Page bookmarks, search, and notebook organization
-- Dedicated [study timer](docs/study-timer.md): standalone or notebook-linked sessions, reflections, history, and Focal sync
+- Dedicated [study timer](docs/study-sessions.md): standalone or notebook-linked sessions, reflections, history, and Focal sync
 - Reference view: a read-only PDF pane with contents, text search, page jump, zoom/fit and link following
-- Export pages as PDF or PNG; save compact `.folio` backups with undo history, or use incremental automatic library backups ([details](docs/backups.md))
+- Export pages as PDF or PNG; save compact `.folio` backups with undo history, or use incremental automatic library backups
 - Make it yours: your own accent colour, app text size, toolbar layout, quick ink colours, saved tool presets and notebook covers
 - Core notebook works offline; Android 8.0 and newer
 
@@ -37,11 +37,11 @@ Download the latest APK from [GitHub Releases](https://github.com/flandyw/folio/
 Experimental builds are available from the [Folio server](https://folio.flandolf.me/releases/).
 In **Settings → Account & updates**, enable **Experimental builds** to check that
 server; leave it off for stable GitHub releases. Server setup and publishing are
-documented in [docs/release-server.md](docs/release-server.md).
+documented in [release-server/README.md](release-server/README.md).
 
 ## Build
 
-Requires JDK 17 and Android SDK 36.
+Requires JDK 25 and Android SDK 36.
 
 ```sh
 ./gradlew :app:assembleDebug

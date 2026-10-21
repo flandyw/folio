@@ -16,8 +16,6 @@ import java.util.UUID
  * this carries them over once, on the score's first open.
  */
 internal object MusicNotebook {
-    /** The editor's width for an imported PDF page. */
-    const val PAGE_WIDTH = 840f
 
     /** Music's stroke width and label size are in a 1000-unit page; the editor's page is 840. */
     private const val LEGACY_PAGE = 1000f

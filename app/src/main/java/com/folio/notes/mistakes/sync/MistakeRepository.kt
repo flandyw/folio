@@ -252,15 +252,15 @@ class MistakeRepository(private val store: MistakeCacheStore, private val remote
         // Feed state, per-row versions, and the cursor are durable before sending any mutation.
         store.save(user, cache)
 
-        repeat(3) {
-            val change = preferencesChange ?: return@repeat
+        for (attempt in 1..3) {
+            val change = preferencesChange ?: break
             val result = remote.apply(user, change)
             val receipt = result.receipts.firstOrNull { it.changeId == change.changeId }
             if (receipt != null) {
                 preferencesSequence = receipt.seq
                 preferencesChange = null
             } else {
-                val stale = result.stale.firstOrNull { it.changeId == change.changeId } ?: return@repeat
+                val stale = result.stale.firstOrNull { it.changeId == change.changeId } ?: break
                 preferencesSequence = stale.current?.seq ?: 0L
                 preferencesChange = change.copy(changeId = java.util.UUID.randomUUID().toString(), expectedSeq = preferencesSequence)
             }

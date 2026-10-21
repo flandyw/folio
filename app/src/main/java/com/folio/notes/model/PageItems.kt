@@ -154,8 +154,6 @@ data class PageImage(
     companion object {
         const val MIN_SIZE = 16f
         const val MAX_SIZE = 2400f
-        /** Half-size of the bottom-right resize handle, in page units. */
-        const val HANDLE_HALF = 22f
         /** Smallest visible source share per axis, so a crop can never vanish to a line. */
         const val MIN_CROP_SPAN = 0.05f
         /** Clockwise content rotation snapped to 0/90/180/270. */

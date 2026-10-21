@@ -94,15 +94,6 @@ class NoteExporter(private val repository: NoteRepository) {
         }
     }
 
-    /** Context-aware overload so callers with a Context always get true PRESERVE behaviour. */
-    suspend fun writePdfWithContext(
-        context: Context,
-        output: OutputStream,
-        note: Notebook,
-        indices: List<Int>,
-        mode: PdfExportMode = PdfExportMode.PRESERVE
-    ): Unit = writePdf(output, note, indices, mode, context)
-
     /** One PNG per selected page, zipped so a single document-picker destination is enough. */
     suspend fun writePngZip(output: OutputStream, note: Notebook, indices: List<Int>, pngScale: Float = AppPrefs.DEFAULT_PNG_SCALE): Unit = withContext(Dispatchers.IO) {
         val selected = normalizeExportIndices(indices, note.pages.size)

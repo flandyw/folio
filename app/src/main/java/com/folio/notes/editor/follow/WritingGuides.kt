@@ -60,10 +60,6 @@ object WritingGuides {
         .filter { x in it.left..it.right && y in it.top..it.bottom }
         .minByOrNull { (it.right - it.left) * (it.bottom - it.top) }
 
-    /** The tightest response-line area around the writer. */
-    fun areaAt(areas: List<AnswerArea>, x: Float, y: Float): AnswerArea? =
-        areas.filter { it.contains(x, y) }.minByOrNull { it.size }
-
     /** Only move within the same answer column, never across a question-sized gap. */
     fun next(line: WritingGuide, guides: List<WritingGuide>): WritingGuide? = guides.asSequence()
         .filter { follows(line, it) }.minByOrNull { it.y }

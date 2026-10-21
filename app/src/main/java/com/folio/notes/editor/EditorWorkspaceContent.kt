@@ -154,7 +154,6 @@ import kotlin.math.roundToInt
 import com.folio.notes.editor.page.AddPageButton
 import com.folio.notes.editor.toolbar.ExamTimerChip
 import com.folio.notes.editor.follow.WritingFollowActions
-import com.folio.notes.editor.follow.WritingFollowHint
 import com.folio.notes.editor.follow.WritingFollowLayout
 import com.folio.notes.editor.follow.WritingFollowToolbar
 
@@ -1038,7 +1037,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                     restoringVisit = null
                 }
             }
-            val stripWidth = FastScrollStripWidth
             val stripInset = FolioSpacing.dp2
             val trackTop = floatingToolbarTop + FolioSpacing.dp8
             val trackBottom = FolioSpacing.dp16
@@ -1325,7 +1323,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                 writingFollowPaused = !followStatus.paused
                 if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
             }
-            if (music == null) WritingFollowHint(followStatus, writingFollowEnabled, writingHand, followInset, page.id)
             if (music == null) WritingFollowToolbar(followLayout, writingHand, page.infinite, writingFollowEnabled, followStatus,
                 peekOpen = peekOpen, overview = overviewReturn != null, zoomPaneOpen = zoomPaneOpen, response = canvasResponse,
                 hasRegion = writingRegion != null, pinnedPeek = pinnedPeek != null, peekAvailable = peekAnchor != null,

@@ -90,7 +90,6 @@ import com.folio.notes.model.Stroke
 import com.folio.notes.model.StrokeStyle
 import com.folio.notes.model.TextBox
 import com.folio.notes.model.Tool
-import com.folio.notes.pdf.PdfFit
 import com.folio.notes.pdf.PdfLink
 import com.folio.notes.pdf.PdfReference
 import com.folio.notes.storage.IdentityCache
@@ -1489,25 +1488,6 @@ class InkView(context: Context) : View(context) {
         reportCanvasViewport(); invalidate()
     }
     var onCanvasZoom: (Float) -> Unit = {}
-    /**
-     * Reference-pane zoom. The page already fits the view, so a notch scales the read-only camera
-     * about the middle of the pane; the pinch gesture keeps working on the same range.
-     */
-    fun zoomReference(steps: Int) {
-        if (page.infinite || width <= 0 || height <= 0) return
-        suspendWritingFollow(); cancelGesture()
-        val target = PdfReference.zoomStep(camera.zoom, steps)
-        if (target != camera.zoom) camera.scaleBy(target / camera.zoom, width / 2f, height / 2f)
-        reportCanvasViewport(); invalidate()
-    }
-    /** Re-frames a read-only page: the whole page, the full page width, or true size. */
-    fun fitReference(fit: PdfFit) {
-        if (page.infinite || page.width <= 0f || page.height <= 0f || width <= 0 || height <= 0) return
-        suspendWritingFollow(); cancelGesture()
-        val zoom = PdfReference.fitZoom(page.width, page.height, width.toFloat(), height.toFloat(), fit) / pageScale
-        camera.restore(0f, 0f, PdfReference.clampZoom(zoom))
-        reportCanvasViewport(); invalidate()
-    }
     private var resetToken = -1
     fun resetCanvas(token: Int) {
         if (resetToken == token) return

@@ -104,12 +104,6 @@ data class OfficialExam(val study: OfficialStudy, val resource: ExamResource) {
         (paper == "Exam" || comparisonName(it.paper) == comparisonName(paper)) }.maxByOrNull { it.completedAt }
     fun draft(): JSONObject = JSONObject().put("subject", subject).put("provider", provider)
         .put("examYear", year).put("paper", paper).put("rawMax", knownExamMarks(subject, paper) ?: 100)
-    val companions get() = study.resources.filter { it.kind in listOf("report", "specification", "sample") &&
-        (!Regex("\\bnht\\b", RegexOption.IGNORE_CASE).containsMatchIn(study.subject) || comparisonName(it.label).contains(comparisonName(subject))) &&
-        (it.year == year || it.year == null || it.kind == "specification") &&
-        (paper == "Exam" || Regex("\\b${paper.takeLast(1)}\\b").containsMatchIn(it.label) || !Regex("\\d\\s*(?:exam|paper)|(?:exam|paper)\\s*\\d", RegexOption.IGNORE_CASE).containsMatchIn(it.label)) }
-        .sortedWith(compareByDescending<ExamResource> { it.year == year }.thenByDescending { it.year ?: 0 })
-        .distinctBy { it.kind }.take(3)
 }
 
 fun knownExamMarks(subject: String, paper: String): Int? {

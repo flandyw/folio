@@ -136,12 +136,6 @@ internal fun focalAppendExamBoundaries(entry: FocalStudyEntry, events: List<Trip
         synced = if (added.isEmpty()) entry.synced else false)
 }
 
-/**
- * A newly-created active row is uploaded so other Focal clients can show it immediately.
- * Timer checkpoints stay local, but pause/resume and terminal boundaries are published.
- */
-internal fun focalShouldUpload(entry: FocalStudyEntry): Boolean = !entry.synced
-
 /** Pending local boundaries beat an older echo; remote termination beats an active checkpoint. */
 internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry): FocalStudyEntry {
     if (local == null) return remote
@@ -664,7 +658,6 @@ data class FocalStudyState(
         owner == null || owner == userId
     }
     val pendingCount get() = entries.count { !it.synced && (it.userId == null || it.userId == userId) }
-    val hasActiveSession get() = focus != null || entries.any { it.active && (it.userId == null || it.userId == userId) }
     val canStartFocus get() = focus == null
     val syncStatus get() = when {
         needsSignIn -> "Sign in to Focal again · saved work is kept on this device"

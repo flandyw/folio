@@ -14,7 +14,6 @@ enum class Paper { PLAIN, RULED, DOTS, GRID, MATH_GRID, GRAPH, MC_SHEET, TIAN_GR
     val isGrid: Boolean get() = this == GRID || this == MATH_GRID || this == GRAPH
     /** Character-practice papers tile large squares with printed guides, like exercise books. */
     val isHanzi: Boolean get() = this == TIAN_GRID || this == MI_GRID
-    val hasPrintedAxes: Boolean get() = this == GRAPH
     companion object {
         /** Side of one hanzi practice cell, in page units; divides the 840 pt page width evenly. */
         const val HANZI_CELL = 84f

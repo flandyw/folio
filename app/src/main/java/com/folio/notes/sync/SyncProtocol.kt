@@ -1,20 +1,11 @@
 package com.folio.notes.sync
 
-import com.folio.notes.mistakes.isoTime
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.Instant
 
 /**
- * The pure core of sync protocol v3, mirroring Focal's `src/lib/sync/reduce.ts` rule for
- * rule. Everything here is a total function of its arguments: no I/O, no clock, no
- * randomness, which is what lets [SyncConformanceTests] run the shared vectors against it.
- *
- * The rules, in the order they are applied:
- *  1. Our own change is already on disk; skip it.
- *  2. A change we have already surpassed is noise; skip it.
- *  3. A change that collides with an unpublished local edit is parked for the user.
- *  4. Otherwise apply it. Ordering is `(lamport, clientId)`, never a wall clock.
+ * Wire shapes of sync protocol v3, shared with Focal: log changes, applied row state and queued
+ * mutations. Pure parsing and encoding only; publishing and conflict handling live with each feature.
  */
 object SyncProtocol {
     /**
@@ -83,10 +74,6 @@ object SyncProtocol {
         val payload: JSONObject?,
         val lamport: Long,
         val createdAt: String,
-        val retryCount: Int = 0,
-        val lastError: String? = null,
-        val nextAttemptAt: String? = null,
-        val blockedAt: String? = null,
         val expectedSeq: Long? = null
     ) {
         val key: String get() = "$entity:$rowId"
@@ -99,10 +86,6 @@ object SyncProtocol {
             .put("payload", payload ?: JSONObject.NULL)
             .put("lamport", lamport)
             .put("createdAt", createdAt)
-            .put("retryCount", retryCount)
-            .put("lastError", lastError ?: JSONObject.NULL)
-            .put("nextAttemptAt", nextAttemptAt ?: JSONObject.NULL)
-            .put("blockedAt", blockedAt ?: JSONObject.NULL)
             .put("expectedSeq", expectedSeq ?: JSONObject.NULL)
 
         companion object {
@@ -114,144 +97,9 @@ object SyncProtocol {
                 payload = o.optJSONObject("payload"),
                 lamport = o.optLong("lamport"),
                 createdAt = o.optString("createdAt"),
-                retryCount = o.optInt("retryCount"),
-                lastError = o.optStringOrNull("lastError"),
-                nextAttemptAt = o.optStringOrNull("nextAttemptAt"),
-                blockedAt = o.optStringOrNull("blockedAt"),
                 expectedSeq = if (o.isNull("expectedSeq")) null else o.optLong("expectedSeq")
             )
         }
-    }
-
-    enum class Decision { APPLY, OWN, STALE, DEFERRED }
-
-    data class ReduceResult(
-        val state: List<RowState>,
-        val cursor: Long,
-        val applied: List<Change>,
-        val deferred: List<Change>
-    )
-
-    /** Total order on versions: lamport first, client id as the tiebreak. */
-    fun compareOrder(leftLamport: Long, leftClientId: String, rightLamport: Long, rightClientId: String): Int {
-        if (leftLamport != rightLamport) return if (leftLamport < rightLamport) -1 else 1
-        if (leftClientId == rightClientId) return 0
-        return if (leftClientId < rightClientId) -1 else 1
-    }
-
-    fun decide(change: Change, state: RowState?, pending: Set<String>, ownClientId: String): Decision {
-        if (change.clientId == ownClientId) return Decision.OWN
-        if (state != null &&
-            compareOrder(state.lamport, state.clientId, change.lamport, change.clientId) >= 0
-        ) return Decision.STALE
-        if (change.key in pending) return Decision.DEFERRED
-        return Decision.APPLY
-    }
-
-    fun toRowState(change: Change) = RowState(
-        change.entity, change.rowId, change.operation, change.payload, change.lamport, change.clientId, change.seq
-    )
-
-    /**
-     * Fold a batch of log rows into the applied state. The cursor advances past every row in
-     * the batch, including the ones that were ignored: the log has been read, whatever was
-     * decided about its contents. Deferred rows must be persisted by the caller before the
-     * cursor is stored, or a crash loses them.
-     */
-    fun reduceChanges(
-        ownClientId: String,
-        cursor: Long,
-        state: List<RowState>,
-        pending: Set<String>,
-        changes: List<Change>
-    ): ReduceResult {
-        val next = state.toMutableList()
-        val indices = HashMap<String, Int>()
-        next.forEachIndexed { index, row -> indices.putIfAbsent(row.key, index) }
-        val applied = mutableListOf<Change>()
-        val deferred = mutableListOf<Change>()
-        var high = cursor
-        for (change in changes.sortedBy { it.seq }) {
-            if (change.seq <= cursor) continue
-            val index = indices[change.key]
-            when (decide(change, index?.let { next[it] }, pending, ownClientId)) {
-                Decision.APPLY -> {
-                    if (index == null) indices[change.key] = next.size.also { next.add(toRowState(change)) }
-                    else next[index] = toRowState(change)
-                    applied.add(change)
-                }
-                Decision.DEFERRED -> deferred.add(change)
-                else -> Unit
-            }
-            if (change.seq > high) high = change.seq
-        }
-        return ReduceResult(next, high, applied, deferred)
-    }
-
-    /**
-     * A snapshot is the whole materialized state, so it replaces what this device knew,
-     * except for rows with an unpublished local edit: those exist only here, and letting
-     * the snapshot overwrite them would discard work that has not been published yet.
-     */
-    fun reduceSnapshot(
-        pending: Set<String>,
-        state: List<RowState>,
-        rows: List<RowState>,
-        head: Long
-    ): ReduceResult {
-        val next = state.filter { it.key in pending }.toMutableList()
-        val indices = HashMap<String, Int>()
-        for (row in rows) {
-            if (row.key in pending) continue
-            val index = indices.getOrPut(row.key) { next.size.also { next.add(row) } }
-            next[index] = row
-        }
-        return ReduceResult(next, head, emptyList(), emptyList())
-    }
-
-    /** One queued change per row, keeping the highest version, in queue order. */
-    fun coalesce(changes: List<QueuedChange>): List<QueuedChange> {
-        val newest = LinkedHashMap<String, QueuedChange>()
-        for (change in changes) {
-            val current = newest[change.key]
-            if (current == null || compareOrder(current.lamport, "", change.lamport, change.createdAt) < 0) {
-                newest[change.key] = change
-            }
-        }
-        return newest.values.toList()
-    }
-
-    /** 5s doubling to a 5 minute ceiling. Deterministic, so it can be asserted. */
-    fun retryDelayMs(attempts: Int): Long {
-        if (attempts <= 0) return 0
-        val shift = minOf(attempts - 1, 10)
-        return minOf(300_000L, 5_000L * (1L shl shift))
-    }
-
-    fun isDue(change: QueuedChange, nowMillis: Long): Boolean {
-        if (change.blockedAt != null) return false
-        val next = change.nextAttemptAt ?: return true
-        return runCatching { Instant.parse(next).toEpochMilli() }.getOrNull()?.let { it <= nowMillis } ?: true
-    }
-
-    fun retry(change: QueuedChange, error: String, nowMillis: Long, maxRetries: Int): QueuedChange {
-        val attempts = change.retryCount + 1
-        val next = change.copy(
-            retryCount = attempts,
-            lastError = error,
-            nextAttemptAt = isoTime(nowMillis + retryDelayMs(attempts))
-        )
-        return if (attempts >= maxRetries) next.copy(nextAttemptAt = null, blockedAt = next.nextAttemptAt) else next
-    }
-
-    /** Newest version of each row in a batch, in sequence order. */
-    fun latest(changes: List<Change>): List<Change> {
-        val newest = LinkedHashMap<String, Change>()
-        for (change in changes) {
-            val current = newest[change.key]
-            if (current == null || current.seq < change.seq) newest[change.key] = change
-        }
-        return newest.values.sortedBy { it.seq }
     }
 
     fun parseChange(o: JSONObject): Change? {
@@ -292,9 +140,6 @@ object SyncProtocol {
         )
     }
 }
-
-internal fun JSONObject.optStringOrNull(key: String): String? =
-    if (isNull(key)) null else optString(key).ifEmpty { null }
 
 internal fun JSONArray.objects(): List<JSONObject> =
     (0 until length()).mapNotNull { optJSONObject(it) }

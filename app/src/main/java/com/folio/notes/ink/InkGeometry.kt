@@ -399,14 +399,6 @@ object InkGeometry {
         point.x >= image.x && point.x <= image.x + image.width &&
             point.y >= image.y && point.y <= image.y + image.height
 
-    /** True when [point] lands on the bottom-right resize handle. */
-    fun imageHandleContains(image: PageImage, point: InkPoint, half: Float = PageImage.HANDLE_HALF): Boolean {
-        val cx = image.x + image.width
-        val cy = image.y + image.height
-        return point.x >= cx - half && point.x <= cx + half &&
-            point.y >= cy - half && point.y <= cy + half
-    }
-
     /** The topmost picture under [point], or null when the touch lands on bare page. */
     fun imageAt(images: List<PageImage>, point: InkPoint): PageImage? =
         images.lastOrNull { imageContains(it, point) }
@@ -683,21 +675,6 @@ object InkGeometry {
         val longer = max(hi1 - lo1, hi2 - lo2)
         if (longer <= 0f) return 0f
         return (min(hi1, hi2) - max(lo1, lo2)).coerceAtLeast(0f) / longer
-    }
-
-    /** Test the entire sweep, including crossings between widely spaced input samples. */
-    fun scribbleHits(scribble: Stroke, target: Stroke, radius: Float): Boolean {
-        val sweep = scribble.points
-        val path = pathPoints(target)
-        if (sweep.isEmpty() || path.isEmpty()) return false
-        val reach = radius + target.width / 2f
-        if (sweep.size == 1) return hits(target, sweep.first(), radius)
-        // Cheap box reject before the O(sweep × path) narrow phase.
-        val sweepBox = pointBounds(sweep)
-        val pathBox = pointBounds(path)
-        if (pathBox[2] < sweepBox[0] - reach || pathBox[0] > sweepBox[2] + reach ||
-            pathBox[3] < sweepBox[1] - reach || pathBox[1] > sweepBox[3] + reach) return false
-        return anySegment(sweep) { a, b -> legHits(a, b, path, reach) }
     }
 
     private fun segmentsCross(a: InkPoint, b: InkPoint, c: InkPoint, d: InkPoint): Boolean {
@@ -1002,20 +979,4 @@ object InkGeometry {
         )
     }
 
-    /**
-     * Snapped endpoints for a shape drag. On grid paper both points snap to the grid;
-     * for a line the far end is additionally angle-snapped so horizontal/vertical/diagonal
-     * are effortless. Returns the (possibly snapped) pair.
-     */
-    fun snappedShapePoints(a: InkPoint, b: InkPoint, paper: Paper, snapEnabled: Boolean): Pair<InkPoint, InkPoint> {
-        if (!snapEnabled) return a to b
-        var sa = a; var sb = b
-        if (paper.isGrid) {
-            val s = paper.gridSpacing
-            sa = snapToGrid(sa, s)
-            sb = snapToGrid(sb, s)
-        }
-        // Angle snap only for lines — rectangles/ellipses keep their grid corners.
-        return sa to sb
-    }
 }

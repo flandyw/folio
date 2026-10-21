@@ -214,55 +214,6 @@ object ExamTagsCodec {
 
 // ---- Progress ------------------------------------------------------------------------------------
 
-/** Aggregate scores for one subject, or for everything when no subject is given. */
-data class SubjectProgress(
-    val subject: VceSubject?,
-    val paperCount: Int,
-    val markedCount: Int,
-    /** Mean of every attempt's share, 0..1, or null when nothing has been marked. */
-    val averageShare: Float?,
-    /** Best attempt share in the group, or null. */
-    val bestShare: Float?,
-    /** Mean share of the most recent attempt per paper — the trend students actually care about. */
-    val recentShare: Float?
-)
-
-/**
- * Rolls exam attempts up per subject. Attempts without a known total are skipped for percentages
- * but still counted as marked, so a paper marked "done" without a score never vanishes.
- */
-fun subjectProgress(notes: List<Notebook>): List<SubjectProgress> {
-    val tagged = notes.filter { it.exam.isTagged }
-    // Papers without a study roll up into one "Other" row at the end, not a null-keyed group.
-    val subjects = tagged.filter { it.exam.subject != null }.groupBy { it.exam.subject }
-    val rows = subjects.map { (subject, papers) ->
-        val allAttempts = papers.flatMap { it.attempts }
-        val shares = allAttempts.mapNotNull { it.share }
-        val latest = papers.mapNotNull { paper -> paper.attempts.maxByOrNull { it.date }?.share }
-        SubjectProgress(
-            subject = subject,
-            paperCount = papers.size,
-            markedCount = allAttempts.size,
-            averageShare = shares.takeIf { it.isNotEmpty() }?.average()?.toFloat(),
-            bestShare = shares.maxOrNull(),
-            recentShare = latest.takeIf { it.isNotEmpty() }?.average()?.toFloat()
-        )
-    }.sortedByDescending { it.paperCount }
-    val untaggedPapers = tagged.filter { it.exam.subject == null }
-    val otherAttempts = untaggedPapers.flatMap { it.attempts }
-    val otherShares = otherAttempts.mapNotNull { it.share }
-    val otherLatest = untaggedPapers.mapNotNull { it.attempts.maxByOrNull { a -> a.date }?.share }
-    val other = SubjectProgress(
-        subject = null,
-        paperCount = untaggedPapers.size,
-        markedCount = otherAttempts.size,
-        averageShare = otherShares.takeIf { it.isNotEmpty() }?.average()?.toFloat(),
-        bestShare = otherShares.maxOrNull(),
-        recentShare = otherLatest.takeIf { it.isNotEmpty() }?.average()?.toFloat()
-    )
-    return if (other.paperCount > 0) rows + other else rows
-}
-
 // ---- Library filtering ---------------------------------------------------------------------------
 
 /** One exam-tag filter row: any notebook whose tags match all the set fields stays visible. */
@@ -297,17 +248,6 @@ data class ExamFilter(
         if (incomplete && note.exam.status in setOf(ExamStatus.MARKED, ExamStatus.REDONE)) return false
         return true
     }
-}
-
-/**
- * Extends the library filter with exam metadata, so "Methods · 2022 · VCAA" narrows the shelf
- * without leaving the search line behind: the query still matches titles and, now, tag text.
- */
-fun organizeExams(
-    notes: List<Notebook>, exam: ExamFilter = ExamFilter(), query: String = ""
-): List<Notebook> = notes.filter { note ->
-    exam.matches(note) &&
-        (query.isBlank() || matchesQuery(note, query))
 }
 
 // ---- Batch editing ---------------------------------------------------------------------------------

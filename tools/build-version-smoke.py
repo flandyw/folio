@@ -159,7 +159,7 @@ printf "package: name='${BUILD_TEST_PACKAGE:-com.folio.notes}' versionCode='%s' 
                 self.assertNotEqual(record["path"], "app/build/outputs/apk/release/app-release.apk")
                 self.assertFalse(Path(record["path"]).exists())
             self.assertEqual((self.root / "gradle-args").read_text().splitlines(), [":app:assembleRelease", "--console=plain",
-                f"-PfolioExperimentalBuild={revision}", "-PfolioExperimentalCommitCount=217", "--offline"])
+                f"-PfolioExperimentalBuild={revision}", "-PfolioExperimentalCommitCount=217", "-PfolioMinify=false", "--offline"])
         marker.unlink(missing_ok=True)
         result = self.run_build({**env, "BUILD_TEST_EXIT": "1"}, "--publish")
         self.assertNotEqual(result.returncode, 0)
