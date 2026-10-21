@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,7 +73,7 @@ private val BLOCK = 48.dp
 private val COMPACT_ROW = 50.dp
 private val COMPACT_BLOCK = 44.dp
 
-private enum class Tone { DONE, LIVE, TODO }
+private enum class Tone { DONE, LIVE, PAUSED, TODO }
 private enum class Grip { START, END, MOVE }
 private data class Span(val start: Float, val end: Float)
 private data class Block(val key: String, val entry: FocalStudyEntry, val start: Float, val end: Float, val tone: Tone, val count: Int, val index: Int)
@@ -128,13 +129,15 @@ private fun spansOf(entry: FocalStudyEntry, focus: FocalFocus?): List<FocalStudy
 /**
  * Drag on a block or the draft: its edges resize, its body moves. A vertical drag is left to the
  * scrolling list, and a press that never moves is a tap ([onTap] gets where, in pixels from the left edge).
- * [onDrag] gets the total travel in pixels. Edge grips are 18dp, or a third of the width on a narrow block;
+ * [onDrag] gets the total travel in pixels; a second finger calls [onCancel] instead of [onEnd]. Edge grips are 18dp, or a third of the width on a narrow block;
  * a [fixed] grip (a resize handle) always drags that edge.
  */
 @Composable
 private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -> Unit,
-                                  onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit, fixed: Grip? = null): Modifier {
+                                  onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit, onCancel: () -> Unit,
+                                  fixed: Grip? = null): Modifier {
     val tap by rememberUpdatedState(onTap)
+    val cancel by rememberUpdatedState(onCancel)
     val drag by rememberUpdatedState(onDrag)
     val end by rememberUpdatedState(onEnd)
     val canDrag by rememberUpdatedState(draggable)
@@ -152,7 +155,10 @@ private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -
             var moved = false
             var abandoned = false
             while (true) {
-                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                val event = awaitPointerEvent()
+                // A second finger makes this a pinch for the track: put the block back rather than move it too.
+                if (event.changes.count { it.pressed } > 1) { abandoned = true; break }
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if (!change.pressed) break
                 val dx = change.position.x - down.position.x
                 val dy = change.position.y - down.position.y
@@ -162,7 +168,11 @@ private fun Modifier.timelineDrag(key: Any, draggable: Boolean, onTap: (Float) -
                 }
                 if (moved) { drag(grip, dx); change.consume() }
             }
-            if (moved) end() else if (!abandoned) tap(down.position.x)
+            when {
+                moved && abandoned -> cancel()
+                moved -> end()
+                !abandoned -> tap(down.position.x)
+            }
         }
     }
 }
@@ -212,8 +222,13 @@ internal fun StudyTimeline(
                 val end = minuteOf(span.endAt ?: now)
                 if (end <= 0f || start >= DAY || end <= start) return@mapIndexedNotNull null
                 val live = span.endAt == null && entry.active && (focus?.sessionId != entry.id || focus.resumedAt != null)
-                Block("${entry.id}:$index", entry, start.coerceAtLeast(0f), end.coerceAtMost(DAY),
-                    if (live) Tone.LIVE else if (entry.planned) Tone.TODO else Tone.DONE, spans.size, index)
+                val tone = when {
+                    live -> Tone.LIVE
+                    entry.planned -> Tone.TODO
+                    entry.active && index == spans.lastIndex -> Tone.PAUSED
+                    else -> Tone.DONE
+                }
+                Block("${entry.id}:$index", entry, start.coerceAtLeast(0f), end.coerceAtMost(DAY), tone, spans.size, index)
             }
         }
     }
@@ -303,7 +318,7 @@ internal fun StudyTimeline(
         return focalCanEditBlocks(block.entry) && block.tone != Tone.LIVE && block.entry.id != focus?.sessionId &&
             original.startAt >= dayStart && original.endAt != null && original.endAt <= millisAt(DAY)
     }
-    fun splittable(block: Block) = movable(block) && block.count == 1
+    fun splittable(block: Block) = movable(block) && block.count == 1 && block.end - block.start >= 2 * CUT_EDGE
     fun persist(block: Block, range: Span) {
         val next = focalReplaceSessionBlock(block.entry, block.index, FocalStudyInterval(millisAt(range.start), millisAt(range.end)))
         val ok = manager.editBlocks(block.entry.id, next, block.entry.completed)
@@ -313,16 +328,18 @@ internal fun StudyTimeline(
     /** A block's range while one of its edges or its body is dragged [dx] pixels. */
     fun dragged(live: Block, grip: Grip, dx: Float): Span {
         val delta = dx / trackWidthPx() * span
+        // Finished study can't run into the future: it stops at now instead of being refused on drop.
+        val limit = if (live.entry.completed) nowMin.coerceIn(live.end, DAY) else DAY
         val next = when (grip) {
             Grip.START -> Span(minOf(snap(live.start + delta), live.end - SNAP), live.end)
             Grip.END -> Span(live.start, maxOf(snap(live.end + delta), live.start + SNAP))
             Grip.MOVE -> {
                 val length = live.end - live.start
-                val start = snap(live.start + delta).coerceIn(0f, DAY - length)
+                val start = snap(live.start + delta).coerceIn(0f, limit - length)
                 Span(start, start + length)
             }
         }
-        return Span(next.start.coerceAtLeast(0f), next.end.coerceAtMost(DAY))
+        return Span(next.start.coerceAtLeast(0f), next.end.coerceAtMost(limit))
     }
 
     fun pick(on: Boolean, first: String? = null) {
@@ -490,6 +507,7 @@ internal fun StudyTimeline(
                 }
                 Unit
             }
+            val undoDraftDrag = { draftOrigin?.let { draft = it }; draftOrigin = null }
             val trackHeight = rowHeight * rowCount + trackPad * 2 - (rowHeight - blockHeight)
             Box(Modifier.fillMaxWidth().height(trackHeight).clip(FolioShapes.large)
                 .background(scheme.surfaceContainerHighest.copy(alpha = .5f))
@@ -548,7 +566,9 @@ internal fun StudyTimeline(
                     .background(scheme.surface.copy(alpha = .3f)))
                 blocks.filter { it.end > window.start && it.start < window.end }.forEach { live ->
                     val range = adjust?.takeIf { it.first == live.key }?.second
-                    val block = range?.let { live.copy(start = it.start, end = it.end) } ?: live
+                    // The running block follows the clock each second, not each 15s rebuild of the list.
+                    val block = range?.let { live.copy(start = it.start, end = it.end) }
+                        ?: if (live.tone == Tone.LIVE) live.copy(end = nowMin.coerceIn(live.start, DAY)) else live
                     val room = with(density) { widthPx(block.start, block.end).toDp() }
                     val grab = movable(live) && !razor && !picking
                     val picked = live.entry.id in picks
@@ -564,7 +584,7 @@ internal fun StudyTimeline(
                     }
                     val edge = lerp(scheme.outlineVariant, accent, if (block.tone == Tone.LIVE) .85f else .5f)
                     val text = lerp(scheme.onSurface, accent, .15f)
-                    val label = when { block.tone == Tone.LIVE -> "Studying now"; late -> "Missed"; block.tone == Tone.TODO -> "Planned"; else -> "Done" }
+                    val label = when { block.tone == Tone.LIVE -> "Studying now"; block.tone == Tone.PAUSED -> "Paused"; late -> "Missed"; block.tone == Tone.TODO -> "Planned"; else -> "Done" }
                     Box(Modifier
                         .offset { IntOffset(x(block.start).roundToInt(), (trackPad + rowHeight * (rows[live.key] ?: 0)).roundToPx()) }
                         .width(room).height(blockHeight)
@@ -578,7 +598,10 @@ internal fun StudyTimeline(
                             }
                             else -> Modifier.border(1.dp, edge, FolioShapes.medium)
                         })
-                        .semantics { contentDescription = "$label: ${block.entry.title}${subject?.let { ", ${it.name}" } ?: ""}, ${clock(block.start)} to ${clock(block.end)}" }
+                        .semantics {
+                            contentDescription = "$label: ${block.entry.title}${subject?.let { ", ${it.name}" } ?: ""}, ${clock(block.start)} to ${clock(block.end)}"
+                            onClick("Show details") { selected = live.key; confirmRemove = false; draft = null; true }
+                        }
                         .timelineDrag(live.key, grab,
                             onTap = { x ->
                                 if (picking) {
@@ -593,14 +616,14 @@ internal fun StudyTimeline(
                                 else { selected = if (selected == live.key) null else live.key; confirmRemove = false; draft = null }
                             },
                             onDrag = { grip, dx -> adjust = live.key to dragged(live, grip, dx) },
-                            onEnd = { adjust?.let { (_, next) -> if (next != Span(live.start, live.end)) persist(live, next) }; adjust = null })
-                        ,
+                            onEnd = { adjust?.let { (_, next) -> if (next != Span(live.start, live.end)) persist(live, next) }; adjust = null },
+                            onCancel = { adjust = null }),
                         contentAlignment = Alignment.CenterStart) {
                         if (room >= 36.dp) Column(Modifier.padding(horizontal = if (grab) 14.dp else FolioSpacing.dp8)) {
                             Text(if (room >= 150.dp) block.entry.title else subject?.name?.let(::initials) ?: block.entry.title.take(3),
                                 style = MaterialTheme.typography.labelMedium, fontWeight = if (room >= 150.dp) FontWeight.Medium else null,
                                 color = text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (room >= 150.dp) Text(if (block.tone == Tone.LIVE) label else "${clock(block.start)}–${clock(block.end)}",
+                            if (room >= 150.dp) Text(if (block.tone == Tone.LIVE || block.tone == Tone.PAUSED) label else "${clock(block.start)}–${clock(block.end)}",
                                 style = MaterialTheme.typography.labelSmall, color = text.copy(alpha = .75f), maxLines = 1)
                         }
                         // Always-visible grips on a block you can resize.
@@ -617,15 +640,16 @@ internal fun StudyTimeline(
                     val range = adjust?.takeIf { it.first == live.key }?.second ?: Span(live.start, live.end)
                     ResizeHandles(live.key, range, ::x, trackPad + rowHeight * (rows[live.key] ?: 0), blockHeight, scheme.onSurface,
                         onDrag = { grip, dx -> adjust = live.key to dragged(live, grip, dx) },
-                        onEnd = { adjust?.let { (_, next) -> if (next != Span(live.start, live.end)) persist(live, next) }; adjust = null })
+                        onEnd = { adjust?.let { (_, next) -> if (next != Span(live.start, live.end)) persist(live, next) }; adjust = null },
+                        onCancel = { adjust = null })
                 }
                 selection?.let { range ->
                     val hue = FocalSubjects.color(subjectId)?.let { Color(it) } ?: scheme.primary
                     Box(Modifier.offset { IntOffset(x(range.start).roundToInt(), 4.dp.roundToPx()) }
                         .width(with(density) { widthPx(range.start, range.end).toDp() }).fillMaxHeight().padding(bottom = 8.dp)
                         .clip(FolioShapes.medium).background(hue.copy(alpha = .15f)).border(2.dp, hue, FolioShapes.medium)
-                        .then(if (drag == null) Modifier.timelineDrag("draft", true, onTap = {}, onDrag = draftDrag, onEnd = { draftOrigin = null }) else Modifier))
-                    if (drag == null) ResizeHandles("draft", range, ::x, 4.dp, trackHeight - 8.dp, hue, onDrag = draftDrag, onEnd = { draftOrigin = null })
+                        .then(if (drag == null) Modifier.timelineDrag("draft", true, onTap = {}, onDrag = draftDrag, onEnd = { draftOrigin = null }, onCancel = undoDraftDrag) else Modifier))
+                    if (drag == null) ResizeHandles("draft", range, ::x, 4.dp, trackHeight - 8.dp, hue, onDrag = draftDrag, onEnd = { draftOrigin = null }, onCancel = undoDraftDrag)
                 }
                 // The pending cut: a line through the block and a small tag with its time. Drag the tag to fine-tune, tick it to split.
                 cut?.let { (key, minute) ->
@@ -744,7 +768,7 @@ internal fun StudyTimeline(
                                 if (restriction != null) Text(restriction, style = MaterialTheme.typography.bodySmall, color = scheme.error)
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull(subject?.name, "${clock(picked.start)}–${clock(picked.end)}", duration(picked.end - picked.start),
-                                    when { picked.tone == Tone.LIVE -> "Studying now"; missed(picked) -> "Missed"; picked.tone == Tone.TODO -> "Planned"
+                                    when { picked.tone == Tone.LIVE -> "Studying now"; picked.tone == Tone.PAUSED -> "Paused"; missed(picked) -> "Missed"; picked.tone == Tone.TODO -> "Planned"
                                         entry.kind == "exam" -> "Exam"; else -> "Done" },
                                     if (picked.count > 1) "Block ${picked.index + 1} of ${picked.count}" else null).joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
@@ -791,7 +815,8 @@ internal fun StudyTimeline(
                                 if (entry.planned) onStartPlanned(entry.id) else onStartFocus(entry.subjectId)
                             }, enabled = canStart) { Text(if (entry.planned) "Start" else "Study again") }
                             if (!timing) {
-                                if (confirmRemove) Button({ manager.deleteSession(entry.id); selected = null; confirmRemove = false; message = "Study removed" },
+                                if (confirmRemove) Button({ val ok = manager.deleteSession(entry.id); confirmRemove = false
+                                    if (ok) selected = null; message = if (ok) "Study removed" else "Could not remove that. Try again." },
                                     colors = ButtonDefaults.buttonColors(containerColor = scheme.error, contentColor = scheme.onError)) { Text("Remove for good?") }
                                 else OutlinedButton({ confirmRemove = true }) { Text("Remove") }
                             }
@@ -856,12 +881,12 @@ internal fun StudyTimeline(
  */
 @Composable
 private fun ResizeHandles(key: Any, range: Span, x: (Float) -> Float, top: Dp, height: Dp, color: Color,
-                          onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit) {
+                          onDrag: (Grip, Float) -> Unit, onEnd: () -> Unit, onCancel: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     listOf(Grip.START to range.start, Grip.END to range.end).forEach { (grip, minute) ->
         Box(Modifier.offset { IntOffset(x(minute).roundToInt() - 14.dp.roundToPx(), top.roundToPx()) }.width(28.dp).height(height)
             .semantics { contentDescription = if (grip == Grip.START) "Drag to change the start" else "Drag to change the end" }
-            .timelineDrag(key to grip, true, onTap = {}, onDrag = onDrag, onEnd = onEnd, fixed = grip),
+            .timelineDrag(key to grip, true, onTap = {}, onDrag = onDrag, onEnd = onEnd, onCancel = onCancel, fixed = grip),
             contentAlignment = Alignment.Center) {
             Box(Modifier.width(10.dp).height(minOf(height - 8.dp, 30.dp)).background(scheme.surface, CircleShape).border(2.dp, color, CircleShape),
                 contentAlignment = Alignment.Center) {
