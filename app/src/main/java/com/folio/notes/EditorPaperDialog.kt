@@ -65,3 +65,16 @@ import androidx.compose.ui.Modifier
     }
 
 }
+
+internal fun editorPaperLabel(p: Paper): String = when (p) {
+    Paper.PLAIN -> "Plain"
+    Paper.RULED -> "Ruled"
+    Paper.SPLIT_RULED -> "Split ruled"
+    Paper.DOTS -> "Dots"
+    Paper.GRID -> "Grid"
+    Paper.MATH_GRID -> "Maths grid"
+    Paper.GRAPH -> "Graph (with axes)"
+    Paper.MC_SHEET -> "Multiple choice"
+    Paper.TIAN_GRID -> "Tian grid (田字格)"
+    Paper.MI_GRID -> "Mi grid (米字格)"
+}

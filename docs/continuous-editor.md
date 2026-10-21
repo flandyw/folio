@@ -6,7 +6,7 @@ The fast-scroll thumb sits 2 dp from the workspace's right edge. Its grab zone i
 
 ## Ownership
 
-- `EditorScreen` is the notebook-keyed route. It creates `EditorSession` and provides its surface registry to the layouts. `EditorWorkspaceContent` composes the existing tool, follow and feature controls.
+- `EditorScreen` is the notebook-keyed route. It creates `EditorSession` and provides its surface registry to the layouts. `EditorWorkspaceContent` composes the existing tool, follow and feature controls; the follow bar and its options menu are `WritingFollowToolbar.kt`, the peek view is `EditorPeekOverlay.kt`, and the marking assist/zones state is `EditorMarkingState.kt`. `InkView` keeps input and page state; its chrome is drawn by `SelectionChromePainter`, `FollowOverlayPainter`, `RulerPainter` and `LaserTrail`, and crop geometry is the pure `ImageCropFrame`.
 - `EditorSession` owns shared tools, per-tool options, the single-stroke eraser return target, the document and fitted-page cameras, interactions, browser state and overlay drafts. Saveable presentation state contains no notebook content.
 - `ContinuousDocumentHost` owns the existing stylus-aware document gesture, fast scrubbing, carry overlays, edge scrolling and pull feedback. `ContinuousDocument` virtualizes keyed pages. `SinglePageCanvas`, `InfiniteCanvas` and `MusicCanvas` retain their existing pager/native-camera behavior.
 - `EditorViewportCoordinator` uses `PageNavigation`, `DocumentViewport` and `DocumentMotion`. Explicit destinations retain priority until landing. The continuous camera survives fitted-page visits. Reading positions carry a page ID and page-local vertical offset through resize, tabs and saved-state restoration. A deep link replaces that anchor deliberately.

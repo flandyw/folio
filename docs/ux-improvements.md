@@ -33,7 +33,7 @@ Notebook, snapshot and journal formats are unchanged. New preferences are in `Ap
 | 25 | Layer controls remain in the existing toolbar popover; blocked-layer feedback retained | `InkViewHost.kt` |
 | 26 | One search combines PDF text, typed notes and optional handwriting; results identify their source | `EditorSearchPanels.kt` |
 | 27 | Opt-in on-device handwriting search, revision-keyed cache and indexing progress/incomplete-state feedback | `NotebookSearchIndex.kt`, `EditorSearchPanels.kt` |
-| 28 | Previous/next matching-page controls preserve the query and reopen results | `EditorWorkspaceContent.kt`, `EditorSession.kt` |
+| 28 | Previous/next matching-page controls preserve the query and reopen results | `SearchMatchBar.kt`, `EditorSession.kt` |
 | 29 | Back/forward remembers page identity, column anchors and camera state; deleted pages are skipped | `EditorViewportCoordinator.kt`, `EditorWorkspaceContent.kt` |
 | 30 | Batch page selection, duplication, deletion, export and block movement; move is one undo step | `BatchPagesPanel.kt`, `PageBatchRules.kt`, `DocumentEngine.kt` |
 | 31 | Page-list reorder gains edge autoscroll and an insertion indicator | `EditorPageBrowser.kt` |

@@ -543,3 +543,23 @@ private enum class TabClose { NONE, TAB, SPLIT }
         IconButton(onClick, modifier = Modifier.width(36.dp).height(TabHeight), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(18.dp)) }
     }
 }
+
+/**
+ * The tab strip's documents. In split view both documents get a tab, side by side in the order the
+ * panes sit on screen, so the strip shows which two are open together.
+ */
+internal fun splitTabs(state: FolioState, activeId: String): List<EditorTabChip> {
+    val other = state.companion?.notebookId?.takeIf { id -> id != activeId && state.notes.any { it.id == id } }
+    var ids = state.tabs.map { it.notebookId }.distinct()
+    if (other != null) {
+        ids = ids - other
+        val at = ids.indexOf(activeId)
+        ids = if (at < 0) ids + other else ids.toMutableList().apply { add(if (state.editorOnRight) at else at + 1, other) }
+    }
+    return ids.mapNotNull { id ->
+        val notebook = state.notes.find { it.id == id }
+        if (notebook == null || notebook.mistakePractice) null
+        else EditorTabChip(id, notebook.title.ifBlank { state.tabs.find { it.notebookId == id }?.title.orEmpty() },
+            split = other != null && (id == other || id == activeId))
+    }
+}

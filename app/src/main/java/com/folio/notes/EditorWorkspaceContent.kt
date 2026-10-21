@@ -2,40 +2,23 @@
 package com.folio.notes
 
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -45,61 +28,17 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-/**
- * Compact icons retain full touch targets and spoken labels inside the floating toolbar.
- *
- * The active (highlighted) container is a circle: the toolbar's own corner is nearly square, so a
- * rounded square inside it read as a mismatched chip. Only the highlight has a visible shape, so
- * the circle keeps every state the same size and the row visually even.
- */
-@Composable internal fun WritingFollowControl(
-    icon: ImageVector, label: String, enabled: Boolean = true, active: Boolean = false,
-    onClick: () -> Unit
-) {
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()
-    ) {
-        IconButton(
-            onClick, modifier = Modifier.size(40.dp), enabled = enabled,
-            shape = CircleShape,
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else LocalContentColor.current
-            )
-        ) { Icon(icon, label, Modifier.size(20.dp)) }
-    }
-}
-
-internal fun editorPaperLabel(p: Paper): String = when (p) {
-    Paper.PLAIN -> "Plain"
-    Paper.RULED -> "Ruled"
-    Paper.SPLIT_RULED -> "Split ruled"
-    Paper.DOTS -> "Dots"
-    Paper.GRID -> "Grid"
-    Paper.MATH_GRID -> "Maths grid"
-    Paper.GRAPH -> "Graph (with axes)"
-    Paper.MC_SHEET -> "Multiple choice"
-    Paper.TIAN_GRID -> "Tian grid (田字格)"
-    Paper.MI_GRID -> "Mi grid (米字格)"
-}
 
 @Composable internal fun EditorWorkspaceContent(editor: EditorSession,state: FolioState, model: FolioViewModel, finger: Boolean, haptics: Boolean, shapeRecognitionSetting: Boolean, onSettings: () -> Unit, onExport: () -> Unit, notebookActions: @Composable (() -> Unit) -> Unit = {}, music: MusicStage? = null, showBack: Boolean = true, onShareLongPress: (() -> Unit)? = null, onChatGpt: (() -> Unit)? = null, onOpenDocument: (() -> Unit)? = null) {
     val inputStylusActivity = LocalStylusActivity.current
@@ -163,7 +102,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     val effectiveFollowPreferences = if (page.infinite)
         canvasResponse?.preferences(followPreferences) ?: followPreferences.copy(mode = FollowMode.TEXT, automaticReturn = false)
         else followPreferences
-    var followMenu by remember { mutableStateOf(false) }
     // One peek view per notebook. A held peek closes on release; a tapped one stays until closed.
     val pinnedPeek = note.livePeekAnchor
     // Auto peek needs no pin: it is always the whole of the page being written on (a canvas has no page edge).
@@ -413,18 +351,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     var rulers by remember(note.id) { mutableStateOf<Map<String, RulerLine>>(emptyMap()) }
     var keyboardShortcuts by editor.overlays.keyboardShortcuts
     var responseAttempts by rememberSaveable { mutableStateOf(false) }
-    var markingColor by remember { mutableIntStateOf(appPrefs.getInt(Marking.PREF_COLOR, Marking.DEFAULT_COLOR)) }
-    var markAssist by remember { mutableStateOf(appPrefs.getBoolean(Marking.PREF_ASSIST, true)) }
-    var markScanStatus by remember(note.id) { mutableStateOf<String?>(null) }
-    var markScanBusy by remember(note.id) { mutableStateOf(false) }
-    var scannedZones by remember(note.id) { mutableStateOf(emptyList<MarkZone>()) }
-    // Allocations the marker boxed by hand because the scan missed them; kept per notebook.
-    var manualZones by remember(note.id) { mutableStateOf(MarkZones.decode(appPrefs.getString("marking.zones.${note.id}", null))) }
-    val markZones = scannedZones + manualZones
-    fun saveManualZones(next: List<MarkZone>) {
-        manualZones = next
-        appPrefs.edit().putString("marking.zones.${note.id}", MarkZones.encode(next)).apply()
-    }
+    val marking = rememberEditorMarking(appPrefs, note, model)
     // Holds the selection being restyled, so the sheet always edits from the original strokes.
     var restylePicked by remember { mutableStateOf<Pair<String, CanvasSelection>?>(null) }
     var restyleSelection by remember { mutableStateOf<List<Stroke>?>(null) }
@@ -763,38 +690,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         val target = state.page ?: return
         scope.launch {
             try {
-                val (bytes, srcWidth, srcHeight) = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        val raw = input.readBytes()
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
-                        var sample = 1
-                        while (kotlin.math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 2048) sample *= 2
-                        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                        val decoded = BitmapFactory.decodeByteArray(raw, 0, raw.size, opts)
-                            ?: error("This picture could not be opened")
-                        val capped = if (kotlin.math.max(decoded.width, decoded.height) > 2048) {
-                            val s = 2048f / kotlin.math.max(decoded.width, decoded.height)
-                            Bitmap.createScaledBitmap(decoded, (decoded.width * s).toInt().coerceAtLeast(1),
-                                (decoded.height * s).toInt().coerceAtLeast(1), true).also { decoded.recycle() }
-                        } else decoded
-                        val out = ByteArrayOutputStream()
-                        check(capped.compress(Bitmap.CompressFormat.JPEG, 85, out)) { "This picture could not be saved" }
-                        val w = capped.width; val h = capped.height
-                        capped.recycle()
-                        Triple(out.toByteArray(), w, h)
-                    } ?: error("This picture could not be opened")
-                }
-                val maxWidth = if (target.infinite) 560f else (target.width - 96f).coerceIn(200f, 640f)
-                val (w, h) = InkGeometry.fitImage(srcWidth.toFloat(), srcHeight.toFloat(), maxWidth)
-                val x = if (target.infinite) -w / 2f else (target.width - w) / 2f
-                val y = if (target.infinite) -h / 2f else (target.height - h) / 2f
-                val image = PageImage(
-                    x = if (target.infinite) x else x.coerceAtLeast(0f),
-                    y = if (target.infinite) y else y.coerceAtLeast(0f),
-                    width = w, height = h
-                )
-                model.addImage(image, bytes, target.id)
+                val picked = PickedImage.read(context, uri)
+                val image = picked.placement(target)
+                model.addImage(image, picked.bytes, target.id)
                 selectedImage = target.id to image
                 if (tool != Tool.HAND) selectTool(Tool.HAND)
             } catch (cancelled: CancellationException) { throw cancelled
@@ -814,25 +712,6 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         pdfLinks = if (note.pages.any { it.pdfIndex != null }) {
             try { model.repository.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() }
         } else emptyList()
-    }
-    val markPageGeometry = note.pages.map { Triple(it.pdfIndex, it.width, it.height) }
-    LaunchedEffect(note.id, markAssist, markPageGeometry) {
-        scannedZones = emptyList()
-        markScanStatus = null
-        if (markAssist && note.pages.any { it.pdfIndex != null }) {
-            markScanBusy = true
-            markScanStatus = "Looking for printed marks…"
-            try {
-                scannedZones = model.repository.pdfMarkZones(note.id, note.pages) { zones, status ->
-                    scannedZones = zones
-                    markScanStatus = status
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                markScanStatus = "Couldn’t read printed marks. Turn the switch off and on to retry."
-            } finally { markScanBusy = false }
-        }
     }
     var handledNavigation by remember(note.id) { mutableIntStateOf(state.navigationRequest) }
     LaunchedEffect(note.id, page.infinite, note.pages.size, state.navigationRequest, paged) {
@@ -987,28 +866,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         } else false
     }) {
         EditorUxStatus(state, model, onGuide = { gestureGuide = true })
-        if (editor.overlays.searchMatches.value.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-            val matches = editor.overlays.searchMatches.value
-            val match = editor.overlays.searchMatch.intValue.coerceIn(0, matches.lastIndex)
-            // One match has nowhere else to go, so the arrows rest instead of re-jumping to the same page.
-            val cycles = matches.size > 1
-            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = FolioSpacing.dp4),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                Icon(Icons.Rounded.Search, null, Modifier.padding(horizontal = FolioSpacing.dp8).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    TextButton({ if (editor.overlays.searchFromPdf.value) pdfSearchOpen = true else noteSearchOpen = true }) {
-                        Text("${editor.overlays.searchCaption.value} · ${match + 1} of ${matches.size}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                IconButton({ val next = (match + matches.size - 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }, enabled = cycles) {
-                    Icon(Icons.Rounded.KeyboardArrowUp, "Previous matching page")
-                }
-                IconButton({ val next = (match + 1) % matches.size; editor.overlays.searchMatch.intValue = next; jumpTo(matches[next]) }, enabled = cycles) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, "Next matching page")
-                }
-                IconButton({ editor.overlays.searchMatches.value = emptyList() }) { Icon(Icons.Rounded.Close, "Close search") }
-            }
-        }
+        SearchMatchBar(editor.overlays, ::jumpTo)
         LongResponseBar(note, page, model, onAttempts = { responseAttempts = true })
         // Both rows overlay the same canvas. Measure the dock so page/scroll affordances
         // stay reachable with larger accessibility text as well as compact windows.
@@ -1259,9 +1117,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     paperWidth = baseWidth * documentZoom,
                                     selectedImageId = selectedImage?.takeIf { it.first == item.id }?.second?.id,
                                     pdfLinks = pdfLinks,
-                                    markZones = markZones,
-                                    markAssist = markAssist,
-                                    markColor = markingColor,
+                                    markZones = marking.zones,
+                                    markAssist = marking.assist,
+                                    markColor = marking.color,
                                     selectionAnchor = if (item.id == page.id) selectionAnchor else null,
                                     selectionMenuViewport = selectionViewport,
                                     selectionMenu = if (documentSelection.isNotEmpty() || item.id != page.id || inkNavigating || pages.isScrollInProgress || restyleSelection != null || peekOpen) null else if (selected.isNotEmpty()) selectionMenu else pictureMenu),
@@ -1282,7 +1140,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                                     selectedImage = image?.let { item.id to it }
                                 },
                                     onPdfLink = ::openPdfLink,
-                                    onReplaceZone = { old, new -> saveManualZones(manualZones.filterNot { it == old } + listOfNotNull(new)) },
+                                    onReplaceZone = marking::replaceZone,
                                     onPageFrame = transfers::paper,
                                     onPageRegion = transfers::region,
                                     onObjectLift = { objectLift = it },
@@ -1313,72 +1171,19 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                         )
                     }
                             }
-            val peekContext = LocalContext.current
             // Keep the original composition and cameras alive underneath. Closing the peek is an
             // exact return, including scroll offset, tool and the follow engine's line.
-            if (peekOpen) {
-                val anchor = (peekShown ?: peekAnchor)!!
-                val target = anchor.page(note.pages)
-                if (target != null) Box(Modifier.fillMaxSize().zIndex(10f).background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-                    // A held peek is a glance; one kept open can be panned and zoomed to read.
-                    EditorPage(note.id, target, model,
-                        surface = InkSurfaceConfig(tool = Tool.HAND,
-                            options = options,
-                            finger = false,
-                            snapEnabled = false,
-                            shapeRecognition = false,
-                            inputBlocked = peekMode == PeekMode.HELD),
-                        presentation = PagePresentation(active = false,
-                            fullscreen = true,
-                            readOnly = true,
-                            peekRegion = anchor),
-                        actions = EditorPageActions(mutations = remember(target.id) { model.pageMutations(target.id) }, onActive = {},
-                            onPan = { _, _ -> },
-                            onPanEnd = {},
-                            onSelection = {},
-                            onTextEdit = {},
-                            onTextCreate = {},
-                            onLoad = { model.loadPage(target.id) },
-                            onSelectAllView = {}))
-                    Surface(
-                        Modifier.align(Alignment.TopCenter).padding(top = FolioSpacing.dp12).guardUiTouches(),
-                        shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shadowElevation = 4.dp, tonalElevation = 1.dp,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-                    ) {
-                        Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4, top = FolioSpacing.dp4, bottom = FolioSpacing.dp4).heightIn(min = 40.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            Icon(Icons.Rounded.Visibility, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            val pageIndex = note.pages.indexOfFirst { it.id == target.id }
-                            val pageName = target.title.takeIf { it.isNotBlank() }?.let { "page ${pageIndex + 1} · $it" } ?: "page ${pageIndex + 1}"
-                            Text(if (peekMode == PeekMode.HELD) "Peeking at $pageName · release to return" else "Peek · $pageName",
-                                Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (peekMode == PeekMode.LATCHED) {
-                                // A kept-open peek can be panned; these bring it back, keep the new framing, or go there to write.
-                                IconButton({ peekInkView?.fitPeekAnchor(anchor) }, Modifier.size(40.dp)) {
-                                    Icon(Icons.Rounded.CenterFocusStrong, "Re-centre on the pinned view", Modifier.size(20.dp))
-                                }
-                                // Auto peek always shows the whole current page, so a pin made here would not show.
-                                if (!autoPeek || page.infinite) IconButton({
-                                    val shown = peekInkView?.currentPeekAnchor() ?: return@IconButton
-                                    model.setPeekAnchor(shown); peekShown = shown.fittedTo(target)
-                                    android.widget.Toast.makeText(peekContext, "Peek view updated", android.widget.Toast.LENGTH_SHORT).show()
-                                }, Modifier.size(40.dp)) {
-                                    Icon(Icons.Rounded.PushPin, "Pin what the peek shows now", Modifier.size(20.dp))
-                                }
-                                TextButton({
-                                    val shown = peekInkView?.currentPeekAnchor() ?: anchor
-                                    peekMode = null
-                                    if (pageIndex >= 0 && pageIndex != model.state.value.pageIndex) jumpTo(pageIndex)
-                                    // Only a canvas has a camera to aim; a fixed page is shown from its top in the column.
-                                    if (target.infinite) peekGoTo = shown
-                                }, shapes = ButtonDefaults.shapes()) { Text("Go to") }
-                                TextButton({ peekMode = null }, shapes = ButtonDefaults.shapes()) { Text("Close") }
-                            }
-                        }
-                    }
-                }
-            }
+            if (peekOpen) EditorPeekOverlay(note, (peekShown ?: peekAnchor)!!, peekMode, model, options, peekInkView,
+                // Auto peek always shows the whole current page, so a pin made here would not show.
+                canPin = !autoPeek || page.infinite,
+                onPinned = { peekShown = it },
+                onGoTo = { pageIndex, target, shown ->
+                    peekMode = null
+                    if (pageIndex >= 0 && pageIndex != model.state.value.pageIndex) jumpTo(pageIndex)
+                    // Only a canvas has a camera to aim; a fixed page is shown from its top in the column.
+                    if (target.infinite) peekGoTo = shown
+                },
+                onClose = { peekMode = null })
             BackHandler(enabled = peekMode == PeekMode.LATCHED) { peekMode = null }
             LaunchedEffect(peekGoTo, mainInkView, page.id) {
                 val anchor = peekGoTo ?: return@LaunchedEffect
@@ -1393,189 +1198,38 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 model.setPeekAnchor(anchor)
                 val number = note.pages.indexOfFirst { it.id == anchor.pageId } + 1
                 val what = if (wholePage || anchor == PeekAnchor.wholePage(page).fittedTo(page)) "Page $number" else "View on page $number"
-                android.widget.Toast.makeText(peekContext, "$what ${if (replacing) "replaces the peek view" else "pinned"} · hold the eye to look",
+                android.widget.Toast.makeText(context, "$what ${if (replacing) "replaces the peek view" else "pinned"} · hold the eye to look",
                     android.widget.Toast.LENGTH_SHORT).show()
             }
-            // Keep the default Material shape, colors and elevation, with a shorter container.
-            // Secondary actions overflow in narrow companion panes instead of shrinking targets.
-            // Peek has a 48dp hold target, wider than the other 40dp controls. Include it
-            // and the actual outer inset when deciding whether the full group fits.
-            val responseTextButton = page.infinite && maxWidth >= 420.dp
-            val showOverviewControl = page.infinite && maxWidth >= 220.dp
-            val followToolbarWidth = 40.dp * 5 + 48.dp + 8.dp + (if (responseTextButton) 120.dp else 0.dp) + (if (page.infinite) 40.dp else 0.dp)
-            val followInset = if (maxWidth < 180.dp) FolioSpacing.dp4 else FloatingToolbarDefaults.ScreenOffset
-            val overflowFollowActions = maxWidth - followInset * 2 < followToolbarWidth
-            // What the follow bar actually occupies now, so the page navigator can tell whether it fits beside it.
-            val followShownWidth = 8.dp + 48.dp + 40.dp + (if (responseTextButton) 120.dp else 40.dp) +
-                (if (showOverviewControl) 40.dp else 0.dp) + (if (writingFollowEnabled && !overflowFollowActions) 120.dp else 0.dp)
-            val navigatorWidth = 40.dp * 3 + 52.dp + 8.dp
-            val navigatorAbove = maxWidth - followInset * 2 < followShownWidth + navigatorWidth + FolioSpacing.dp8
+            val followLayout = WritingFollowLayout(maxWidth, page.infinite, writingFollowEnabled)
+            val followInset = followLayout.inset
             fun toggleFollowPause() {
                 writingFollowPaused = !followStatus.paused
                 if (writingFollowPaused) followView?.pauseWritingFollow() else followView?.resumeWritingFollow()
             }
-            // Held, blocked and end-of-area messages show briefly above the follow controls, because
-            // otherwise a still view looks broken; the full status stays in the options menu.
-            var followHint by remember(page.id) { mutableStateOf<String?>(null) }
-            LaunchedEffect(followStatus.message, followStatus.attention, writingFollowEnabled) {
-                val message = followStatus.message
-                if (!followStatus.attention || !writingFollowEnabled) return@LaunchedEffect
-                followHint = message
-                try { delay(2800) } finally { if (followHint == message) followHint = null }
-            }
-            if (music == null) followHint?.let { hint ->
-                Surface(
-                    Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
-                        .padding(followInset).padding(bottom = 44.dp + FolioSpacing.dp8).widthIn(max = 320.dp).zIndex(11f),
-                    shape = FolioShapes.large,
-                    color = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                ) {
-                    Text(hint, Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)
-                        .semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            if (music == null) HorizontalFloatingToolbar(
-                expanded = true,
-                modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomStart else Alignment.BottomEnd)
-                    .padding(followInset)
-                    .height(44.dp)
-                    .guardUiTouches()
-                    .zIndex(11f),
-                contentPadding = PaddingValues(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2),
-            ) {
-                val responseLabel = if (writingFollowEnabled) "Finish response" else "Write a response"
-                if (responseTextButton) TextButton(
-                    onClick = { setWritingFollow(!writingFollowEnabled) }, enabled = !peekOpen && overviewReturn == null,
-                    // Lit like the icon controls beside it while a response is open, so its state reads at a glance.
-                    colors = if (writingFollowEnabled) ButtonDefaults.textButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer) else ButtonDefaults.textButtonColors(),
-                ) { Text(responseLabel) }
-                else WritingFollowControl(
-                    if (page.infinite) Icons.Rounded.TextFields else Icons.Rounded.SwipeRight,
-                    if (page.infinite) responseLabel else if (writingFollowEnabled) "Writing follow on — tap to turn off" else "Turn on writing follow",
-                    enabled = !peekOpen && overviewReturn == null, active = writingFollowEnabled,
-                    onClick = { setWritingFollow(!writingFollowEnabled) }
-                )
-                if (showOverviewControl) WritingFollowControl(
-                    if (overviewReturn == null) Icons.Rounded.FitScreen else Icons.AutoMirrored.Rounded.ArrowBack,
-                    if (overviewReturn == null) "See all working" else "Return to working",
-                    enabled = !peekOpen, active = overviewReturn != null, onClick = ::fitAllContent,
-                )
-                if (writingFollowEnabled && !overflowFollowActions) {
-                    WritingFollowControl(Icons.AutoMirrored.Rounded.KeyboardReturn, "Next writing line",
-                        enabled = !peekOpen && overviewReturn == null, onClick = { followView?.nextWritingLine() })
-                    WritingFollowControl(Icons.AutoMirrored.Rounded.Undo, "Undo the last follow move",
-                        enabled = !peekOpen && followStatus.canGoBack, onClick = { followView?.backWritingView() })
-                    WritingFollowControl(
-                        if (followStatus.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                        if (followStatus.paused) "Resume writing follow" else "Pause writing follow",
-                        enabled = !peekOpen, active = followStatus.paused,
-                        onClick = ::toggleFollowPause
-                    )
-                }
-                Box {
-                    var followSub by remember { mutableStateOf<FollowSub?>(null) }
-                    val openSub: (FollowSub) -> Unit = { followSub = if (followSub == it) null else it }
-                    WritingFollowControl(Icons.Rounded.Tune, "Writing follow and peek options",
-                        enabled = !peekOpen, onClick = { followSub = null; followMenu = true })
-                    FolioMenuPopover(followMenu, { followMenu = false; followSub = null }, modifier = Modifier.guardUiTouches(), title = "Writing & peek") {
-                        FolioMenuItem({ Text(if (zoomPaneOpen) "Close zoom pane" else "Open zoom pane") },
-                            { if (zoomPaneOpen) closeZoomPane() else { finishTextEditing(); selectTool(Tool.PEN); openZoomPane() }; followMenu = false },
-                            enabled = !peekOpen && overviewReturn == null,
-                            leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) })
-                        if (page.infinite) {
-                            FolioMenuItem({ Text(responseLabel) },
-                                { setWritingFollow(!writingFollowEnabled); followMenu = false },
-                                enabled = overviewReturn == null,
-                                leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
-                            Text("For paragraphs: your first stroke sets the column's margin. Leave it off for maths, short answers and diagrams.",
-                                Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                                style = MaterialTheme.typography.bodySmall)
-                            if (canvasResponse != null) FolioMenuItem({ Text("Start a new column") },
-                                { setWritingFollow(true); followMenu = false }, enabled = overviewReturn == null)
-                            FolioMenuItem({ Text(if (overviewReturn == null) "See all working" else "Return to working") },
-                                { fitAllContent(); followMenu = false })
-                        }
-                        if (writingFollowEnabled) {
-                            Text(followStatus.message,
-                                Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            SubmenuItem("Lines & indentation…", Icons.AutoMirrored.Rounded.KeyboardReturn, followSub == FollowSub.LINES, { openSub(FollowSub.LINES) }) {
-                            FolioMenuItem({ Text("Previous writing line") },
-                                { followView?.previousWritingLine(); followMenu = false },
-                                enabled = overviewReturn == null,
-                                leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) },
-                                trailingIcon = { Text("Alt+↑", style = MaterialTheme.typography.labelSmall) })
-                            FolioMenuItem({ Text("New paragraph · leave a blank line") },
-                                { followView?.nextWritingLine(paragraph = true); followMenu = false }, enabled = overviewReturn == null)
-                            FolioMenuItem({ Text("Indent next lines") },
-                                { followView?.indentWritingLine(); followMenu = false }, enabled = overviewReturn == null)
-                            FolioMenuItem({ Text("Reset indent") },
-                                { followView?.indentWritingLine(reset = true); followMenu = false }, enabled = overviewReturn == null)
-                            }
-                            if (overflowFollowActions) {
-                                FolioMenuItem({ Text("Next writing line") },
-                                    { followView?.nextWritingLine(); followMenu = false },
-                                    enabled = overviewReturn == null,
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardReturn, null) })
-                                FolioMenuItem({ Text(if (followStatus.paused) "Resume writing follow" else "Pause writing follow") },
-                                    { toggleFollowPause(); followMenu = false },
-                                    leadingIcon = { Icon(if (followStatus.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null) })
-                                FolioMenuItem({ Text("Undo the last follow move") },
-                                    { followView?.backWritingView(); followMenu = false },
-                                    enabled = followStatus.canGoBack,
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
-                            }
-                            HorizontalDivider()
-                        }
-                        if (!page.infinite) SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
-                            FolioMenuItem({ Text("Select answer area") }, { appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.selectWritingRegion(); followMenu = false })
-                            FolioMenuItem({ Text("Detect answer areas") }, { appPrefs.edit().putBoolean("writingFollow", true).apply(); followView?.suggestWritingRegion(); followMenu = false })
-                            if (writingRegion != null) FolioMenuItem({ Text("Clear answer areas") }, { followView?.clearWritingRegion(); followMenu = false })
-                        }
-                        if (page.infinite && canvasResponse != null) FolioMenuItem(
-                            { Text("Auto-return for this response") },
-                            { canvasResponse = canvasResponse?.copy(automaticReturn = canvasResponse?.automaticReturn != true); followMenu = false },
-                            trailingIcon = { Checkbox(checked = canvasResponse?.automaticReturn == true, onCheckedChange = null) })
-                        FolioMenuItem({ Text("Writing follow settings…") }, { openFollowSettings(); followMenu = false },
-                            leadingIcon = { Icon(Icons.Rounded.Settings, null) })
-                        HorizontalDivider()
-                        SubmenuItem("Peek view…", Icons.Rounded.PushPin, followSub == FollowSub.PEEK, { openSub(FollowSub.PEEK) }) {
-                        FolioMenuItem(
-                            { Text(if (pinnedPeek == null) "Pin this view" else "Replace with this view") },
-                            { pinPeekView(wholePage = false); followMenu = false },
-                            leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
-                        )
-                        FolioMenuItem(
-                            { Text("Pin this whole page") },
-                            { pinPeekView(wholePage = true); followMenu = false },
-                            leadingIcon = { Icon(Icons.Rounded.FitScreen, null) }
-                        )
-                        if (pinnedPeek != null) FolioMenuItem(
-                            { Text("Remove peek view") },
-                            { model.setPeekAnchor(null); followMenu = false },
-                            leadingIcon = { Icon(Icons.Rounded.Close, null) }
-                        , destructive = true)
-                        }
-                    }
-                }
-                if (peekAnchor == null) {
-                    WritingFollowControl(Icons.Rounded.PushPin, "Pin this view to peek at later",
-                        onClick = { pinPeekView(wholePage = false) })
-                } else {
-                    PeekControl(peekMode) { mode ->
+            if (music == null) WritingFollowHint(followStatus, writingFollowEnabled, writingHand, followInset, page.id)
+            if (music == null) WritingFollowToolbar(followLayout, writingHand, page.infinite, writingFollowEnabled, followStatus,
+                peekOpen = peekOpen, overview = overviewReturn != null, zoomPaneOpen = zoomPaneOpen, response = canvasResponse,
+                hasRegion = writingRegion != null, pinnedPeek = pinnedPeek != null, peekAvailable = peekAnchor != null,
+                peekMode = peekMode, view = followView, actions = WritingFollowActions(
+                    toggle = { setWritingFollow(!writingFollowEnabled) },
+                    newColumn = { setWritingFollow(true) },
+                    overview = ::fitAllContent,
+                    togglePause = ::toggleFollowPause,
+                    toggleZoomPane = { if (zoomPaneOpen) closeZoomPane() else { finishTextEditing(); selectTool(Tool.PEN); openZoomPane() } },
+                    enablePageFollow = { appPrefs.edit().putBoolean("writingFollow", true).apply() },
+                    toggleAutoReturn = { canvasResponse = canvasResponse?.copy(automaticReturn = canvasResponse?.automaticReturn != true) },
+                    openSettings = openFollowSettings,
+                    pinPeek = { wholePage -> pinPeekView(wholePage) },
+                    removePeek = { model.setPeekAnchor(null) },
+                    peek = { mode ->
                         when {
                             mode == null -> { peekMode = null; true }
                             // Opening mid-stroke would cut the stroke off under the lens.
                             activeInkView?.isWritingGesture == true -> false
                             else -> { finishTextEditing(); motion.reset(); peekShown = peekAnchor; peekMode = mode; true }
                         }
-                    }
-                }
-            }
+                    }))
             if (tool == Tool.MARK_AREA && page.pdfIndex != null) MarkAreaHint(
                 Modifier.align(Alignment.BottomCenter).zIndex(11f)
                     .padding(start = FolioSpacing.dp16, end = FolioSpacing.dp16, bottom = followInset + 44.dp + FolioSpacing.dp8))
@@ -1591,7 +1245,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                 onTurn = ::turnPage, onJumpToEnd = ::jumpToEnd, onToggleView = { setSinglePage(!singlePage) },
                 onBrowse = { pageBrowser = true },
                 modifier = Modifier.align(if (writingHand == WritingHand.RIGHT) Alignment.BottomEnd else Alignment.BottomStart)
-                    .padding(followInset).padding(bottom = if (navigatorAbove) 44.dp + FolioSpacing.dp8 else 0.dp)
+                    .padding(followInset).padding(bottom = if (followLayout.navigatorAbove) 44.dp + FolioSpacing.dp8 else 0.dp)
                     .guardUiTouches().zIndex(11f))
             val toolbarTools: @Composable () -> Unit = {
 
@@ -1658,7 +1312,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
                             onNewTab = onOpenDocument?.let { open -> { finishTextEditing(); open() } },
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                                    TimingChip(state.timer, onLongClick = {
+                                    ExamTimerChip(state.timer, onLongClick = {
                                         if (state.timer.phase != ExamTimerPhase.IDLE) model.toggleTimerPause()
                                     }) { timerPanel = true }
                                     FocalStudyChip(state.timer, note.id, onLongClick = {
@@ -1802,9 +1456,7 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     EditorPaperDialog(note, page, model, editor.paper)
     EditorClearDialog(model, editor.overlays, editor.interaction)
     EditorStudyDialogs(state, model, editor.overlays,
-        EditorMarkingPresentation(markAssist, markScanBusy, markScanStatus, markZones, markingColor),
-        onAssist = { markAssist = it; appPrefs.edit().putBoolean(Marking.PREF_ASSIST, it).apply() },
-        onColor = { markingColor = it; appPrefs.edit().putInt(Marking.PREF_COLOR, it).apply() })
+        marking.presentation, onAssist = marking::changeAssist, onColor = marking::changeColor)
     tidyPicked?.let { (pageId, picked) ->
         ShapeCleanupPanel(note, model, mapOf(pageId to picked), onDismiss = { tidyPicked = null }, onApplied = {
             activeInkView?.clearSelection(); selection = null
@@ -1834,40 +1486,9 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
         )
     }
     moveSelection?.let { (sourceId, picked) ->
-        var destinationQuery by rememberSaveable(sourceId) { mutableStateOf("") }
-        val destinations = remember(note.pages, sourceId, destinationQuery) {
-            organizePages(note.pages, destinationQuery, PageFilter.ALL).filter { it.value.id != sourceId }
-        }
-        FolioPanel(title = "Move ${picked.size} item${if (picked.size == 1) "" else "s"} to page", onDismissRequest = { moveSelection = null }) {
-            OutlinedTextField(destinationQuery, { destinationQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
-                singleLine = true, label = { Text("Find destination page") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { textKeyboard?.hide() }),
-                trailingIcon = { if (destinationQuery.isNotEmpty()) IconButton({ destinationQuery = ""; textKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear destination search") } })
-            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(FolioSpacing.dp24),
-                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                if (destinations.isEmpty()) item {
-                    EmptyHint("No destination pages match.")
-                    TextButton({ destinationQuery = "" }) { Text("Show all destinations") }
-                }
-                items(destinations, key = { it.value.id }) { (index, destination) ->
-                    Surface(onClick = {
-                        model.moveSelectionToPage(sourceId, destination.id, picked)
-                        moveSelection = null; activeInkView?.clearSelection(); selection = null
-                    }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                            PageThumbnail(note.id, destination, model.thumbnails, Modifier.width(40.dp).height(56.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(destination.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text("Page ${index + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        }
+        MoveSelectionPanel(note, sourceId, picked, model,
+            onMoved = { moveSelection = null; activeInkView?.clearSelection(); selection = null },
+            onDismiss = { moveSelection = null })
     }
     pageMenu?.takeIf { !inkNavigating }?.let { (wx, wy, at) ->
         val pressedText = page.texts.lastOrNull {
@@ -1939,168 +1560,4 @@ internal fun editorPaperLabel(p: Paper): String = when (p) {
     EditorSearchPanels(state, model, editor.overlays, searchQuery, pdfOutline, ::jumpTo)
     if (responseAttempts) LongResponseAttemptsPanel(note, page.id, model) { responseAttempts = false }
 
-}
-
-/**
- * One timing action while idle, with live countdown and elapsed clocks when active.
- */
-@Composable private fun TimingChip(timer: ExamTimerState, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
-    // The hold claims the gesture so the release after it never also opens the timer panel.
-    val hold = rememberLongPressGuard()
-    val active = timer.phase == ExamTimerPhase.READING || timer.phase == ExamTimerPhase.WRITING || timer.phase == ExamTimerPhase.DONE
-    Crossfade(targetState = active, label = "timingChip") { isActive ->
-        if (!isActive) {
-            TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
-            }
-        } else {
-            val done = timer.phase == ExamTimerPhase.DONE
-            val reading = timer.phase == ExamTimerPhase.READING
-            val caption = when {
-                timer.paused -> if (timer.autoParked) "Stopped" else "Paused"
-                done -> "Time"
-                reading -> "Reading"
-                else -> "Writing"
-            }
-            val phaseSeconds = if (reading) timer.preset.readingSeconds else timer.preset.writingSeconds
-            val clock = if (done) "Pens down" else timer.clockText()
-            ToolbarSessionPill(
-                icon = when {
-                    done -> Icons.Rounded.Flag
-                    timer.paused -> Icons.Rounded.Pause
-                    reading -> Icons.AutoMirrored.Rounded.MenuBook
-                    else -> Icons.Rounded.Timer
-                },
-                value = clock,
-                tone = when {
-                    done -> SessionTone.ALERT
-                    timer.paused -> SessionTone.PAUSED
-                    else -> SessionTone.RUNNING
-                },
-                reserve = if (done) null else if (phaseSeconds >= 3600) "0:00:00" else "00:00",
-                description = "Exam timer, $caption, ${if (done) clock else "$clock left"}. Open timer" +
-                    if (onLongClick != null && !done) ". Hold to ${if (timer.paused) "resume" else "pause"}" else "",
-                onClick = hold.click(onClick),
-                modifier = if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier
-            )
-        }
-    }
-}
-
-/** One visibility rule for active-page actions (including sharing) and the scroll label. */
-@Composable internal fun RestyleSelectionPanel(
-    originals: List<Stroke>, quickColors: List<Int>,
-    onDismiss: () -> Unit, onApply: (Int?, Float?, Float?, StrokeStyle?) -> Unit
-) {
-    val style = remember(originals) { InkGeometry.styleOf(originals) }
-    var color by remember { mutableStateOf<Int?>(null) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var fade by remember { mutableStateOf(false) }
-    var opacity by remember { mutableFloatStateOf(style?.opacity ?: 1f) }
-    var lineStyle by remember { mutableStateOf<StrokeStyle?>(null) }
-    val hasShape = remember(originals) { originals.any { it.tool in ShapeTools } }
-    FolioPanel(title = "Restyle selection", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp32), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-
-            Text("${originals.size} ${if (originals.size == 1) "stroke" else "strokes"}. Leave a control alone to keep it as it is.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(color == null, { color = null }, { Text("Keep") })
-                Spacer(Modifier.width(FolioSpacing.dp6))
-                quickColors.forEach { option -> InkColorDot(option, color == option, { color = option }, touch = 38.dp, dot = 26.dp, label = "Selection colour") }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Text("Thickness", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(70.dp))
-                Slider(scale, { scale = it }, valueRange = 0.5f..3f, modifier = Modifier.weight(1f))
-                Text(String.format(java.util.Locale.ROOT, "%.1fx", scale), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-            }
-            if (hasShape) {
-                Text("Line style", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    FilterChip(lineStyle == null, { lineStyle = null }, { Text("Keep") })
-                    FilterChip(lineStyle == StrokeStyle.SOLID, { lineStyle = StrokeStyle.SOLID }, { Text("Solid") })
-                    FilterChip(lineStyle == StrokeStyle.DASHED, { lineStyle = StrokeStyle.DASHED }, { Text("Dashed") })
-                    FilterChip(lineStyle == StrokeStyle.DOTTED, { lineStyle = StrokeStyle.DOTTED }, { Text("Dotted") })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    listOf(StrokeStyle.LONG_DASH, StrokeStyle.DASH_DOT, StrokeStyle.DENSE_DOTS).forEach { style ->
-                        FilterChip(lineStyle == style, { lineStyle = style }, { Text(style.label) })
-                    }
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Opacity", style = MaterialTheme.typography.labelMedium)
-                    Text("Off keeps each stroke's own fade.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(fade, { fade = it })
-            }
-            if (fade) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Slider(opacity, { opacity = it }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f))
-                Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle) }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
-            }
-        }
-    }
-}
-
-/** One gesture recognizer owns both actions, so holding never also adds a page. */
-@Composable
-private fun AddPageButton(label: String, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
-    val haptics = LocalHapticFeedback.current
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        shape = FolioShapes.large,
-        modifier = modifier.guardUiTouches().clip(FolioShapes.large).combinedClickable(
-            role = androidx.compose.ui.semantics.Role.Button,
-            onClick = onClick,
-            onLongClickLabel = "Choose next page paper",
-            onLongClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onLongClick()
-            }
-        )
-    ) {
-        Row(
-            Modifier.defaultMinSize(minHeight = 40.dp).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(FolioSpacing.dp8))
-            Text(label, style = MaterialTheme.typography.labelLarge)
-        }
-    }
-}
-
-private enum class FollowSub { AREAS, LINES, PEEK }
-
-/**
- * A small chip beside a printed "[4 marks]" label: tick awards every mark at once, cross opens a − / +
- * stepper for part marks. It floats over the page without taking focus, never blocks writing, and goes
- * away by itself — a pen touching the page dismisses it, and so does a few seconds of nothing.
- */
-
-/**
- * The tab strip's documents. In split view both documents get a tab, side by side in the order the
- * panes sit on screen, so the strip shows which two are open together.
- */
-internal fun splitTabs(state: FolioState, activeId: String): List<EditorTabChip> {
-    val other = state.companion?.notebookId?.takeIf { id -> id != activeId && state.notes.any { it.id == id } }
-    var ids = state.tabs.map { it.notebookId }.distinct()
-    if (other != null) {
-        ids = ids - other
-        val at = ids.indexOf(activeId)
-        ids = if (at < 0) ids + other else ids.toMutableList().apply { add(if (state.editorOnRight) at else at + 1, other) }
-    }
-    return ids.mapNotNull { id ->
-        val notebook = state.notes.find { it.id == id }
-        if (notebook == null || notebook.mistakePractice) null
-        else EditorTabChip(id, notebook.title.ifBlank { state.tabs.find { it.notebookId == id }?.title.orEmpty() },
-            split = other != null && (id == other || id == activeId))
-    }
 }

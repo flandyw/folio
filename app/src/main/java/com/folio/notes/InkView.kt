@@ -4,12 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.animation.AnimationUtils
 import android.view.MotionEvent
@@ -39,7 +36,7 @@ class InkView(context: Context) : View(context) {
             endObjectLift()
             field = value
             // The presenter trail belongs to the laser; it never lingers under another tool.
-            if (value != Tool.LASER) { laserStrokes.clear(); laserDown = false; laserHover = null }
+            if (value != Tool.LASER) laser.clear()
             // A selection only makes sense while the lasso is in hand.
             if (value != Tool.LASSO) clearSelection()
             // The outline belongs to the eraser, so it leaves with the tool.
@@ -473,7 +470,7 @@ class InkView(context: Context) : View(context) {
         localCapture = null; documentGesture = false; documentSpanning = false
         documentContentPreview = null; documentInkPreview = emptyList()
         onDocumentGesturePresence(false)
-        clearShapeHold(); clearPrediction(); lowLatency?.cancel(); endLowLatency(); resetDraftGeometry()
+        clearShapeHold(); prediction.clear(); lowLatency?.cancel(); endLowLatency(); resetDraftGeometry()
         penFilter = null; speedWidth = null
         penStartTool = target
         val prefs = context.getSharedPreferences("preferences", 0)
@@ -506,8 +503,6 @@ class InkView(context: Context) : View(context) {
         onLiveInk(draft, isWritingGesture)
         invalidate()
     }
-    private val shapeHintBackground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xED202624.toInt() }
-    private val shapeHintText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val shapeHold = ShapeHold()
     private var heldShape: List<Stroke>? = null
     private var shapeAdjustment: ShapeAdjustment? = null
@@ -707,21 +702,7 @@ class InkView(context: Context) : View(context) {
         val next = at?.let { EraserBrush(eraserRadiusAt(it) * scale, eraserWholeStroke, erasing != null) }
         if (next != reportedBrush) { reportedBrush = next; report(next) }
     }
-    /**
-     * The laser tool's presenter trail, in page units. Each stroke keeps its samples' times; the
-     * tail of a long stroke fades while it is drawn and a whole stroke fades shortly after the pen
-     * lifts, so circling and underlining stay readable without the screen filling up. Nothing reaches
-     * the page, the journal or undo.
-     */
-    private class LaserSample(val x: Float, val y: Float, val time: Long)
-    private class LaserStroke(val samples: ArrayList<LaserSample> = ArrayList(), var liftedAt: Long = -1L)
-    private val laserStrokes = ArrayList<LaserStroke>()
-    private var laserDown = false
-    /** Where a hovering pen points while the laser is in hand, or null. */
-    private var laserHover: InkPoint? = null
-    private val laserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val laserDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val laserPath = Path()
+    private val laser = LaserTrail()
     /**
      * Straightedge switch from the toolbar. While on and no [ruler] has been placed on this page yet,
      * the view puts one across the middle of what is on screen and reports it through [onRulerChanged].
@@ -749,10 +730,7 @@ class InkView(context: Context) : View(context) {
     private var rulerRaw: RulerLine? = null
     /** The edge (-1 top, +1 bottom) the stroke in progress runs along, or 0 when it is freehand. */
     private var rulerEdge = 0
-    private val rulerFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val rulerEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
-    private val rulerLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD }
+    private val rulerPainter = RulerPainter()
     // Text gestures: a box being dragged, or a tap waiting to become a new box.
     private var movingText: TextBox? = null
     private var pendingTextBox: InkPoint? = null
@@ -771,61 +749,17 @@ class InkView(context: Context) : View(context) {
     private var pendingLink: PdfLink? = null
     private var linkFromX = 0f; private var linkFromY = 0f
     private val shadowPaint = Paint().apply { color = 0x18000000 }
-    private val lassoFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2E2F6FBA; style = Paint.Style.FILL }
-    private val lassoEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f
-        pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
-    }
     private val eraserRing = EraserRingPainter()
-    private val lassoHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCCFFFFFF.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-    }
-    private val lassoGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x802F6FBA.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
-    }
-    private val frameHandleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
-    private val frameHandleRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F6FBA.toInt(); style = Paint.Style.STROKE }
-    private val frameShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x26000000; style = Paint.Style.FILL }
-    private val textBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xAA2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f
-        pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
-    }
-    private val imageEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f
-        pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
-    }
-    private val imageHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F6FBA.toInt(); style = Paint.Style.FILL }
-    private val imageHandleEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f }
-    private val selectionHandleEdgePaint = Paint(imageHandleEdgePaint)
-    private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f
-        pathEffect = DashPathEffect(floatArrayOf(12f, 9f), 0f)
-    }
-    private val selectionLinkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC2F6FBA.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f }
-    private val selectionGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f
-        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-    }
+    private val chrome = SelectionChromePainter()
     // Reused across onDraw frames so selection previews and writing lanes allocate nothing per frame.
     private val selectionPreviewMatrix = Matrix()
-    private val predictionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
-    }
-    private val predicted = FloatArray(2)
-    /** The platform/Kalman model of where the stylus is heading; created with the first pen stroke. */
-    private var motionPredictor: androidx.input.motionprediction.MotionEventPredictor? = null
+    private val prediction = PredictedInkTail()
     /** The optional front-buffered layer drawing this view's pen stroke ahead of the page, and how much of the stroke it has. */
     private var lowLatency: LowLatencyInk? = null
     private var lowLatencySent = 0
     private val lowLatencyClip = RectF()
     private val visibleScratch = android.graphics.Rect()
-    /** Predicted pen path as page-unit x/y pairs: first the drawn tip, then up to a few frames ahead. */
-    private val predictedTail = FloatArray(2 * PREDICTED_POINTS)
-    private val predictedRaw = FloatArray(2 * PREDICTED_POINTS)
-    private var predictedCount = 0
-    /** True while the motion predictor has nothing to offer, so the simple two-sample guess keeps the tip responsive. */
-    private var predictorIdle = true
-    private val writingRegionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT }
+    private val followOverlay = FollowOverlayPainter()
     /** The answer-area box takes the app's accent, so it reads as part of the theme rather than as ink. */
     var answerAreaColor = 0xFF387C83.toInt()
         set(value) { if (field != value) { field = value; invalidate() } }
@@ -1544,9 +1478,9 @@ class InkView(context: Context) : View(context) {
             }
             if (leaving) {
                 if (eraserMark != null) { eraserMark = null; if (onEraserBrush == null) invalidate() }
-                if (laserHover != null) { laserHover = null; invalidate() }
+                if (laser.hover != null) { laser.hover = null; invalidate() }
             } else if (tool == Tool.LASER) {
-                laserHover = point(event, 0); invalidate()
+                laser.hover = point(event, 0); invalidate()
             } else if (tool == Tool.ERASER) {
                 val next = clampToPage(point(event, 0))
                 val last = eraserMark
@@ -1960,15 +1894,7 @@ class InkView(context: Context) : View(context) {
                     else documentPenBuilders.getOrPut(stroke.points) { InkRenderer.IncrementalPenStroke() }.update(stroke.points)
                 InkRenderer.drawRendered(canvas, stroke, geometry)
             }
-            documentPreviewLiveStroke?.takeIf { it.tool == Tool.PEN }?.let { stroke ->
-                if (StrokePrediction.predict(stroke.points, scale, predicted)) {
-                    val tip = stroke.points.last()
-                    predictionPaint.color = stroke.color
-                    predictionPaint.alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255)
-                    predictionPaint.strokeWidth = stroke.width * InkRenderer.penPressureScale(tip.pressure)
-                    canvas.drawLine(tip.x, tip.y, predicted[0], predicted[1], predictionPaint)
-                }
-            }
+            documentPreviewLiveStroke?.takeIf { it.tool == Tool.PEN }?.let { prediction.drawGuess(canvas, it, scale) }
             if (documentLassoPreview.size > 1) drawLasso(canvas, documentLassoPreview)
             canvas.restore()
         }
@@ -1986,73 +1912,33 @@ class InkView(context: Context) : View(context) {
         if (page.infinite) canvasWritingSession?.takeIf { it.placed }?.column?.let { column ->
             val top = maxOf(column.top, -originY / scale)
             val bottom = (height - originY) / scale
-            if (top < bottom) {
-                val unit = selectionUiUnit()
-                writingRegionPaint.color = answerAreaColor
-                writingRegionPaint.alpha = 0x80
-                writingRegionPaint.strokeWidth = unit
-                writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
-                canvas.drawLine(column.left, top, column.left, bottom, writingRegionPaint)
-                canvas.drawLine(column.right, top, column.right, bottom, writingRegionPaint)
-            }
+            if (top < bottom) followOverlay.column(canvas, column, top, bottom, selectionUiUnit(), answerAreaColor)
         }
         val areas = (if (showAnswerAreas && followEnabled) writingRegions + listOfNotNull(writingRegion) else emptyList()) + listOfNotNull(regionDraft)
-        if (areas.isNotEmpty()) {
-            // A constant on-screen dash and width, whatever the zoom: sized in dp and divided by the canvas scale.
-            val unit = selectionUiUnit()
-            writingRegionPaint.color = answerAreaColor
-            writingRegionPaint.alpha = 0xCC
-            writingRegionPaint.strokeWidth = 1.5f * unit
-            writingRegionPaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
-            areas.distinct().forEach { r -> canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint) }
-        }
+        if (areas.isNotEmpty()) followOverlay.areas(canvas, areas, selectionUiUnit(), answerAreaColor)
         if (canFollow && followPreferences.showLandingGuide) landingGuide?.let { drawLandingGuide(canvas, it) }
         followLandingPreview?.let { drawLandingGuide(canvas, it) }
-        writingWindow?.takeIf { it.pageId == page.id }?.let { window ->
-            val unit = selectionUiUnit()
-            writingRegionPaint.color = answerAreaColor
-            writingRegionPaint.alpha = 255
-            writingRegionPaint.strokeWidth = 2f * unit
-            writingRegionPaint.pathEffect = null
-            canvas.drawRect(window.left, window.top, window.right, window.bottom, writingRegionPaint)
-            val handle = 12f * unit
-            canvas.drawLine(window.right - handle, window.bottom, window.right, window.bottom - handle, writingRegionPaint)
-            canvas.drawLine(window.right - handle * .6f, window.bottom, window.right, window.bottom - handle * .6f, writingRegionPaint)
-        }
+        writingWindow?.takeIf { it.pageId == page.id }?.let { followOverlay.window(canvas, it, selectionUiUnit(), answerAreaColor) }
         if (canFollow && followPreferences.horizontalFollow && followPreferences.mode == FollowMode.TEXT && getLocalVisibleRect(followVisible)) {
             val left = (followVisible.left - originX) / scale
             val right = (followVisible.right - originX) / scale
             val area = followRegion()
             val ltr = followPreferences.direction == WritingDirection.LTR
             if (FollowNavigation.hasRoomAhead(left, right, area, followPreferences.direction)) {
-                writingRegionPaint.color = answerAreaColor
-                writingRegionPaint.alpha = (AppPrefs.followEdgeStripOpacity(followPreferences.edgeStripOpacity) * 255).roundToInt()
-                writingRegionPaint.style = Paint.Style.FILL
                 val strip = (right - left) * followPreferences.edgeStripWidth(writingHand)
-                canvas.drawRect(if (ltr) right - strip else left, (followVisible.top - originY) / scale,
-                    if (ltr) right else left + strip, (followVisible.bottom - originY) / scale, writingRegionPaint)
-                writingRegionPaint.style = Paint.Style.STROKE
+                followOverlay.edgeStrip(canvas, if (ltr) right - strip else left, (followVisible.top - originY) / scale,
+                    if (ltr) right else left + strip, (followVisible.bottom - originY) / scale, answerAreaColor,
+                    (AppPrefs.followEdgeStripOpacity(followPreferences.edgeStripOpacity) * 255).roundToInt())
             }
         }
-        (documentMarkRegionPreview ?: markRegionDraft ?: markRegionShown)?.let { r ->
-            val unit = selectionUiUnit()
-            writingRegionPaint.color = answerAreaColor
-            writingRegionPaint.style = Paint.Style.FILL
-            writingRegionPaint.alpha = 0x26
-            writingRegionPaint.pathEffect = null
-            canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
-            writingRegionPaint.style = Paint.Style.STROKE
-            writingRegionPaint.alpha = 0xFF
-            writingRegionPaint.strokeWidth = 2f * unit
-            canvas.drawRect(r.left, r.top, r.right, r.bottom, writingRegionPaint)
-        }
+        (documentMarkRegionPreview ?: markRegionDraft ?: markRegionShown)?.let { followOverlay.markRegion(canvas, it, selectionUiUnit(), answerAreaColor) }
         canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
         if (!workspaceNotes) drawStickySurfaces(canvas)
         // Tools and guides sit above everything on the page, notes included.
         if (onEraserBrush == null) eraserMark?.let { drawEraser(canvas, it) }
         placeRuler()
-        shownRuler?.let { drawRuler(canvas, it) }
-        if (laserStrokes.isNotEmpty() || laserHover != null) drawLaser(canvas)
+        shownRuler?.let { rulerPainter.draw(canvas, it, selectionUiUnit(), rulerHalf(), rulerHalfLength()) }
+        if (laser.visible && laser.draw(canvas, selectionUiUnit(), inkColor, showHead = tool == Tool.LASER)) postInvalidateOnAnimation()
         followStickyFrame()
         canvas.restore()
         drawShapeAssistHint(canvas)
@@ -2062,17 +1948,7 @@ class InkView(context: Context) : View(context) {
     private fun drawShapeAssistHint(canvas: Canvas) {
         if (heldShape == null || !getLocalVisibleRect(followVisible)) return
         val tip = shapeAdjustment?.tip ?: draft?.points?.lastOrNull() ?: return
-        val unit = resources.displayMetrics.density
-        shapeHintText.textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 12f, resources.displayMetrics)
-        val label = "Move to adjust · lift to keep"
-        val metrics = shapeHintText.fontMetrics
-        val h = metrics.descent - metrics.ascent + 16f * unit
-        val w = shapeHintText.measureText(label) + 24f * unit
-        if (followVisible.width() < w + 16f * unit || followVisible.height() < h + 16f * unit) return
-        val left = (originX + tip.x * scale - w / 2f).coerceIn(followVisible.left + 8f * unit, followVisible.right - w - 8f * unit)
-        val top = (originY + tip.y * scale - h - 36f * unit).coerceIn(followVisible.top + 8f * unit, followVisible.bottom - h - 8f * unit)
-        canvas.drawRoundRect(left, top, left + w, top + h, h / 2f, h / 2f, shapeHintBackground)
-        canvas.drawText(label, left + 12f * unit, top + 8f * unit - metrics.ascent, shapeHintText)
+        followOverlay.shapeHint(canvas, originX + tip.x * scale, originY + tip.y * scale, followVisible, resources.displayMetrics)
     }
 
     /** Finite-column notes are painted on the shared workspace, outside every paper/item clip. */
@@ -2125,14 +2001,8 @@ class InkView(context: Context) : View(context) {
             if (live != null) {
                 InkRenderer.drawRendered(canvas, draftStroke, live)
                 // Stylus only: a finger is slow and its tail would read as lag the other way.
-                if (stylus && draftStroke.tool == Tool.PEN && !drawPredictedTail(canvas, draftStroke) && predictorIdle &&
-                    StrokePrediction.predict(draftStroke.points, scale, predicted)) {
-                    val tip = draftStroke.points.last()
-                    predictionPaint.color = draftStroke.color
-                    predictionPaint.alpha = (Color.alpha(draftStroke.color) * draftStroke.opacity).toInt().coerceIn(0, 255)
-                    predictionPaint.strokeWidth = draftStroke.width * InkRenderer.penPressureScale(tip.pressure)
-                    canvas.drawLine(tip.x, tip.y, predicted[0], predicted[1], predictionPaint)
-                }
+                if (stylus && draftStroke.tool == Tool.PEN && !prediction.drawTail(canvas, draftStroke) && prediction.idle)
+                    prediction.drawGuess(canvas, draftStroke, scale)
             }
             else if (draftStroke.tool == Tool.GRAPH) GraphAxes.strokes(draftStroke, graphStyle).forEach { InkRenderer.stroke(canvas, it) }
             else InkRenderer.stroke(canvas, draftStroke)
@@ -2179,10 +2049,10 @@ class InkView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean = inputRouter.touch(event) { admitted ->
         selectionSnapBypassed = (admitted.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0
         val predicting = tool == Tool.PEN && !readOnly && (0 until admitted.pointerCount).any { isStylus(admitted, it) }
-        if (predicting) recordForPrediction(admitted)
+        if (predicting) prediction.record(this, admitted)
         val handled = handleTouchEvent(admitted)
         writingFeedback(admitted)
-        if (predicting) refreshPrediction(admitted) else clearPrediction()
+        if (predicting) refreshPrediction(admitted) else prediction.clear()
         // A held pause turned the stroke into a shape the page draws; the freehand preview must not linger over it.
         if (heldShape != null) lowLatency?.let { it.cancel(); lowLatency = null }
         onLiveInk(draft?.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }, isWritingGesture)
@@ -2367,7 +2237,7 @@ class InkView(context: Context) : View(context) {
             return true
         }
         // A presenter stroke owns its pen until lift, so a stale flag can never swallow a new press.
-        if (laserDown && event.actionMasked != MotionEvent.ACTION_DOWN) {
+        if (laser.down && event.actionMasked != MotionEvent.ACTION_DOWN) {
             handleLaser(event)
             return true
         }
@@ -3128,16 +2998,9 @@ class InkView(context: Context) : View(context) {
     private var cropEdges = 0
     private var tapOff = false
     private var tapOffX = 0f; private var tapOffY = 0f
-    private val cropScrimPaint = Paint().apply { color = Color.argb(120, 0, 0, 0); style = Paint.Style.FILL }
-    private val cropFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE }
 
     private fun cropImage(): PageImage? = cropImageId?.let { id -> page.images.find { it.id == id } }
-    private fun cropMinShare(image: PageImage) = max(0.1f, PageImage.MIN_CROP_SPAN / min(image.cropWidth(), image.cropHeight()).coerceAtLeast(0.05f))
-    private fun cropFrameContains(at: InkPoint): Boolean {
-        val image = cropImage() ?: return false
-        return at.x in (image.x + cropInset[0] * image.width)..(image.x + (1f - cropInset[2]) * image.width) &&
-            at.y in (image.y + cropInset[1] * image.height)..(image.y + (1f - cropInset[3]) * image.height)
-    }
+    private fun cropFrameContains(at: InkPoint): Boolean = cropImage()?.let { ImageCropFrame.contains(it, cropInset, at) } == true
 
     /** Starts cropping the selected picture directly on the page. */
     fun beginImageCrop() {
@@ -3155,20 +3018,7 @@ class InkView(context: Context) : View(context) {
         cropImageId = null; cropEdges = 0
         onCropMode(false)
         if (apply && image != null) {
-            val cw = image.cropWidth(); val ch = image.cropHeight()
-            var l = image.cropLeft; var t = image.cropTop; var r = image.cropRight; var b = image.cropBottom
-            val (il, it, ir, ib) = inset.toList()
-            // Displayed edges map to photo edges according to the picture's rotation.
-            when (image.normalizedRotation()) {
-                0 -> { l += il * cw; r -= ir * cw; t += it * ch; b -= ib * ch }
-                90 -> { l += it * cw; t += ir * ch; r -= ib * cw; b -= il * ch }
-                180 -> { l += ir * cw; r -= il * cw; t += ib * ch; b -= it * ch }
-                else -> { r -= it * cw; b -= ir * ch; l += ib * cw; t += il * ch }
-            }
-            val cropped = image.withCrop(l.coerceIn(0f, 1f), t.coerceIn(0f, 1f), r.coerceIn(0f, 1f), b.coerceIn(0f, 1f))
-            if (cropped != image) {
-                // Keep the kept part where it was instead of shrinking about the centre.
-                val placed = cropped.copy(x = image.x + il * image.width, y = image.y + it * image.height)
+            ImageCropFrame.applied(image, inset)?.let { placed ->
                 val images = page.images.map { if (it.id == image.id) placed else it }
                 page = page.copy(images = images)
                 onImagesChanged(images)
@@ -3180,67 +3030,18 @@ class InkView(context: Context) : View(context) {
     private fun beginCrop(event: MotionEvent, index: Int): Boolean {
         val image = cropImage() ?: return false
         val at = point(event, index)
-        val reach = SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit()
-        val l = image.x + cropInset[0] * image.width; val r = image.x + (1f - cropInset[2]) * image.width
-        val t = image.y + cropInset[1] * image.height; val b = image.y + (1f - cropInset[3]) * image.height
-        val inY = at.y > t - reach && at.y < b + reach
-        val inX = at.x > l - reach && at.x < r + reach
-        var edges = 0
-        if (inY && abs(at.x - l) <= reach) edges = edges or 1
-        if (inY && abs(at.x - r) <= reach && (edges and 1 == 0 || abs(at.x - r) < abs(at.x - l))) edges = (edges and 1.inv()) or 4
-        if (inX && abs(at.y - t) <= reach) edges = edges or 2
-        if (inX && abs(at.y - b) <= reach && (edges and 2 == 0 || abs(at.y - b) < abs(at.y - t))) edges = (edges and 2.inv()) or 8
-        cropEdges = edges
-        return edges != 0
-    }
-
-    /**
-     * How far past the picture's current edge the photo still reaches, as a share of the displayed
-     * frame (0 when that edge already shows the photo's own edge). Insets may go negative by this
-     * much, so a crop is undone by dragging the same handles back out.
-     */
-    private fun cropRoom(image: PageImage, edge: Int): Float {
-        val cw = image.cropWidth().coerceAtLeast(0.01f); val ch = image.cropHeight().coerceAtLeast(0.01f)
-        val left = image.cropLeft / cw; val right = (1f - image.cropRight) / cw
-        val top = image.cropTop / ch; val bottom = (1f - image.cropBottom) / ch
-        // Displayed edges (0 left, 1 top, 2 right, 3 bottom) map to photo edges by rotation.
-        return when (image.normalizedRotation()) {
-            0 -> floatArrayOf(left, top, right, bottom)
-            90 -> floatArrayOf((1f - image.cropBottom) / ch, image.cropLeft / cw, image.cropTop / ch, (1f - image.cropRight) / cw)
-            180 -> floatArrayOf(right, bottom, left, top)
-            else -> floatArrayOf(image.cropTop / ch, (1f - image.cropRight) / cw, (1f - image.cropBottom) / ch, image.cropLeft / cw)
-        }[edge]
+        cropEdges = ImageCropFrame.edgesAt(image, cropInset, at, SelectionChrome.TOUCH_RADIUS_DP * selectionUiUnit())
+        return cropEdges != 0
     }
 
     private fun dragCrop(at: InkPoint) {
         val image = cropImage() ?: return
-        val min = cropMinShare(image)
-        fun clamp(value: Float, edge: Int, opposite: Float) = value.coerceIn(-cropRoom(image, edge), (1f - opposite - min).coerceAtLeast(-cropRoom(image, edge)))
-        if (cropEdges and 1 != 0) cropInset[0] = clamp((at.x - image.x) / image.width, 0, cropInset[2])
-        if (cropEdges and 4 != 0) cropInset[2] = clamp((image.x + image.width - at.x) / image.width, 2, cropInset[0])
-        if (cropEdges and 2 != 0) cropInset[1] = clamp((at.y - image.y) / image.height, 1, cropInset[3])
-        if (cropEdges and 8 != 0) cropInset[3] = clamp((image.y + image.height - at.y) / image.height, 3, cropInset[1])
+        ImageCropFrame.drag(image, cropInset, cropEdges, at)
     }
 
-    private val landingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
-    /** A short dashed baseline and a start dot, in the accent colour, at a constant on-screen size. */
-    private fun drawLandingGuide(canvas: Canvas, guide: WritingGuide) {
-        val unit = selectionUiUnit()
-        val ltr = followPreferences.direction == WritingDirection.LTR
-        val start = if (ltr) guide.left else guide.right
-        val length = minOf(guide.right - guide.left, writingFollow.lineSpacing(followPreferences.spacing) * 6f)
-        if (!start.isFinite() || !guide.y.isFinite() || length <= 0f) return
-        landingPaint.color = answerAreaColor
-        landingPaint.style = Paint.Style.STROKE
-        landingPaint.alpha = 0x70
-        landingPaint.strokeWidth = 1.5f * unit
-        landingPaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 4f * unit), 0f)
-        canvas.drawLine(start, guide.y, if (ltr) start + length else start - length, guide.y, landingPaint)
-        landingPaint.style = Paint.Style.FILL
-        landingPaint.pathEffect = null
-        landingPaint.alpha = 0xB0
-        canvas.drawCircle(start, guide.y, 3f * unit, landingPaint)
-    }
+    private fun drawLandingGuide(canvas: Canvas, guide: WritingGuide) = followOverlay.landingGuide(canvas, guide,
+        followPreferences.direction == WritingDirection.LTR, writingFollow.lineSpacing(followPreferences.spacing) * 6f,
+        selectionUiUnit(), answerAreaColor)
 
     /** Undo or erasing removed ink: stop any pending move and pull the line frontier back to what remains. */
     private fun followRetracted(remaining: List<Stroke>) {
@@ -3256,27 +3057,7 @@ class InkView(context: Context) : View(context) {
         reportFollowStatus("Ink removed · line end updated")
     }
 
-    private fun drawCropOverlay(canvas: Canvas, image: PageImage) {
-        val unit = selectionUiUnit(preview = true)
-        val l = image.x + cropInset[0] * image.width; val r = image.x + (1f - cropInset[2]) * image.width
-        val t = image.y + cropInset[1] * image.height; val b = image.y + (1f - cropInset[3]) * image.height
-        val x2 = image.x + image.width; val y2 = image.y + image.height
-        // Dim only what lies inside the picture; a frame dragged outwards (restoring the photo) extends past it.
-        val ct = t.coerceAtLeast(image.y); val cb = b.coerceAtMost(y2)
-        canvas.drawRect(image.x, image.y, x2, ct, cropScrimPaint)
-        canvas.drawRect(image.x, cb, x2, y2, cropScrimPaint)
-        canvas.drawRect(image.x, ct, l.coerceAtLeast(image.x), cb, cropScrimPaint)
-        canvas.drawRect(r.coerceAtMost(x2), ct, x2, cb, cropScrimPaint)
-        cropFramePaint.strokeWidth = 1.5f * unit
-        canvas.drawRect(l, t, r, b, cropFramePaint)
-        val mx = (l + r) / 2f; val my = (t + b) / 2f
-        val radius = SelectionChrome.HANDLE_RADIUS_DP * unit
-        imageHandleEdgePaint.strokeWidth = unit
-        listOf(l to t, r to t, l to b, r to b, mx to t, mx to b, l to my, r to my).forEach { (cx, cy) ->
-            canvas.drawCircle(cx, cy, radius, imageHandlePaint)
-            canvas.drawCircle(cx, cy, radius, imageHandleEdgePaint)
-        }
-    }
+    private fun drawCropOverlay(canvas: Canvas, image: PageImage) = chrome.crop(canvas, image, cropInset, selectionUiUnit(preview = true))
 
     // ---- Finger long-press: the editor offers a page context menu (paste, select all, ...). ----
     /** Window position of the press and the page point under it. */
@@ -3292,7 +3073,7 @@ class InkView(context: Context) : View(context) {
     private var longPressFired = false
     private var longPressX = 0f; private var longPressY = 0f
     private val longPressRunnable = Runnable {
-        if (stylus || ignored || readOnly || laserDown || movingSelection || resizingSelection || rotatingSelection || movingImage != null || cropEdges != 0) return@Runnable
+        if (stylus || ignored || readOnly || laser.down || movingSelection || resizingSelection || rotatingSelection || movingImage != null || cropEdges != 0) return@Runnable
         longPressFired = true
         // The held finger may have started a dot, an eraser pass or a lasso: drop them, it was a hold.
         cancelGesture()
@@ -3303,17 +3084,13 @@ class InkView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun corners(image: PageImage) = arrayOf(
-        image.x to image.y, (image.x + image.width) to image.y,
-        (image.x + image.width) to (image.y + image.height), image.x to (image.y + image.height))
-
     /** The corner handle under [at], or -1. */
     private fun cornerAt(image: PageImage, at: InkPoint, reach: Float): Int =
-        corners(image).indexOfFirst { (cx, cy) -> abs(at.x - cx) <= reach && abs(at.y - cy) <= reach }
+        imageCorners(image).indexOfFirst { (cx, cy) -> abs(at.x - cx) <= reach && abs(at.y - cy) <= reach }
 
     private fun startResize(image: PageImage, corner: Int) {
         movingImage = image; resizingImage = true; imageMoved = false; imageCorner = corner
-        val (ax, ay) = corners(image)[(corner + 2) % 4]
+        val (ax, ay) = imageCorners(image)[(corner + 2) % 4]
         imageAnchorX = ax; imageAnchorY = ay
     }
 
@@ -3402,7 +3179,7 @@ class InkView(context: Context) : View(context) {
         movingSelection = false; resizingSelection = false; rotatingSelection = false
         selectionPreviewScale = 1f; selectionPreviewDeg = 0f
     }
-    private fun cancelGesture() { recognitionEpoch++; clearPenStartHold(); penStartTool = null; penStartOptions = null; if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; clearPrediction(); endLowLatency(); if (laserDown) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
+    private fun cancelGesture() { recognitionEpoch++; clearPenStartHold(); penStartTool = null; penStartOptions = null; if (movingSelection && documentSelectionOwner) onDocumentSelectionDrag?.invoke(0f, 0f, false); if (documentGesture && localCapture == null) onDocumentGestureCancel?.invoke(); localCapture = null; markRegionDraft = null; markRegionStart = null; documentMarkRegionPreview = null; documentContentPreview = null; documentInkPreview = emptyList(); documentGesture = false; documentSpanning = false; onDocumentGesturePresence(false); endObjectLift(); penFilter = null; speedWidth = null; prediction.clear(); endLowLatency(); if (laser.down) liftLaser(); noteTarget = null; noteErasing = null; rulerEdge = 0; clearShapeHold(); resetDraftGeometry(); panGate.release(); draft = null; erasing = null; lasso = null; cancelSelectionGesture(); selectionDx = 0f; selectionDy = 0f; rawSelectionDx = 0f; rawSelectionDy = 0f; pointerId = -1; stylus = false; ignored = false; navigating = false; offPage = false; eraserMark = null; movingText = null; pendingTextBox = null; textDx = 0f; textDy = 0f; movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; pendingZone = null; cropEdges = 0; parent?.requestDisallowInterceptTouchEvent(false) }
     private fun lassoActive() = tool == Tool.LASSO && !navigating && !ignored
     /** Starts a fresh loop, picks up the selection to move it, or grabs a frame handle. */
     private fun beginLasso(event: MotionEvent, index: Int) {
@@ -3610,109 +3387,15 @@ class InkView(context: Context) : View(context) {
      * The loop being drawn: a white-haloed blue line over a light wash, a faint guide back to the
      * start, and a start dot that grows into a ring once the tip is close enough to close the loop.
      */
-    private fun drawLasso(canvas: Canvas, loop: List<InkPoint>) {
-        val unit = selectionUiUnit()
-        val polygon = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) }; close() }
-        canvas.drawPath(polygon, lassoFillPaint)
-        val open = Path().apply { moveTo(loop.first().x, loop.first().y); loop.drop(1).forEach { lineTo(it.x, it.y) } }
-        lassoHaloPaint.strokeWidth = 4f * unit
-        lassoEdgePaint.strokeWidth = 1.75f * unit
-        lassoEdgePaint.pathEffect = DashPathEffect(floatArrayOf(6f * unit, 4f * unit), 0f)
-        canvas.drawPath(open, lassoHaloPaint)
-        canvas.drawPath(open, lassoEdgePaint)
-        val start = loop.first(); val tip = loop.last()
-        lassoGuidePaint.strokeWidth = unit
-        lassoGuidePaint.pathEffect = DashPathEffect(floatArrayOf(2f * unit, 4f * unit), 0f)
-        canvas.drawLine(tip.x, tip.y, start.x, start.y, lassoGuidePaint)
-        val closing = loop.size > 8 && hypot(tip.x - start.x, tip.y - start.y) < 28f * unit
-        val r = (if (closing) 7f else 4f) * unit
-        frameHandleRingPaint.strokeWidth = 1.75f * unit
-        canvas.drawCircle(start.x, start.y, r, frameHandleFillPaint)
-        canvas.drawCircle(start.x, start.y, r, frameHandleRingPaint)
-    }
-    /** A dashed outline around a text box while it is dragged, so its extent is visible. */
-    private fun drawTextBox(canvas: Canvas, box: TextBox) {
-        val unit = selectionUiUnit(preview = true)
-        val margin = 2f * unit
-        textBoxPaint.strokeWidth = unit
-        textBoxPaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
-        canvas.drawRect(box.x - margin, box.y - margin, box.x + box.width + margin,
-            box.y + InkRenderer.textHeight(box) + margin, textBoxPaint)
-    }
-    /**
-     * Dashed frame around the lasso selection with direct handles: a plain dot
-     * on the bottom-right corner resizes about the center, a ringed dot with a
-     * circular arrow above the top edge rotates about it. Screen-sized chrome
-     * compensates for the canvas and the live handle preview scale.
-     */
+    private fun drawLasso(canvas: Canvas, loop: List<InkPoint>) = chrome.lasso(canvas, loop, selectionUiUnit())
+    private fun drawTextBox(canvas: Canvas, box: TextBox) = chrome.textBox(canvas, box, selectionUiUnit(preview = true))
+    /** The lasso selection's frame; a document-wide selection is moved by its owner, so it has no handles here. */
     private fun drawSelectionFrame(canvas: Canvas) {
         val box = selectionBox() ?: return
-        val unit = selectionUiUnit(preview = true)
-        val radius = SelectionChrome.HANDLE_RADIUS_DP * unit
-        selectionBoxPaint.strokeWidth = unit
-        selectionBoxPaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
-        selectionLinkPaint.strokeWidth = unit
-        selectionGlyphPaint.strokeWidth = 1.5f * unit
-        selectionHandleEdgePaint.strokeWidth = unit
-        lassoHaloPaint.strokeWidth = 3.5f * unit
-        canvas.drawRect(box[0], box[1], box[2], box[3], lassoHaloPaint)
-        canvas.drawRect(box[0], box[1], box[2], box[3], selectionBoxPaint)
-        if (documentSelectionOwner) return
-        val cx = (box[0] + box[2]) / 2f
-        val rotateY = box[1] - SelectionChrome.ROTATE_LIFT_DP * unit
-        lassoHaloPaint.strokeWidth = 3.5f * unit
-        canvas.drawLine(cx, box[1], cx, rotateY + radius, lassoHaloPaint)
-        canvas.drawLine(cx, box[1], cx, rotateY + radius, selectionLinkPaint)
-        frameHandleRingPaint.strokeWidth = 1.75f * unit
-        // White discs with a blue ring and a soft drop shadow: legible over any ink colour.
-        fun handle(hx: Float, hy: Float) {
-            canvas.drawCircle(hx, hy + unit, radius + unit, frameShadowPaint)
-            canvas.drawCircle(hx, hy, radius, frameHandleFillPaint)
-            canvas.drawCircle(hx, hy, radius, frameHandleRingPaint)
-        }
-        handle(box[2], box[3]); handle(cx, rotateY)
-        selectionGlyphPaint.color = 0xFF2F6FBA.toInt()
-        // Circular arrow: 300° of arc plus a V head at its end (420° == 60°).
-        val r = 4f * unit
-        canvas.drawArc(RectF(cx - r, rotateY - r, cx + r, rotateY + r), 120f, 300f, false, selectionGlyphPaint)
-        val end = Math.toRadians(60.0)
-        val ex = (cx + r * cos(end)).toFloat()
-        val ey = (rotateY + r * sin(end)).toFloat()
-        // Unit tangent of clockwise travel at 60°; wings fan the backward
-        // direction ±25° into a V, in page units.
-        val tx = -sin(end).toFloat()
-        val ty = cos(end).toFloat()
-        val head = 2.75f * unit
-        val spread = Math.toRadians(25.0)
-        fun wing(flip: Double): Pair<Float, Float> {
-            val a = flip * spread
-            val bx = -tx
-            val by = -ty
-            val wx = bx * cos(a) - by * sin(a)
-            val wy = bx * sin(a) + by * cos(a)
-            return (ex + head * wx).toFloat() to (ey + head * wy).toFloat()
-        }
-        val (x1, y1) = wing(1.0)
-        val (x2, y2) = wing(-1.0)
-        canvas.drawLine(ex, ey, x1, y1, selectionGlyphPaint)
-        canvas.drawLine(ex, ey, x2, y2, selectionGlyphPaint)
+        chrome.frame(canvas, box, selectionUiUnit(preview = true), handles = !documentSelectionOwner)
     }
-    /** A dashed outline with a bottom-right handle around the selected picture. */
-    private fun drawImageSelection(canvas: Canvas, image: PageImage, withHandle: Boolean = true) {
-        val unit = selectionUiUnit(preview = true)
-        val margin = 2f * unit
-        imageEdgePaint.strokeWidth = unit
-        imageEdgePaint.pathEffect = DashPathEffect(floatArrayOf(4f * unit, 3f * unit), 0f)
-        imageHandleEdgePaint.strokeWidth = unit
-        canvas.drawRect(image.x - margin, image.y - margin,
-            image.x + image.width + margin, image.y + image.height + margin, imageEdgePaint)
-        if (!withHandle) return
-        val r = SelectionChrome.HANDLE_RADIUS_DP * unit
-        corners(image).forEach { (cx, cy) ->
-            canvas.drawCircle(cx, cy, r, imageHandlePaint)
-            canvas.drawCircle(cx, cy, r, imageHandleEdgePaint)
-        }
-    }
+    private fun drawImageSelection(canvas: Canvas, image: PageImage, withHandle: Boolean = true) =
+        chrome.image(canvas, image, selectionUiUnit(preview = true), withHandle)
     // Deliver after drawing, coalescing frames so Compose state is never changed inside onDraw.
     internal var onShapeMeasurement: (ShapeMeasurement?) -> Unit = {}
     private var pendingMeasurement: ShapeMeasurement? = null
@@ -3831,81 +3514,23 @@ class InkView(context: Context) : View(context) {
         if (rulerEdge == 0 || line == null) return p
         return line.onEdge(p, rulerEdge, rulerHalf())
     }
-    /**
-     * A translucent straightedge with millimetre and centimetre ticks along both edges (A4-sized
-     * pages are in points, 72 to the inch) and its angle in the middle. Ticks thin out when zoomed
-     * far enough out that they would crowd.
-     */
-    private fun drawRuler(canvas: Canvas, line: RulerLine) {
-        val unit = selectionUiUnit()
-        val half = rulerHalf(); val halfLength = rulerHalfLength()
-        canvas.save()
-        canvas.translate(line.cx, line.cy)
-        canvas.rotate(line.degrees)
-        rulerFill.color = RULER_FILL
-        canvas.drawRect(-halfLength, -half, halfLength, half, rulerFill)
-        rulerEdgePaint.color = RULER_EDGE
-        rulerEdgePaint.strokeWidth = 1.5f * unit
-        canvas.drawLine(-halfLength, -half, halfLength, -half, rulerEdgePaint)
-        canvas.drawLine(-halfLength, half, halfLength, half, rulerEdgePaint)
-        val mm = 72f / 25.4f
-        // Smallest tick that stays at least 4 dp apart on screen.
-        val step = listOf(1, 5, 10, 50).first { it * mm >= 4f * unit || it == 50 }
-        val count = (halfLength / (step * mm)).toInt()
-        rulerTickPaint.color = RULER_EDGE
-        for (k in -count..count) {
-            val mark = k * step
-            val x = mark * mm
-            val long = mark % 10 == 0; val mid = mark % 5 == 0
-            val length = (if (long) 12f else if (mid) 8f else 5f) * unit
-            rulerTickPaint.strokeWidth = (if (long) 1.25f else 0.9f) * unit
-            canvas.drawLine(x, -half, x, -half + length, rulerTickPaint)
-            canvas.drawLine(x, half, x, half - length, rulerTickPaint)
-        }
-        // The angle reads upright whichever way the ruler has been turned.
-        val turned = RulerLine.normalize(line.degrees)
-        if (turned > 90f || turned < -90f) canvas.rotate(180f)
-        rulerLabelPaint.color = RULER_EDGE
-        rulerLabelPaint.textSize = 13f * unit
-        canvas.drawText("${line.readout()}°", 0f, rulerLabelPaint.textSize * 0.35f, rulerLabelPaint)
-        canvas.restore()
-    }
-
     /** Starts a presenter stroke at [start]. Nothing is written to the page. */
     private fun beginLaser(start: InkPoint) {
         onPenInput(false)
-        laserDown = true
-        laserHover = null
-        // Older strokes stay to fade on their own; only the very oldest go when there are many.
-        while (laserStrokes.size >= LASER_MAX_STROKES) laserStrokes.removeAt(0)
-        laserStrokes += LaserStroke()
-        addLaser(start)
+        laser.begin(start)
         documentGesture = onDocumentGestureStart?.invoke(Stroke(Tool.LASER, inkColor, inkWidth, listOf(start)), false) == true
         if (documentGesture) onDocumentGesturePresence(true)
         invalidate()
     }
-    private var documentLaserStroke: LaserStroke? = null
-    internal fun addDocumentLaser(points: List<InkPoint>) {
-        val stroke = documentLaserStroke ?: LaserStroke().also {
-            while (laserStrokes.size >= LASER_MAX_STROKES) laserStrokes.removeAt(0)
-            documentLaserStroke = it; laserStrokes += it
-        }
-        val now = SystemClock.uptimeMillis()
-        points.forEach { stroke.samples += LaserSample(it.x, it.y, now) }
-        invalidate()
-    }
-    internal fun finishDocumentLaser() {
-        documentLaserStroke?.liftedAt = SystemClock.uptimeMillis()
-        documentLaserStroke = null
-        invalidate()
-    }
+    internal fun addDocumentLaser(points: List<InkPoint>) { laser.addDocument(points); invalidate() }
+    internal fun finishDocumentLaser() { laser.finishDocument(); invalidate() }
     /** Extends the trail with the pen's samples; lifting or a second finger ends the stroke and it fades out. */
     private fun handleLaser(event: MotionEvent) {
         val index = event.findPointerIndex(pointerId)
         when (event.actionMasked) {
             MotionEvent.ACTION_MOVE -> if (index >= 0) {
                 val points = samples(event, index)
-                points.forEach(::addLaser)
+                points.forEach(laser::add)
                 documentSamples(points)
             }
             MotionEvent.ACTION_UP -> { if (index >= 0) documentSamples(listOf(point(event, index))); finishDocument(); cancelGesture() }
@@ -3913,84 +3538,7 @@ class InkView(context: Context) : View(context) {
         }
         invalidate()
     }
-    private fun liftLaser() {
-        laserDown = false
-        laserStrokes.lastOrNull()?.let { if (it.liftedAt < 0) it.liftedAt = SystemClock.uptimeMillis() }
-        invalidate()
-    }
-    private fun addLaser(p: InkPoint) {
-        laserStrokes.lastOrNull()?.samples?.add(LaserSample(p.x, p.y, SystemClock.uptimeMillis()))
-    }
-    /** How strongly a sample still shows: its tail fade while drawing times its stroke's fade after lift. */
-    private fun laserAlpha(sample: LaserSample, stroke: LaserStroke, now: Long): Float {
-        val age = now - sample.time
-        val tail = if (age <= LASER_TAIL_MS) 1f else 1f - (age - LASER_TAIL_MS).toFloat() / LASER_FADE_MS
-        val after = if (stroke.liftedAt < 0) 1f else 1f - (now - stroke.liftedAt - LASER_LINGER_MS).toFloat() / LASER_FADE_MS
-        return min(tail, after).coerceIn(0f, 1f)
-    }
-    /**
-     * A glowing trail: a wide soft halo, the coloured line and a bright core. Runs of samples with
-     * the same (quantized) opacity share one path, so overlapping round joins never darken it.
-     */
-    private fun drawLaser(canvas: Canvas) {
-        val now = SystemClock.uptimeMillis()
-        val horizon = LASER_TAIL_MS + LASER_FADE_MS
-        laserStrokes.removeAll { stroke ->
-            // Samples that have fully faded go, so a long stroke never costs more than its visible tail.
-            var drop = 0
-            while (drop < stroke.samples.size - 1 && now - stroke.samples[drop].time > horizon) drop++
-            if (drop > 0) stroke.samples.subList(0, drop).clear()
-            stroke.samples.isEmpty() || (stroke.liftedAt >= 0 && now - stroke.liftedAt >= LASER_LINGER_MS + LASER_FADE_MS) ||
-                (stroke.liftedAt >= 0 && stroke.samples.size == 1 && now - stroke.samples[0].time > horizon)
-        }
-        val unit = selectionUiUnit()
-        val width = LASER_WIDTH * unit
-        val colour = inkColor or 0xFF000000.toInt()
-        var fading = false
-        fun stroke(alpha: Float) {
-            if (alpha <= 0f) return
-            laserPaint.color = colour; laserPaint.alpha = (alpha * 0.22f * 255).toInt(); laserPaint.strokeWidth = width * 3.2f
-            canvas.drawPath(laserPath, laserPaint)
-            laserPaint.alpha = (alpha * 255).toInt(); laserPaint.strokeWidth = width
-            canvas.drawPath(laserPath, laserPaint)
-            laserPaint.color = Color.WHITE; laserPaint.alpha = (alpha * 0.85f * 255).toInt(); laserPaint.strokeWidth = width * 0.35f
-            canvas.drawPath(laserPath, laserPaint)
-        }
-        for (trail in laserStrokes) {
-            val samples = trail.samples
-            if (trail.liftedAt >= 0 || now - samples[0].time > LASER_TAIL_MS) fading = true
-            if (samples.size == 1) {
-                val a = laserAlpha(samples[0], trail, now)
-                laserDotPaint.color = colour; laserDotPaint.alpha = (a * 255).toInt()
-                canvas.drawCircle(samples[0].x, samples[0].y, width * 0.5f, laserDotPaint)
-                continue
-            }
-            laserPath.rewind()
-            var bucket = -1
-            for (i in 1 until samples.size) {
-                val from = samples[i - 1]; val to = samples[i]
-                val a = min(laserAlpha(from, trail, now), laserAlpha(to, trail, now))
-                val b = (a * LASER_ALPHA_STEPS).roundToInt()
-                if (b != bucket) {
-                    if (bucket > 0) stroke(bucket.toFloat() / LASER_ALPHA_STEPS)
-                    laserPath.rewind(); laserPath.moveTo(from.x, from.y); bucket = b
-                }
-                laserPath.lineTo(to.x, to.y)
-            }
-            if (bucket > 0) stroke(bucket.toFloat() / LASER_ALPHA_STEPS)
-        }
-        // The pointer itself: the live tip while drawing, or where a hovering pen points.
-        val head = if (laserDown) laserStrokes.lastOrNull()?.samples?.lastOrNull()?.let { InkPoint(it.x, it.y) } else laserHover
-        if (head != null && tool == Tool.LASER) {
-            laserDotPaint.color = colour; laserDotPaint.alpha = 0x40
-            canvas.drawCircle(head.x, head.y, width * 2.4f, laserDotPaint)
-            laserDotPaint.alpha = 0xFF
-            canvas.drawCircle(head.x, head.y, width * 1.1f, laserDotPaint)
-            laserDotPaint.color = Color.WHITE; laserDotPaint.alpha = 0xD0
-            canvas.drawCircle(head.x, head.y, width * 0.45f, laserDotPaint)
-        }
-        if (fading) postInvalidateOnAnimation()
-    }
+    private fun liftLaser() { laser.lift(); invalidate() }
 
     /** Selects every stroke, text box and picture on the current page; call from toolbar/overflow. */
     fun selectAll() {
@@ -4122,60 +3670,15 @@ class InkView(context: Context) : View(context) {
 
     private fun endLowLatency() { lowLatency?.end(); lowLatency = null; lowLatencySent = 0 }
 
-    /** Feeds the stylus stream to the motion predictor. Creating it lazily keeps finger-only use free of it. */
-    private fun recordForPrediction(event: MotionEvent) {
-        val predictor = motionPredictor ?: androidx.input.motionprediction.MotionEventPredictor.newInstance(this)
-            .also { motionPredictor = it }
-        predictor.record(event)
-    }
-
-    private fun clearPrediction() { predictedCount = 0; predictorIdle = true }
-
-    /**
-     * After a move is applied, asks the predictor where the pen goes next and shifts that path to start at
-     * the tip actually drawn (the pen filter can hold the drawn tip a pixel behind the real pen). The result
-     * is a throwaway tail drawn past the last sample; it never enters the stroke.
-     */
+    /** After a move is applied, refreshes the throwaway tail past the live pen tip; see [PredictedInkTail]. */
     private fun refreshPrediction(event: MotionEvent) {
         val current = draft
         if (event.actionMasked != MotionEvent.ACTION_MOVE || current == null || current.tool != Tool.PEN ||
-            !stylus || offPage || heldShape != null || documentSpanning) { clearPrediction(); return }
+            !stylus || offPage || heldShape != null || documentSpanning) { prediction.clear(); return }
         val index = event.findPointerIndex(pointerId)
         val tip = current.points.lastOrNull()
-        if (index < 0 || tip == null) { clearPrediction(); return }
-        val ahead = motionPredictor?.predict()
-        if (ahead == null) { predictedCount = 0; predictorIdle = true; return }
-        predictorIdle = false
-        val at = ahead.findPointerIndex(ahead.getPointerId(0)).coerceAtLeast(0)
-        var count = 0
-        for (h in 0 until ahead.historySize) {
-            if (count >= PREDICTED_POINTS) break
-            predictedRaw[2 * count] = (ahead.getHistoricalX(at, h) - originX) / scale
-            predictedRaw[2 * count + 1] = (ahead.getHistoricalY(at, h) - originY) / scale
-            count++
-        }
-        if (count < PREDICTED_POINTS) {
-            predictedRaw[2 * count] = (ahead.getX(at) - originX) / scale
-            predictedRaw[2 * count + 1] = (ahead.getY(at) - originY) / scale
-            count++
-        }
-        val rawX = (event.getX(index) - originX) / scale
-        val rawY = (event.getY(index) - originY) / scale
-        predictedCount = StrokePrediction.clip(predictedRaw, count, tip.x, tip.y, tip.x - rawX, tip.y - rawY,
-            scale, StrokePrediction.MAX_TAIL_PX, predictedTail)
-    }
-
-    /** Draws the predicted tail for [stroke] past its tip; false when there is none and the caller may fall back. */
-    private fun drawPredictedTail(canvas: Canvas, stroke: Stroke): Boolean {
-        if (predictedCount < 2) return false
-        val tip = stroke.points.last()
-        predictionPaint.color = stroke.color
-        predictionPaint.alpha = (Color.alpha(stroke.color) * stroke.opacity).toInt().coerceIn(0, 255)
-        predictionPaint.strokeWidth = stroke.width * InkRenderer.penPressureScale(tip.pressure)
-        for (i in 1 until predictedCount) {
-            canvas.drawLine(predictedTail[2 * i - 2], predictedTail[2 * i - 1], predictedTail[2 * i], predictedTail[2 * i + 1], predictionPaint)
-        }
-        return true
+        if (index < 0 || tip == null) { prediction.clear(); return }
+        prediction.refresh(event, index, tip, originX, originY, scale)
     }
 
     private fun isStylus(event: MotionEvent, index: Int) = isStylusPointer(event, index)
@@ -4286,28 +3789,13 @@ class InkView(context: Context) : View(context) {
         val MEASURE_TOOLS = ShapePickerTools
         /** Page units of slack around the page edge, absorbing samples reported outside the view. */
         const val EDGE_TOLERANCE = 24f
-        /** Most predicted points kept; the platform model rarely returns more than a handful. */
-        const val PREDICTED_POINTS = 24
         /** How far a press on a PDF link may wander before the gesture becomes a pan. */
         const val LINK_SLOP = 12f
         /** Above this many selected strokes the halo double-draw is skipped to avoid 2× overdraw. */
         const val SELECTION_HALO_LIMIT = 40
-        /**
-         * Presenter trail timing: a stroke's tail starts fading once it is [LASER_TAIL_MS] old, and a
-         * lifted stroke stays for [LASER_LINGER_MS] before fading; each fade takes [LASER_FADE_MS].
-         */
-        const val LASER_TAIL_MS = 1400L
-        const val LASER_LINGER_MS = 450L
-        const val LASER_FADE_MS = 450L
-        const val LASER_MAX_STROKES = 24
-        const val LASER_ALPHA_STEPS = 12
-        /** Trail width in dp-equivalent units (see [selectionUiUnit]). */
-        const val LASER_WIDTH = 4f
         /** The straightedge: its on-screen thickness and how far off an edge a pen still lands on it, in dp. */
         const val RULER_THICKNESS_DP = 72f
         const val RULER_SNAP_DP = 20f
-        val RULER_FILL = 0xB8F3F6FA.toInt()
-        val RULER_EDGE = 0xFF41506A.toInt()
         /** Preview raster budget (~2.4 MP, ~10 MB); the cache cap sits just above so rounding never falls back to vector. */
         const val NAVIGATION_INK_PIXEL_BUDGET = 2_400_000.0
         /** Overscan around the visible ink raster, as a fraction of the viewport per side; the last step is none. */
