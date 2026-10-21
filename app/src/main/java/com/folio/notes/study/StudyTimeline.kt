@@ -784,6 +784,9 @@ internal fun StudyTimeline(
                                 message = if (!ok) "Could not plan that again."
                                     else "Planned again for ${clock(picked.start)} ${if (next == today.plusDays(1)) "tomorrow" else next.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}"
                             }) { Text(if (isToday) "Repeat tomorrow" else "Repeat next day") }
+                            if (!timing && focalCanContinue(entry, now)) OutlinedButton({
+                                if (!manager.continueFocus(entry.id)) message = "Couldn't continue that session. Refresh and try again."
+                            }, enabled = canStart) { Text("Continue") }
                             if (!timing && entry.kind == "study") Button({
                                 if (entry.planned) onStartPlanned(entry.id) else onStartFocus(entry.subjectId)
                             }, enabled = canStart) { Text(if (entry.planned) "Start" else "Study again") }

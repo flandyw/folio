@@ -8,6 +8,7 @@ import com.folio.notes.model.Notebook
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 
 /** Focal's built-in subject IDs are stable sync IDs, not Folio enum names. */
@@ -142,6 +143,8 @@ internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry)
     if (local.planDraft != null && local.synced && remote.planned) return local.copy(
         revision = maxOf(local.revision, remote.revision), remotePayload = remote.remotePayload)
     if (remote.revision < local.revision) return local
+    // Continued finished study: the server still shows the completion this device reopened.
+    if (!local.synced && local.active && remote.completed && remote.revision == local.revision) return local
     // A pending exam boundary is a durable intent. A feed echo (even a terminal one)
     // cannot acknowledge it: only retrying the same mutation receipt can do that.
     if (local.examBoundaries.isNotEmpty()) return local.copy(revision = remote.revision,
@@ -370,6 +373,21 @@ internal fun focalPlannedFocus(entry: FocalStudyEntry, note: Notebook?, now: Lon
     return FocalFocus(notebookId = note?.id ?: entry.notebookId, title = entry.title.ifBlank { "Study session" },
         subjectId = entry.subjectId, startedAt = now, resumedAt = now, sessionId = entry.id,
         intervals = listOf(FocalStudyInterval(now, null)), notebookTitle = note?.title ?: entry.notebookTitle, attended = attended)
+}
+
+/**
+ * Finished, timed study from today can be continued: Focal's `resume` reopens the same session with
+ * its earlier time kept (Focal's `continueableToday`). Only what the server has as completed, so the
+ * reopened row's segments are exactly this entry's intervals.
+ */
+internal fun focalCanContinue(entry: FocalStudyEntry, now: Long, zone: ZoneId = ZoneId.systemDefault()): Boolean {
+    if (entry.kind != "study" || !entry.completed || entry.deleted || !entry.synced || entry.pendingBlocks != null ||
+        entry.intervals.isEmpty() || entry.intervals.any { it.endAt == null }) return false
+    val row = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return false
+    fun stamp(key: String) = row.optString(key).takeIf { it.isNotBlank() && it != "null" }
+    val completedAt = stamp("completed_at")?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return false
+    return focalStateOf(row) == "completed" && row.optString("kind", "focus") == "focus" && stamp("started_at") != null &&
+        completedAt.atZone(zone).toLocalDate() == Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
 }
 
 /** Planned slots are display context, never evidence of time worked. */

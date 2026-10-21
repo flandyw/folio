@@ -132,10 +132,15 @@ internal fun focalCommandsFor(
     // A server row without segments may be a legacy/imported row: use the normal diff there.
     val segments = canonical?.optJSONArray("segments")
     val intervals = entry.intervals
+    // Continued finished study: `resume` reopens the completed row at the new interval's start;
+    // the boundaries after it then replay like any running session's.
+    val reopened = entry.kind == "study" && currentState == "completed" && desired in setOf("running", "paused") &&
+        segments != null && intervals.size > segments.length()
+    if (reopened) append("resume", intervals[segments!!.length()].startAt, null)
     if (entry.kind == "study" && intervals.isNotEmpty() &&
         (canonical == null || segments != null) && currentState !in setOf("completed", "cancelled")) {
         // A scheduled session's segments are its planned slot, not timer boundaries.
-        val count = if (currentState == "planned") 0 else segments?.length() ?: 0
+        val count = if (currentState == "planned") 0 else (segments?.length() ?: 0) + if (reopened) 1 else 0
         // Another client may have added segments that Folio has never observed locally.
         // A final-state diff cannot reconcile two incompatible timelines safely.
         if (count > intervals.size || (currentState in setOf("running", "paused") && count == 0))

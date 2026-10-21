@@ -12,6 +12,7 @@ import com.folio.notes.study.FocalStudyState
 import com.folio.notes.study.examStudyEntry
 import com.folio.notes.study.focalActiveMillisBetween
 import com.folio.notes.study.focalBlockEdit
+import com.folio.notes.study.focalCanContinue
 import com.folio.notes.study.focalCanEditBlocks
 import com.folio.notes.study.focalCommandsFor
 import com.folio.notes.study.focalControlledEntry
@@ -370,6 +371,27 @@ fun main() {
         .put("elapsed_since_previous_ms", 0L)
     check(!focalRebaseTimingConflict(timedStart, "planned"))
     check(focalRebaseTimingConflict(timedStart, "running"))
+
+    // Continuing finished study: `resume` reopens the completed row at the new interval, then pauses replay.
+    val doneAt = java.time.Instant.ofEpochMilli(start + 60_000L).toString()
+    val doneRow = org.json.JSONObject().put("completed", true).put("kind", "focus").put("phase", "focus")
+        .put("started_at", java.time.Instant.ofEpochMilli(start).toString()).put("completed_at", doneAt)
+        .put("segments", org.json.JSONArray().put(org.json.JSONObject()))
+    val doneStudy = FocalStudyEntry(id = "done", notebookId = null, title = "Methods Focus", subjectId = "methods", kind = "study",
+        startedAt = start, endedAt = start + 60_000L, activeMillis = 60_000L, completed = true, synced = true, revision = 4L,
+        intervals = listOf(FocalStudyInterval(start, start + 60_000L)), remotePayload = doneRow.toString())
+    val utc = java.time.ZoneOffset.UTC
+    check(focalCanContinue(doneStudy, start + 120_000L, utc))
+    check(!focalCanContinue(doneStudy, start + 2 * 86_400_000L, utc)) // Only study doneStudy today.
+    check(!focalCanContinue(doneStudy.copy(synced = false), start + 120_000L, utc))
+    val reopened = doneStudy.copy(completed = false, paused = true, synced = false, changeId = "c1",
+        intervals = doneStudy.intervals + FocalStudyInterval(start + 120_000L, start + 150_000L))
+    val continued = commands(reopened)
+    check(continued.map { it.getString("action") } == listOf("resume", "pause")) { continued.toString() }
+    check(continued.map { it.getLong("expected_revision") } == listOf(4L, 5L))
+    check(continued.map { it.getLong("elapsed_since_previous_ms") } == listOf(0L, 30_000L))
+    check(focalMergeSession(reopened, doneStudy).active) // The completed echo cannot undo a continue.
+    check(!focalMergeSession(reopened, doneStudy.copy(revision = 5L)).active) // A newer finish elsewhere wins.
 
     println("Focal timing and recovery: exam phases, immediate/long restarts, durable focus checkpoints, repeated pauses, offline boundary replay, remote reconciliation, website planned sessions, early planned starts and manual merges passed.")
 }

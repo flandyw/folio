@@ -131,8 +131,11 @@ internal fun FocalStudyContent(
         }
     }
     val focus = state.visibleFocus
+    // Study timed on another Focal app takes the timer's place while this device times nothing.
+    val remoteMain = if (focus == null) entries.filter { it.active && it.kind == "study" }
+        .sortedWith(compareBy({ it.paused }, { -it.endedAt })).firstOrNull() else null
     // The study page is often propped up on a desk: keep the screen awake while its clock runs.
-    KeepScreenOn(dedicated && focus?.resumedAt != null)
+    KeepScreenOn(dedicated && (focus?.resumedAt != null || remoteMain?.paused == false))
     val examRecording = examTimer?.takeIf { it.active && it.startedAt != null }
     val todayDate = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     val dayStart = remember(todayDate) { todayDate.atStartOfDay(zone).toInstant().toEpochMilli() }
@@ -170,6 +173,8 @@ internal fun FocalStudyContent(
         else -> null
     }
     val canStart = startBlocked == null && state.canStartFocus
+    // The study finished last today can be picked up again: the same session, its time kept.
+    val continuable = remember(entries, todayDate) { entries.filter { focalCanContinue(it, now) }.maxByOrNull { it.endedAt } }
     val subjectName = { id: String? -> state.subjects.firstOrNull { it.id == id }?.name }
     fun startPlan(id: String) {
         manualLog = false
@@ -203,7 +208,36 @@ internal fun FocalStudyContent(
             }
         }
         FolioExpand(notice != null) { StudyNotice(notice.orEmpty()) { notice = null } }
-        if (focus == null) {
+        if (remoteMain != null) {
+            val running = !remoteMain.paused
+            TimerHero(if (running) HeroMode.RUNNING else HeroMode.PAUSED, formatStudyClock(focalEntryElapsed(remoteMain, now)),
+                remoteMain.title, listOfNotNull(subjectName(remoteMain.subjectId), "Timed on another device").joinToString(" · "), dedicated) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically) {
+                    Button({ manager.controlEntry(remoteMain.id, if (running) "pause" else "resume") },
+                        enabled = running || examRecording == null,
+                        shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
+                        Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
+                        Spacer(Modifier.width(FolioSpacing.dp8))
+                        Text(if (running) "Pause" else "Resume")
+                    }
+                    OutlinedButton({
+                        manager.controlEntry(remoteMain.id, "finish")
+                        notice = "Saved" + (subjectName(remoteMain.subjectId)?.let { " $it" } ?: "") + " session"
+                    }, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 56.dp)) {
+                        Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp8))
+                        Text("Finish")
+                    }
+                    OutlinedButton({ discardId = remoteMain.id }, shapes = ButtonDefaults.shapes(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.heightIn(min = 56.dp)) {
+                        Icon(Icons.Rounded.Close, "Discard", Modifier.size(18.dp))
+                    }
+                }
+                if (examRecording != null && !running) Text("Resume regular study after the exam timer stops.", style = MaterialTheme.typography.bodySmall)
+                Text(state.syncStatus, style = MaterialTheme.typography.labelSmall)
+            }
+        } else if (focus == null) {
             TimerHero(HeroMode.IDLE, formatStudyClock(0L), "Ready when you are",
                 if (today > 0) "${formatStudyMinutes(today)} studied today" else null, dedicated) {
                 Text("What are you studying?", style = MaterialTheme.typography.labelLarge)
@@ -227,6 +261,16 @@ internal fun FocalStudyContent(
                     shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(subjectName(subjectId)?.let { "Start $it" } ?: "Start study", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                continuable?.let { last ->
+                    OutlinedButton({
+                        manualLog = false
+                        if (!manager.continueFocus(last.id)) notice = "Couldn't continue that session. Refresh and try again."
+                    }, enabled = canStart, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                        Text("Continue ${subjectName(last.subjectId) ?: last.title} · ${formatStudyMinutes(studyRoundedMinutes(last.activeMillis))}",
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 startBlocked?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 TextButton({ manualLog = !manualLog }, shapes = ButtonDefaults.shapes(), modifier = Modifier.align(Alignment.CenterHorizontally)) {
@@ -395,7 +439,7 @@ internal fun FocalStudyContent(
             }
         }
         val sharedActive = entries.filter { entry ->
-            entry.active && entry.id != focus?.sessionId &&
+            entry.active && entry.id != focus?.sessionId && entry.id != remoteMain?.id &&
                 !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
         }
         if (sharedActive.isNotEmpty()) item(key = "shared") {

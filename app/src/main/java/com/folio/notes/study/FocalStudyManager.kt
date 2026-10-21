@@ -379,6 +379,16 @@ class FocalStudyManager(context: Context) {
         return _state.value.focus?.sessionId == focus.sessionId
     }
 
+    /** Picks finished study from today back up as the stopwatch: the same session, its time kept. */
+    fun continueFocus(id: String, now: Long = this.now(), attended: Boolean = false): Boolean {
+        val entry = _state.value.visibleEntries.firstOrNull { it.id == id }?.takeIf { focalCanContinue(it, now) } ?: return false
+        val focus = FocalFocus(notebookId = entry.notebookId, title = entry.title, subjectId = entry.subjectId,
+            startedAt = entry.startedAt, resumedAt = now, accumulatedMillis = entry.activeMillis, sessionId = entry.id,
+            intervals = entry.intervals + FocalStudyInterval(now, null), notebookTitle = entry.notebookTitle, attended = attended)
+        saveFocusEntry(focus, now, forceUpload = true, continuing = true)
+        return _state.value.focus?.sessionId == id
+    }
+
     fun toggleFocus(now: Long = this.now()) {
         val focus = _state.value.focus ?: return
         if (focus.resumedAt == null && _state.value.visibleEntries.any {
@@ -413,13 +423,15 @@ class FocalStudyManager(context: Context) {
 
     private fun saveFocusEntry(focus: FocalFocus, now: Long, completed: Boolean = false, deleted: Boolean = false,
                                notes: String? = null, confidence: Int? = null, forceUpload: Boolean = false,
-                               detach: Boolean = false, startingPlanned: Boolean = false) {
+                               detach: Boolean = false, startingPlanned: Boolean = false, continuing: Boolean = false) {
         val changeId = UUID.randomUUID().toString()
         var saved: FocalStudyEntry? = null
         _state.update { state ->
             saved = null
             val previous = state.entries.firstOrNull { it.id == focus.sessionId }
-            if (previous?.deleted == true || previous?.completed == true) return@update state
+            if (previous?.deleted == true || (previous?.completed == true && !continuing)) return@update state
+            if (continuing && (previous == null || !focalCanContinue(previous, now) ||
+                    !state.canStartFocus || state.visibleEntries.any { it.active && !it.paused })) return@update state
             if (startingPlanned && (previous?.planned != true || previous.kind != "study" ||
                     (previous.userId != null && previous.userId != state.userId) ||
                     !state.canStartFocus || state.visibleEntries.any { it.active && !it.paused })) return@update state
