@@ -4,6 +4,8 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
 import java.util.UUID
@@ -11,8 +13,6 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import org.json.JSONArray
-import org.json.JSONObject
 
 /** Encrypted atomic records, outside Android backup and all notebook archives. */
 internal class ChatGptCredentials(context: Context) {

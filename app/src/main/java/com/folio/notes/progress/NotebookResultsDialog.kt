@@ -1,9 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
-import com.folio.notes.EmptyHint
-import com.folio.notes.ExamAttempt
-import com.folio.notes.Notebook
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,8 +19,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.FolioApplication
-import com.folio.notes.FolioPanel
-import com.folio.notes.FolioSpacing
+import com.folio.notes.exam.ExamAttempt
+import com.folio.notes.model.Notebook
+import com.folio.notes.ui.EmptyHint
+import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.LocalDate

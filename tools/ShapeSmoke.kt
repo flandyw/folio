@@ -1,5 +1,17 @@
 package com.folio.notes
 
+import com.folio.notes.ink.pen.PenStartHold
+import com.folio.notes.ink.shapes.ShapeAdjustment
+import com.folio.notes.ink.shapes.ShapeAssistOptions
+import com.folio.notes.ink.shapes.ShapeCleanup
+import com.folio.notes.ink.shapes.ShapeHold
+import com.folio.notes.ink.shapes.ShapeKind
+import com.folio.notes.ink.shapes.ShapeMath
+import com.folio.notes.ink.shapes.ShapeRecognition
+import com.folio.notes.ink.shapes.Tidied
+import com.folio.notes.model.InkPoint
+import com.folio.notes.model.Stroke
+import com.folio.notes.model.Tool
 import kotlin.math.*
 
 /** Recognition and pen-down pause regressions, using the editor's actual pure rules. */

@@ -3,9 +3,6 @@
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
-import com.folio.notes.FolioMenuPopover
-import com.folio.notes.FolioMenuItem
-
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -43,11 +40,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
-import com.folio.notes.guardUiTouches
-import com.folio.notes.longPressAction
-import com.folio.notes.rememberLongPressGuard
+import com.folio.notes.input.guardUiTouches
+import com.folio.notes.input.longPressAction
+import com.folio.notes.input.rememberLongPressGuard
+import com.folio.notes.mistakes.review.MistakePracticeHub
+import com.folio.notes.mistakes.review.MistakeReviewPreferences
+import com.folio.notes.mistakes.review.PracticeConfetti
+import com.folio.notes.mistakes.review.PracticeProgress
+import com.folio.notes.mistakes.sync.ExamContext
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import java.time.format.TextStyle
 import java.util.Locale
 

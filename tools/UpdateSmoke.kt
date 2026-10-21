@@ -1,5 +1,13 @@
 package com.folio.notes
 
+import com.folio.notes.app.AppPrefs
+import com.folio.notes.update.decodeUpdateRelease
+import com.folio.notes.update.isTrustedUpdateUrl
+import com.folio.notes.update.releaseVersionCode
+import com.folio.notes.update.stableUpdateMetadataUrl
+import com.folio.notes.update.updateApiUrl
+import com.folio.notes.update.updateRetryAtMillis
+import com.folio.notes.update.withStableUpdateMetadata
 import org.json.JSONObject
 import java.io.File
 

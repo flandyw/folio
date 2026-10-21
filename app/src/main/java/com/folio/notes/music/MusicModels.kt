@@ -3,9 +3,6 @@ package com.folio.notes.music
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
-import kotlin.math.hypot
-import kotlin.math.max
-import kotlin.math.min
 
 internal data class MusicMark(val page: Int, val name: String)
 internal data class MusicPoint(val x: Float, val y: Float)

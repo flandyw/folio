@@ -1,7 +1,7 @@
 # PDF rendering
 
-`NoteRepository` keeps PDFBox metadata scans (text, links, labels, printed mark allocations and
-outlines) on `pdfMetadataLock`. Native page rendering has its own queue in `PdfRenderCache`, so
+`NotebookPdfs` (owned by `NoteRepository`, reached as `repository.pdfs`) keeps PDFBox metadata scans
+(text, links, labels, printed mark allocations and outlines) on `pdfMetadataLock`. Native page rendering has its own queue in `PdfRenderCache`, so
 opening a long PDF's navigation data does not block the editor's backgrounds.
 
 The render cache retains up to three parsed documents in least-recently-used order. Scrolling an

@@ -1,9 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
-import com.folio.notes.FolioMenuPopover
-import com.folio.notes.FolioMenuItem
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -30,9 +27,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
-import com.folio.notes.guardUiTouches
+import com.folio.notes.input.guardUiTouches
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import kotlin.math.roundToInt
 
 /** The gradient surface behind the Overview headline; the halo is decoration only. */

@@ -2,11 +2,23 @@ package com.folio.notes
 
 import android.app.Application
 import androidx.lifecycle.SavedStateHandle
+import com.folio.notes.app.AppPrefs
+import com.folio.notes.app.FolioRuntime
+import com.folio.notes.backup.LibraryAutoBackup
+import com.folio.notes.chatgpt.ChatGptManager
+import com.folio.notes.editor.page.PageThumbnailCache
+import com.folio.notes.ink.InkTaper
+import com.folio.notes.ink.pen.PenHapticsManager
+import com.folio.notes.ink.pen.PenWritingFeedback
+import com.folio.notes.progress.ExamProgressManager
+import com.folio.notes.storage.NoteRepository
+import com.folio.notes.study.FocalStudyManager
+import com.folio.notes.update.FolioUpdates
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 
 class FolioApplication : Application() {
-    internal val chatGpt by lazy { com.folio.notes.chatgpt.ChatGptManager(this) }
+    internal val chatGpt by lazy { ChatGptManager(this) }
     val updates by lazy { FolioUpdates(this) }
     val repository by lazy { NoteRepository(this) }
     internal val runtime by lazy { FolioRuntime(this, SavedStateHandle()) }
@@ -19,7 +31,7 @@ class FolioApplication : Application() {
     /** Continuous in-pen writing feedback, on with the same setting and lifetime as [penHaptics]. */
     val penFeedback by lazy { PenWritingFeedback(this) }
     val focalStudy by lazy { FocalStudyManager(this) }
-    val focalProgress by lazy { com.folio.notes.progress.ExamProgressManager(this) }
+    val focalProgress by lazy { ExamProgressManager(this) }
 
     /** Held for the process lifetime: SharedPreferences keeps its listeners weakly. */
     private val inkLookListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->

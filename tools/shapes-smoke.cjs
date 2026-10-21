@@ -46,17 +46,12 @@ function run(args) {
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-shapes-'));
 try {
   const source = path.join(root, 'app/src/main/java/com/folio/notes');
-  const models = fs.readFileSync(path.join(source, 'Models.kt'), 'utf8');
-  const point = models.match(/^data class InkPoint\([^\n]+/m)[0];
-  const tool = models.match(/^enum class Tool[^\n]+/m)[0];
-  const style = models.slice(models.indexOf('enum class StrokeStyle'), models.indexOf('/** Horizontal alignment'));
-  const stroke = models.slice(models.indexOf('data class Stroke('), models.indexOf('/**\n * Editable typed text'));
-  const primitive = path.join(temp, 'InkPrimitives.kt');
-  fs.writeFileSync(primitive, `package com.folio.notes\n${point}\n${tool}\n${style}\n${stroke}\n`);
+  // model/Ink.kt holds the pure ink primitives (tools, points, strokes) and has no Android imports.
+  const primitive = path.join(source, 'model/Ink.kt');
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', stdlib, '-d', classes,
-    ...['ShapeFit.kt', 'ShapeRecognition.kt', 'ShapeHold.kt', 'PenStartHold.kt', 'ShapeAssist.kt', 'ShapeCleanup.kt', 'ShapeAdjustment.kt'].map(file => path.join(source, file)),
+    ...['ink/shapes/ShapeFit.kt', 'ink/shapes/ShapeRecognition.kt', 'ink/shapes/ShapeHold.kt', 'ink/pen/PenStartHold.kt', 'ink/shapes/ShapeAssist.kt', 'ink/shapes/ShapeCleanup.kt', 'ink/shapes/ShapeAdjustment.kt'].map(file => path.join(source, file)),
     primitive, path.join(__dirname, accuracy ? 'ShapeAccuracy.kt' : 'ShapeSmoke.kt')]);
   run(['-cp', [classes, stdlib].join(path.delimiter), accuracy ? 'com.folio.notes.ShapeAccuracyKt' : 'com.folio.notes.ShapeSmokeKt', ...passthrough]);
 } finally {

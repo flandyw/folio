@@ -1,11 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
-import com.folio.notes.FolioMenuPopover
-import com.folio.notes.FolioMenuItem
-
-import com.folio.notes.FolioSpacing
-import com.folio.notes.EmptyHint
 import android.content.ClipData
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -17,8 +12,8 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.Sort
@@ -37,12 +32,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.folio.notes.*
+import com.folio.notes.FolioApplication
+import com.folio.notes.app.AppPrefs
+import com.folio.notes.app.FolioViewModel
+import com.folio.notes.input.guardUiTouches
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
+import com.folio.notes.model.Notebook
+import com.folio.notes.study.FocalAccountButton
+import com.folio.notes.study.FocalAccountPanel
+import com.folio.notes.ui.EmptyHint
+import com.folio.notes.ui.FolioButtonGroup
+import com.folio.notes.ui.FolioDestinationInset
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioScreenHeading
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject

@@ -1,14 +1,19 @@
 package com.folio.notes.sync
 
+import com.folio.notes.mistakes.sync.ExamTrackSessionLifecycle
 import io.github.jan.supabase.SupabaseClient
-import com.folio.notes.mistakes.ExamTrackSessionLifecycle
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.exceptions.HttpRequestException
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.postgrest.result.PostgrestResult
+import io.github.jan.supabase.postgrest.rpc
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -16,14 +21,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
-import io.ktor.client.plugins.HttpRequestTimeoutException
-import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 
 /** What the log says in reply to a batch: one receipt per change, with the sequence it was given. */
 data class ApplyReceipt(val changeId: String, val seq: Long, val replayed: Boolean)

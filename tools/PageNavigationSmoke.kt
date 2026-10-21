@@ -1,5 +1,7 @@
 package com.folio.notes
 
+import com.folio.notes.editor.layout.PageNavigation
+import com.folio.notes.editor.layout.PageSwipe
 import kotlin.math.abs
 
 fun main() {

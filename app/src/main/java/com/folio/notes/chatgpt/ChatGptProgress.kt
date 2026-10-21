@@ -15,8 +15,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioShapes
-import com.folio.notes.FolioSpacing
+import com.folio.notes.ui.FolioShapes
+import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.delay
 import java.text.NumberFormat
 
