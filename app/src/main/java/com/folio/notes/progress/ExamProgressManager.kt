@@ -23,6 +23,8 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
+private val SYNCED_ENTITIES = listOf("attempts", "mistakes", "user_state", "events", "timetable_config")
+
 data class ProgressCache(val rows: Map<String, SyncProtocol.RowState> = emptyMap(),
     val outbox: Map<String, SyncProtocol.QueuedChange> = emptyMap(),
     val conflicts: Map<String, SyncProtocol.RowState> = emptyMap(), val cursor: Long = 0,
@@ -36,6 +38,9 @@ data class ProgressCache(val rows: Map<String, SyncProtocol.RowState> = emptyMap
         if (row != null) return if (row.operation == "put") row.payload?.opt("value") else null
         return rows["user_state:user_state"]?.takeIf { it.operation == "put" }?.payload?.opt(id)
     }
+    /** Calendar events and the class timetable, shared with Focal through the same change log. */
+    val events get() = rows.values.filter { it.entity == "events" && it.operation == "put" }.mapNotNull { it.payload }
+    val timetable get() = rows["timetable_config:timetable_config"]?.takeIf { it.operation == "put" }?.payload
     val difficulty get() = value("examDifficulty") as? JSONObject
     val progression get() = value("examProgression") as? JSONObject
 }
@@ -132,7 +137,7 @@ class ExamProgressManager(context: Context) {
             try {
                 val s = _state.value
                 check(!s.loading && s.readable && s.userId == expectedUser) { "The account changed. Reopen this form." }
-                require(entity in listOf("attempts", "mistakes", "user_state") && id.isNotBlank())
+                require(entity in SYNCED_ENTITIES && id.isNotBlank())
                 if (entity == "attempts" && payload != null) require(LoggedExam.decode(payload.toString())?.id == id)
                 val c = s.cache; val key = "$entity:$id"
                 check(key !in c.conflicts) { "Resolve this record's sync conflict before editing it." }
@@ -181,7 +186,7 @@ class ExamProgressManager(context: Context) {
                 _state.update { it.copy(syncing = true, error = null) }
                 var c = _state.value.cache
                 fun commit(next: ProgressCache) { publishCache(user, next); c = next }
-                fun relevant(entity: String) = entity in listOf("attempts", "mistakes", "user_state")
+                fun relevant(entity: String) = entity in SYNCED_ENTITIES
                 fun apply(row: SyncProtocol.RowState, changeId: String? = null) {
                     if (!relevant(row.entity)) return
                     val queued = c.outbox[row.key]

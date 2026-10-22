@@ -55,6 +55,7 @@ import com.folio.notes.library.files.NotebookTagsPanel
 import com.folio.notes.model.Folder
 import com.folio.notes.model.Notebook
 import com.folio.notes.progress.ExamRecordReview
+import com.folio.notes.planner.PlannerScreen
 import com.folio.notes.progress.ProgressScreen
 import com.folio.notes.progress.countsAsExam
 import com.folio.notes.settings.rememberPref
@@ -80,7 +81,7 @@ import kotlinx.coroutines.launch
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 /** Library-owned destinations alongside the other peer panes. Tablet files is a place inside the library. */
-enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
+enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
 
 @Composable fun LibraryScreen(
     state: FolioState, model: FolioViewModel,
@@ -147,12 +148,13 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
     val otherPane = showMistakes || showStudy || showMusic
     val pickingNotebook = selectionCaption != null
     // Progress, VCAA and Trash have their own panes; Library and Files share the shelf.
-    val libraryPeer = section == LibrarySection.PROGRESS || section == LibrarySection.VCAA || section == LibrarySection.TRASH
+    val libraryPeer = section == LibrarySection.PROGRESS || section == LibrarySection.PLANNER || section == LibrarySection.VCAA || section == LibrarySection.TRASH
     fun navShown(item: SidebarItem) = SidebarItem.shown(item, hiddenNav, when (item) {
         SidebarItem.MISTAKES -> showMistakes
         SidebarItem.STUDY -> showStudy
         SidebarItem.MUSIC -> showMusic
         SidebarItem.PROGRESS -> !otherPane && section == LibrarySection.PROGRESS
+        SidebarItem.PLANNER -> !otherPane && section == LibrarySection.PLANNER
         SidebarItem.VCAA -> !otherPane && section == LibrarySection.VCAA
     })
     // Picking a notebook for the workspace browses folders but never reorganizes them.
@@ -341,6 +343,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                         if (navShown(SidebarItem.MISTAKES)) RailItem("Mistakes", Icons.Rounded.School, showMistakes) { onMistakes() }
                         if (navShown(SidebarItem.STUDY)) RailItem("Study", Icons.Rounded.Timer, showStudy) { onStudy() }
                         if (navShown(SidebarItem.PROGRESS)) RailItem("Progress", Icons.Rounded.Insights, !otherPane && section == LibrarySection.PROGRESS) { section = LibrarySection.PROGRESS; onLibrary() }
+                        if (navShown(SidebarItem.PLANNER)) RailItem("Planner", Icons.Rounded.EventAvailable, !otherPane && section == LibrarySection.PLANNER) { section = LibrarySection.PLANNER; onLibrary() }
                         if (navShown(SidebarItem.VCAA)) RailItem("VCAA", Icons.Rounded.LocalLibrary, !otherPane && section == LibrarySection.VCAA) { section = LibrarySection.VCAA; onLibrary() }
                         if (navShown(SidebarItem.MUSIC)) RailItem("Music", Icons.Rounded.MusicNote, showMusic) { onMusic() }
                     }
@@ -701,6 +704,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.VCAA) {
                     VcaaScreen(state, model, openFolder?.id, openFolder?.name, Modifier.weight(1f).fillMaxHeight().then(entrance))
                 }
+                if (!otherPane && !pickingNotebook && section == LibrarySection.PLANNER) {
+                    PlannerScreen(state.notes, Modifier.weight(1f).fillMaxHeight().then(entrance), onSettings, onMistakes, onStudy)
+                }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.PROGRESS) {
                     ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight().then(entrance),
                         onSettings, onMistakes, onStudy, onOpenNotebook)
@@ -746,6 +752,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, VCAA, TRASH }
             if (navShown(SidebarItem.STUDY)) ShortNavigationBarItem(showStudy, onStudy, icon = { Icon(Icons.Rounded.Timer, null) }, label = { Text("Study") })
             if (navShown(SidebarItem.PROGRESS)) ShortNavigationBarItem(!otherPane && section == LibrarySection.PROGRESS, { section = LibrarySection.PROGRESS; onLibrary() },
                 icon = { Icon(Icons.Rounded.Insights, null) }, label = { Text("Progress") })
+            if (navShown(SidebarItem.PLANNER)) ShortNavigationBarItem(!otherPane && section == LibrarySection.PLANNER, { section = LibrarySection.PLANNER; onLibrary() },
+                icon = { Icon(Icons.Rounded.EventAvailable, null) }, label = { Text("Planner") })
             if (navShown(SidebarItem.VCAA)) ShortNavigationBarItem(!otherPane && section == LibrarySection.VCAA, { section = LibrarySection.VCAA; onLibrary() },
                 icon = { Icon(Icons.Rounded.LocalLibrary, null) }, label = { Text("VCAA") })
             if (navShown(SidebarItem.MUSIC)) ShortNavigationBarItem(showMusic, onMusic, icon = { Icon(Icons.Rounded.MusicNote, null) }, label = { Text("Music") })
