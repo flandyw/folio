@@ -2032,6 +2032,8 @@ class InkView(context: Context) : View(context) {
         (documentMarkRegionPreview ?: markRegionDraft ?: markRegionShown)?.let { followOverlay.markRegion(canvas, it, selectionUiUnit(), answerAreaColor) }
         canvas.restore() // Page clip: sticky notes sit on top and may hang past the paper edge.
         if (!workspaceNotes) drawStickySurfaces(canvas)
+        // The typing field sits in this page's row, under the shared workspace, so the note being typed draws here.
+        else typingStickyId()?.let { id -> drawStickySurfaces(canvas) { it.id == id } }
         // Tools and guides sit above everything on the page, notes included.
         if (onEraserBrush == null) eraserMark?.let { drawEraser(canvas, it) }
         placeRuler()
@@ -2062,14 +2064,16 @@ class InkView(context: Context) : View(context) {
         if (!workspaceNotes) return
         canvas.save()
         canvas.translate(originX, originY); canvas.scale(scale, scale)
-        drawStickySurfaces(canvas)
+        val typing = typingStickyId()
+        drawStickySurfaces(canvas) { it.id != typing }
         canvas.restore()
         followStickyFrame()
     }
-    private fun drawStickySurfaces(canvas: Canvas) {
+    private fun typingStickyId(): String? = stickyNotes.focusedId?.takeIf { stickyNotes.typing }
+    private fun drawStickySurfaces(canvas: Canvas, keep: (TextBox) -> Boolean = { true }) {
         val selectedStickies = selectedTexts.filter { it.isSticky }
         val target = noteTarget
-        stickyNotes.draw(canvas, (documentContentPreview?.let { PageLayers.view(it) } ?: layerView()).texts.filter { box -> box.isSticky && selectedStickies.none { it.id == box.id } && objectLift?.selection?.texts?.any { it.id == box.id } != true },
+        stickyNotes.draw(canvas, (documentContentPreview?.let { PageLayers.view(it) } ?: layerView()).texts.filter { box -> box.isSticky && keep(box) && selectedStickies.none { it.id == box.id } && objectLift?.selection?.texts?.any { it.id == box.id } != true },
             selectionUiUnit(), if (documentContentPreview == null) noteErasing.orEmpty() else emptyMap()) { box ->
             if (box.id == target && !documentSpanning) {
                 canvas.save()
