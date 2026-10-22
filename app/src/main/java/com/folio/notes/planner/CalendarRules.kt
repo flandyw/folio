@@ -75,7 +75,17 @@ object Calendar {
     class Sources(val tasks: List<JSONObject> = emptyList(), val sacs: List<JSONObject> = emptyList(), val events: List<JSONObject> = emptyList(),
         val sessions: List<Session> = emptyList(), val logged: List<Logged> = emptyList(), val dueMistakes: Map<LocalDate, Int> = emptyMap(),
         /** Focal files desktop rows under VCE subject ids ("mm", "chem"); show the names it shows. */
-        val subjectNames: Map<String, String> = emptyMap())
+        val subjectNames: Map<String, String> = emptyMap()) {
+        // Built once per source, not per day: a month asks 42 days, and parsing every event's instants for each was the planner's main cost.
+        internal val tasksByDay by lazy { tasks.filter { !it.has("archivedAt") }.groupBy { it.text("plannedFor") } }
+        internal val sacsByDay by lazy { sacs.groupBy { it.text("scheduledAt").take(10) } }
+        internal val loggedByDay by lazy { logged.groupBy { it.date } }
+        internal val spans by lazy { events.filter { it.text("deleted_at").isEmpty() }.mapNotNull { e -> eventDays(e)?.let { (first, last) ->
+            val start = instant(e.text("startTime")); val end = instant(e.text("endTime"))
+            Span(e, first, last, if (start != null && end != null) ((end.toEpochMilli() - start.toEpochMilli()) / 60_000.0).coerceAtLeast(0.0) else 0.0, timeLabel(e.text("startTime")))
+        } } }
+    }
+    internal class Span(val event: JSONObject, val first: LocalDate, val last: LocalDate, val minutes: Double, val time: String)
 
     class Plan(val date: LocalDate, val items: List<Item>, val plannedMinutes: Int, val completedMinutes: Int, val completedCount: Int,
         val totalCount: Int, val dueMistakes: Int)
@@ -104,29 +114,26 @@ object Calendar {
             items += Item(Kind.SESSION, session.id, session.title, session.detail, mergedMinutes(clipped),
                 Instant.ofEpochMilli(clipped.minOf { it.first }).atZone(zone).toLocalTime().withNano(0).toString().take(5), session.done, true, live = session.live)
         }
-        for (task in src.tasks) {
-            if (task.has("archivedAt") || task.text("plannedFor") != date.toString()) continue
+        for (task in src.tasksByDay[date.toString()].orEmpty()) {
             val status = task.text("status"); val covered = task.text("title") in sessionTitles
             // A sitting the timer ran from this task carries its title: the sitting's minutes win, the task reads as done.
             items += Item(Kind.TASK, task.text("id"), task.text("title"), task.text("subject"), task.optDouble("durationMinutes", 0.0), "",
                 status == "completed" || covered, status != "skipped" && !covered, skipped = status == "skipped")
         }
-        for (sac in src.sacs) {
-            if (sac.text("scheduledAt").take(10) != date.toString()) continue
+        for (sac in src.sacsByDay[date.toString()].orEmpty()) {
             items += Item(Kind.SAC, sac.text("id"), sac.text("title"), listOf(sac.text("subject"), sac.opt("unit")?.let { "Unit $it" }.orEmpty()).filter { it.isNotBlank() }.joinToString(" · "),
                 sac.optDouble("durationMinutes", 0.0).takeIf { it.isFinite() } ?: 0.0, "", Planner.isCompleted(sac), true, fixed = true)
         }
-        for (event in src.events) {
-            if (event.text("deleted_at").isNotEmpty()) continue
-            val (first, last) = eventDays(event) ?: continue
-            if (date < first || date > last) continue
-            val multi = first != last
-            val minutes = if (multi) 0.0 else (instant(event.text("endTime"))?.let { e -> instant(event.text("startTime"))?.let { (e.toEpochMilli() - it.toEpochMilli()) / 60_000.0 } } ?: 0.0).coerceAtLeast(0.0)
+        for (span in src.spans) {
+            if (date < span.first || date > span.last) continue
+            val event = span.event; val first = span.first
+            val multi = first != span.last
+            val minutes = if (multi) 0.0 else span.minutes
             items += Item(Kind.EVENT, event.text("id"), event.text("title"),
                 listOf(typeLabel(event.text("eventType")), event.text("subjectId").let { src.subjectNames[it] ?: it }, event.text("location")).filter { it.isNotBlank() }.joinToString(" · "),
-                minutes, if (multi && date != first) "" else timeLabel(event.text("startTime")), event.optBoolean("isFinished"), false, fixed = event.text("eventType") in FIXED_TYPES)
+                minutes, if (multi && date != first) "" else span.time, event.optBoolean("isFinished"), false, fixed = event.text("eventType") in FIXED_TYPES)
         }
-        for (exam in src.logged) if (exam.date == date) items += Item(Kind.LOGGED, exam.id, exam.title, exam.detail, exam.minutes, "", true, true)
+        for (exam in src.loggedByDay[date].orEmpty()) items += Item(Kind.LOGGED, exam.id, exam.title, exam.detail, exam.minutes, "", true, true)
         val due = src.dueMistakes[date] ?: 0
         if (due > 0) items += Item(Kind.REVIEW, "mistakes:$date", if (due == 1) "1 mistake due for review" else "$due mistakes due for review",
             "From your spaced revision queue", 0.0, "", false, false)

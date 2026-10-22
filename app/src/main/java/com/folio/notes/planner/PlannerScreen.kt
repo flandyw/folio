@@ -200,6 +200,8 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val scope = rememberCoroutineScope()
     val stats = remember(sacs) { Planner.stats(sacs) }
     val bySubject = remember(sacs) { Planner.bySubject(sacs) }
+    val results = remember(sacs) { sacs.filter(Planner::isCompleted).sortedBy { it.optString("scheduledAt") }
+        .mapNotNull { s -> Planner.percentage(s)?.let { "${s.optString("scheduledAt").take(10)} · ${s.optString("title")}" to it } } }
     val next = remember(sacs) { Planner.upcoming(sacs).take(6) }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -211,8 +213,6 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     "Weighted avg" to pct(stats.average) + (stats.trend?.takeIf { kotlin.math.abs(it) >= 0.5 }?.let { " ${if (it > 0) "▲" else "▼"}${"%.1f".format(kotlin.math.abs(it))}" } ?: ""),
                     "Best" to pct(stats.best), "Upcoming" to "${stats.upcoming}")
             }
-            val results = sacs.filter(Planner::isCompleted).sortedBy { it.optString("scheduledAt") }
-                .mapNotNull { s -> Planner.percentage(s)?.let { "${s.optString("scheduledAt").take(10)} · ${s.optString("title")}" to it } }
             if (results.isNotEmpty()) item(key = "trend") { ScoreTrend("Results over time", results, "Every completed SAC, as a percentage of its marks", icon = Icons.Rounded.ShowChart) }
             bySubject.filter { it.average != null }.takeIf { it.isNotEmpty() }?.let { list ->
                 item(key = "averages") { MetricBars("Average by subject", list.map { it.subject to it.average!! }.sortedByDescending { it.second },
@@ -319,10 +319,11 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     var notice by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val mine = remember(items, subject) { items.filter { it.optString("subject") == subject } }
-    val visible = mine.filter { when (filter) {
+    val visible = remember(mine, filter) { mine.filter { when (filter) {
         "Red", "Amber", "Green" -> it.optString("rating") == filter.lowercase(); "Unrated" -> !it.has("rating")
-        "Re-check" -> Planner.recheckDue(it); else -> true } }
+        "Re-check" -> Planner.recheckDue(it); else -> true } }.groupBy(Planner::group) }
     val greens = mine.count { it.optString("rating") == "green" }
+    val bySubject = remember(items) { items.groupBy { it.optString("subject") } }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         item {
@@ -343,7 +344,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             item {
                 ProgressCard("Checklist health", "Tap a subject to open its checklist", Icons.Rounded.Traffic) {
                     itemSubjects.forEach { s ->
-                        val list = items.filter { it.optString("subject") == s }
+                        val list = bySubject[s].orEmpty()
                         Column(Modifier.fillMaxWidth().clip(com.folio.notes.ui.FolioShapes.medium).clickable { chosen = s }
                             .background(if (s == subject) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else Color.Transparent).padding(FolioSpacing.dp8),
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
@@ -364,7 +365,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     listOf("All", "Red", "Amber", "Green", "Re-check", "Unrated").forEach { FilterChip(filter == it, { filter = it }, { Text(it) }) }
                 }
             }
-            visible.groupBy(Planner::group).forEach { (group, list) ->
+            visible.forEach { (group, list) ->
                 item(key = "g:$group") {
                     Column(Modifier.padding(top = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Text("$group · ${list.count { it.optString("rating") == "green" }}/${list.size}", style = MaterialTheme.typography.titleMedium)
@@ -421,17 +422,18 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val active = remember(learning) { Planner.goals(learning, false) }
     val archived = remember(learning) { Planner.goals(learning, true) }
     val today = LocalDate.now().toString()
+    val progressOf = remember(active, exams, atar) { active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar) } }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         item { Button({ adding = true }, enabled = enabled) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
         if (active.isNotEmpty()) item {
-            val stats = active.map { Planner.goalProgress(it, exams, atar) }
+            val stats = active.map { progressOf.getValue(it.optString("id")) }
             StatRow("Active" to "${active.size}", "Reached" to "${active.zip(stats).count { (g, p) -> p.current != null && p.current >= g.getDouble("target") }}",
                 "Average progress" to "${stats.map { it.progress }.average().toInt()}%")
         }
         if (active.isEmpty()) item { EmptyHint("Add a target to see your current baseline and the gap to close. Goals show direction, not guaranteed outcomes.") }
         items(active, key = { it.optString("id") }) { goal ->
-            val progress = Planner.goalProgress(goal, exams, atar)
+            val progress = progressOf[goal.optString("id")] ?: Planner.goalProgress(goal, exams, atar)
             val reached = progress.current != null && progress.current >= goal.getDouble("target")
             val expired = !reached && goal.optString("deadline") < today
             OutlinedCard {
@@ -500,11 +502,15 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 
 // ---- Study score and ATAR -----------------------------------------------------------------------
 
+/** The bundled 275 KB VTAC table, decoded once per process instead of on every visit to the Score tab. */
+@Volatile private var vtacCache: StudyScore.VtacData? = null
+
 @Composable private fun ScoreTab(exams: List<com.folio.notes.progress.LoggedExam>, sacs: List<JSONObject>, references: List<com.folio.notes.progress.ExamReference>,
     saved: List<JSONObject>, enabled: Boolean, save: suspend (List<JSONObject>) -> Boolean) {
     val context = LocalContext.current
-    val vtac by produceState<StudyScore.VtacData?>(null) {
-        value = withContext(Dispatchers.IO) { runCatching { StudyScore.VtacData.decode(context.assets.open("planner/vtac-scaling.json").bufferedReader().use { it.readText() }) }.getOrNull() }
+    val vtac by produceState(vtacCache) {
+        if (value == null) value = withContext(Dispatchers.IO) { runCatching { StudyScore.VtacData.decode(context.assets.open("planner/vtac-scaling.json").bufferedReader().use { it.readText() }) }.getOrNull() }
+            ?.also { vtacCache = it }
     }
     val subjects = remember(exams) { exams.map { it.subject }.distinct().sorted() }
     var picked by rememberSaveable { mutableStateOf("") }

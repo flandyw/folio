@@ -187,7 +187,13 @@ class ExamProgressManager(context: Context) {
                 if (!_state.value.readable) return@withLock
                 _state.update { it.copy(syncing = true, error = null) }
                 var c = _state.value.cache
-                fun commit(next: ProgressCache) { publishCache(user, next); c = next }
+                var saved = c
+                // A poll that changed nothing only moves lastSynced: show it, but don't rewrite the whole cache file every 30 s.
+                fun commit(next: ProgressCache) {
+                    if (next.copy(lastSynced = saved.lastSynced) != saved) { publishCache(user, next); saved = next }
+                    else _state.update { if (it.userId == user) it.copy(cache = next) else it }
+                    c = next
+                }
                 fun relevant(entity: String) = entity in SYNCED_ENTITIES
                 fun apply(row: SyncProtocol.RowState, changeId: String? = null) {
                     if (!relevant(row.entity)) return

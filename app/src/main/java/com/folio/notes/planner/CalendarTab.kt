@@ -111,7 +111,9 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
     val scope = rememberCoroutineScope()
 
     val names = remember(studyState.subjects) { studyState.subjects.associate { it.id to it.name } }
-    val sessions = remember(studyState.entries, studyState.userId, now, names) {
+    // Only a running timer needs the clock; otherwise the 30 s tick must not rebuild the month.
+    val clock = if (studyState.visibleEntries.any { it.active }) now else 0L
+    val sessions = remember(studyState.entries, studyState.userId, clock, names) {
         studyState.visibleEntries.map { e ->
             val blocks = (e.pendingBlocks ?: e.intervals).map { it.startAt to (it.endAt ?: now) }
                 .ifEmpty { listOf(e.startedAt to if (e.active) now else maxOf(e.endedAt, e.startedAt)) }
@@ -131,9 +133,9 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
     val plan = remember(day, source) { Calendar.dayPlan(day, source) }
     val overdue = remember(tasks, day) { if (day >= today) Calendar.overdue(tasks, today) else emptyList() }
     val school = remember(day, timetable) { timetable?.takeIf { it.optBoolean("enabled", true) }?.let { Calendar.periodsOn(day, it) } }
-    val inMonth = weeks.flatten().filter { it.inMonth }
-    val summary = inMonth.sumOf { it.minutes }.let { m -> if (m > 0) "${formatMinutes(m)} of study across ${inMonth.count { it.minutes > 0 }} day${if (inMonth.count { it.minutes > 0 } == 1) "" else "s"}" else "No study planned this month" } +
-        inMonth.sumOf { d -> d.plan.items.count { it.fixed } }.let { if (it > 0) " · $it assessment${if (it == 1) "" else "s"}" else "" }
+    val summary = remember(weeks) { val inMonth = weeks.flatten().filter { it.inMonth }
+        inMonth.sumOf { it.minutes }.let { m -> if (m > 0) "${formatMinutes(m)} of study across ${inMonth.count { it.minutes > 0 }} day${if (inMonth.count { it.minutes > 0 } == 1) "" else "s"}" else "No study planned this month" } +
+        inMonth.sumOf { d -> d.plan.items.count { it.fixed } }.let { if (it > 0) " · $it assessment${if (it == 1) "" else "s"}" else "" } }
 
     fun selectDay(d: LocalDate) { dayText = d.toString(); monthText = YearMonth.from(d).toString(); timelineDay = d.toEpochDay() }
     fun setTask(id: String, edit: (JSONObject) -> Unit) { scope.launch { saveLearning(Planner.edit(learning, "tasks", id) { edit(it); it.put("updatedAt", isoTime()) }) } }
