@@ -43,4 +43,34 @@ class CalendarTest {
         assertEquals(1, Calendar.eventsOn(listOf(multi), LocalDate.parse("2026-10-23")).size)
         assertEquals(0, Calendar.eventsOn(listOf(multi), LocalDate.parse("2026-10-25")).size)
     }
+
+    /** Focal rows carry `"deleted_at": null`; Android's optString reads that as "null", which once hid every event. */
+    @Test fun nullDeletedAtStillShows() {
+        val event = Calendar.newEvent("SAC", "sac", LocalDate.parse("2026-10-22"), "09:00", "10:00", null, "").put("deleted_at", JSONObject.NULL).put("location", JSONObject.NULL)
+        assertEquals(1, Calendar.eventsOn(listOf(event), LocalDate.parse("2026-10-22")).size)
+        val item = Calendar.dayPlan(LocalDate.parse("2026-10-22"), Calendar.Sources(events = listOf(event))).items.single()
+        assertEquals("SAC", item.detail); assertTrue(item.fixed)
+        assertEquals(0, Calendar.eventsOn(listOf(JSONObject(event.toString()).put("deleted_at", "2026-10-01T00:00:00Z")), LocalDate.parse("2026-10-22")).size)
+        val offset = JSONObject(event.toString()).put("startTime", "2026-10-22T09:00:00+11:00").put("endTime", "2026-10-22T10:00:00+11:00")
+        assertNotNull(Calendar.eventDays(offset))
+    }
+
+    @Test fun dayPlanTotalsLikeFocal() {
+        val day = LocalDate.parse("2026-10-22")
+        val zone = java.time.ZoneId.systemDefault()
+        fun at(h: Int, m: Int = 0) = day.atTime(h, m).atZone(zone).toInstant().toEpochMilli()
+        val tasks = listOf(
+            JSONObject().put("id", "a").put("title", "Methods revision").put("durationMinutes", 45).put("plannedFor", "2026-10-22").put("status", "planned"),
+            JSONObject().put("id", "b").put("title", "Chem notes").put("durationMinutes", 30).put("plannedFor", "2026-10-22").put("status", "completed"),
+            JSONObject().put("id", "c").put("title", "Skip me").put("durationMinutes", 20).put("plannedFor", "2026-10-22").put("status", "skipped"),
+            JSONObject().put("id", "d").put("title", "Old").put("durationMinutes", 20).put("plannedFor", "2026-10-20").put("status", "planned"))
+        // Overlapping blocks count once (09:00-10:30), and the session covers the task of the same title.
+        val sessions = listOf(Calendar.Session("s", "Chem notes", "", listOf(at(9) to at(10), at(9, 30) to at(10, 30)), done = true, live = false))
+        val plan = Calendar.dayPlan(day, Calendar.Sources(tasks = tasks, sessions = sessions, dueMistakes = mapOf(day to 3)))
+        assertEquals(45, plan.plannedMinutes); assertEquals(90, plan.completedMinutes)
+        assertEquals(2, plan.totalCount); assertEquals(1, plan.completedCount); assertEquals(3, plan.dueMistakes)
+        assertEquals(listOf("d"), Calendar.overdue(tasks, day).map { it.getString("id") })
+        val weeks = Calendar.month(java.time.YearMonth.of(2026, 10), Calendar.Sources())
+        assertEquals(5, weeks.size); assertEquals(LocalDate.parse("2026-09-28"), weeks[0][0].date)
+    }
 }

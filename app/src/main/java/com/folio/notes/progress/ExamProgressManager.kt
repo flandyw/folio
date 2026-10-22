@@ -24,6 +24,8 @@ import java.io.File
 import java.util.UUID
 
 private val SYNCED_ENTITIES = listOf("attempts", "mistakes", "user_state", "events", "timetable_config")
+/** Bumped when [SYNCED_ENTITIES] grows: an older cache re-reads the feed once so rows it skipped arrive. */
+private const val FEED_VERSION = 2
 
 data class ProgressCache(val rows: Map<String, SyncProtocol.RowState> = emptyMap(),
     val outbox: Map<String, SyncProtocol.QueuedChange> = emptyMap(),
@@ -90,14 +92,14 @@ class ExamProgressManager(context: Context) {
         require(o.getInt("version") == 1) { "Unsupported exam cache" }
         fun rows(key: String) = o.getJSONArray(key).objects().map { requireNotNull(SyncProtocol.parseRowState(it)) }.associateBy { it.key }
         return ProgressCache(rows("rows"), o.getJSONArray("outbox").objects().map(SyncProtocol.QueuedChange::fromJson).associateBy { it.key },
-            rows("conflicts"), o.getLong("cursor"), o.getLong("lamport"), o.opt("lastSynced") as? String)
+            rows("conflicts"), if (o.optInt("feed", 1) >= FEED_VERSION) o.getLong("cursor") else 0, o.getLong("lamport"), o.opt("lastSynced") as? String)
     }
     private fun persist(user: String?, cache: ProgressCache) {
         val file = file(user); check(file.baseFile.parentFile!!.isDirectory || file.baseFile.parentFile!!.mkdirs())
         val raw = JSONObject().put("version", 1).put("rows", JSONArray(cache.rows.values.map { it.toJson() }))
             .put("outbox", JSONArray(cache.outbox.values.map { it.toJson() }))
             .put("conflicts", JSONArray(cache.conflicts.values.map { it.toJson() }))
-            .put("cursor", cache.cursor).put("lamport", cache.lamport).put("lastSynced", cache.lastSynced).toString()
+            .put("cursor", cache.cursor).put("feed", FEED_VERSION).put("lamport", cache.lamport).put("lastSynced", cache.lastSynced).toString()
         val stream = file.startWrite()
         try { stream.write(raw.toByteArray()); file.finishWrite(stream) }
         catch (e: Exception) { file.failWrite(stream); throw e }

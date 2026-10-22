@@ -222,4 +222,6 @@ fun notebookExams(notes: List<Notebook>): List<LoggedExam> = notes.filter { it.c
 
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
 internal fun JSONArray.strings(): List<String> = (0 until length()).mapNotNull { opt(it) as? String }
+/** A string field; JSON null and absent are both "" (Android's optString turns null into "null"). */
+internal fun JSONObject.text(key: String): String = (opt(key) as? String).orEmpty()
 internal fun JSONObject.number(key: String): Double? = (opt(key) as? Number)?.toDouble()?.takeIf { it.isFinite() }

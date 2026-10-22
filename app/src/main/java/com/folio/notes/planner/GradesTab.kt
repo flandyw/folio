@@ -68,6 +68,15 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
             item { Text("A+ cutoffs are official. Mean, median and percentile are estimated from grouped grade bands.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (insights.isEmpty()) item { EmptyHint("No VCAA grade distributions are available for $subject.") }
+            insights.filter { it.percentile != null }.takeIf { it.size >= 2 }?.let { list -> item(key = "percentiles") {
+                com.folio.notes.progress.ProgressCard("Where ${"%.1f".format(score)}% lands each year", "Estimated percentile in each year's cohort") {
+                    com.folio.notes.progress.ColumnChart(list.map { "${it.reference.year}".takeLast(2) to it.percentile!! }, "Percentile by year: " +
+                        list.joinToString { "${it.reference.year} ${"%.0f".format(it.percentile)}" })
+                }
+            } }
+            insights.mapNotNull { y -> y.aPlus?.let { "${y.reference.year}" to it } }.takeIf { it.size >= 2 }?.let { cut -> item(key = "aplus") {
+                com.folio.notes.progress.ScoreTrend("A+ cutoff", cut, "The official A+ boundary as a percentage of the paper")
+            } }
             items(insights.reversed(), key = { it.reference.id }) { y ->
                 OutlinedCard(onClick = { uri.openUri(y.reference.sourceUrl) }) {
                     Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
