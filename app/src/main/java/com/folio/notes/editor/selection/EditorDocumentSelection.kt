@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.selection
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -8,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.folio.notes.app.FolioViewModel
@@ -18,6 +20,7 @@ import com.folio.notes.ink.recognition.HandwritingTidyPanel
 import com.folio.notes.ink.recognition.InkConversionDraft
 import com.folio.notes.ink.recognition.InkConversionPreview
 import com.folio.notes.ink.shapes.ShapeCleanupPanel
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.displayTitle
 import com.folio.notes.ui.FolioMenuItem
@@ -45,41 +48,46 @@ import kotlinx.coroutines.launch
     var converting by remember { mutableStateOf(false) }
     val ink = selection.values.flatMap { it.strokes + it.texts.flatMap { box -> box.stickyInk } }
     val count = selection.values.sumOf { it.strokes.size + it.texts.size + it.images.size }
-    // The same compact 44dp bar and 40dp controls as the page navigator and writing-follow bars; the default
-    // toolbar container is far taller and covers the pages it is acting on.
-    HorizontalFloatingToolbar(expanded = true, modifier = modifier.height(44.dp),
-        contentPadding = PaddingValues(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp2)) {
-        Text("$count · ${selection.size}p", Modifier.padding(horizontal = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium)
-        IconButton(input::copySelection, Modifier.size(40.dp)) { Icon(Icons.Rounded.ContentCopy, "Copy document selection", Modifier.size(20.dp)) }
-        Box {
-            IconButton({ more = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "Document selection options", Modifier.size(20.dp)) }
-            FolioMenuPopover(more, { more = false }, title = "${selection.size} pages selected") {
-                FolioMenuItem({ Text("Align and distribute…") }, { more = false; aligning = true })
-                FolioMenuItem({ Text("Duplicate selection") }, { more = false; input.duplicateSelection() })
-                if (ink.isNotEmpty()) {
-                    FolioMenuItem({ Text("Tidy up shapes…") }, { more = false; tidying = true })
-                    FolioMenuItem({ Text("Tidy up handwriting…") }, { more = false; tidyingWriting = true })
-                    FolioMenuItem({ Text("Restyle ink") }, { more = false; restyling = true })
-                    FolioMenuItem({ Text(if (converting) "Reading handwriting…" else "Convert to text") }, {
-                        more = false
-                        if (!converting) {
-                            converting = true
-                            scope.launch {
-                                try { conversionDraft = input.prepareTextConversion() }
-                                catch (e: CancellationException) { throw e }
-                                catch (e: Exception) { model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}") }
-                                finally { converting = false }
+    val pages = selection.size
+    // Same light, outlined pill as the single-page lasso menu, so both selections look like one feature.
+    Surface(modifier.semanticsLabel("Selection options"), shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (pages > 1) "$count selected · $pages pages" else "$count selected",
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            VerticalDivider(Modifier.padding(start = FolioSpacing.dp8, end = FolioSpacing.dp4).height(20.dp))
+            SelectionAction(Icons.Rounded.ContentCopy, "Copy selection", onClick = input::copySelection)
+            SelectionAction(Icons.Rounded.DynamicFeed, "Duplicate selection", onClick = input::duplicateSelection)
+            if (ink.isNotEmpty()) SelectionAction(Icons.Rounded.Palette, "Style selection") { restyling = true }
+            SelectionAction(Icons.Rounded.DeleteOutline, "Delete selection", destructive = true, onClick = input::deleteSelection)
+            Box {
+                SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { more = true }
+                FolioMenuPopover(more, { more = false }, title = if (pages > 1) "$pages pages selected" else "Selection") {
+                    FolioMenuItem({ Text("Align and distribute…") }, { more = false; aligning = true })
+                    if (ink.isNotEmpty()) {
+                        FolioMenuItem({ Text("Tidy up shapes…") }, { more = false; tidying = true })
+                        FolioMenuItem({ Text("Tidy up handwriting…") }, { more = false; tidyingWriting = true })
+                        FolioMenuItem({ Text(if (converting) "Reading handwriting…" else "Convert to text") }, {
+                            more = false
+                            if (!converting) {
+                                converting = true
+                                scope.launch {
+                                    try { conversionDraft = input.prepareTextConversion() }
+                                    catch (e: CancellationException) { throw e }
+                                    catch (e: Exception) { model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}") }
+                                    finally { converting = false }
+                                }
                             }
-                        }
-                    })
+                        })
+                    }
+                    FolioMenuItem({ Text("Rotate 90°") }, { more = false; input.transformSelection(1f, 90f) })
+                    FolioMenuItem({ Text("Resize selection") }, { more = false; resizing = true })
+                    FolioMenuItem({ Text("Move to a page") }, { more = false; moving = true })
                 }
-                FolioMenuItem({ Text("Rotate 90°") }, { more = false; input.transformSelection(1f, 90f) })
-                FolioMenuItem({ Text("Resize selection") }, { more = false; resizing = true })
-                FolioMenuItem({ Text("Move to a page") }, { more = false; moving = true })
             }
+            SelectionAction(Icons.Rounded.Close, "Deselect", onClick = input::clearSelection)
         }
-        IconButton(input::deleteSelection, Modifier.size(40.dp)) { Icon(Icons.Rounded.DeleteOutline, "Delete document selection", Modifier.size(20.dp)) }
-        IconButton(input::clearSelection, Modifier.size(40.dp)) { Icon(Icons.Rounded.Close, "Clear document selection", Modifier.size(20.dp)) }
     }
     conversionDraft?.let { draft -> InkConversionPreview(draft, model, { conversionDraft = null }) { conversionDraft = null; input.clearSelection() } }
     if (aligning) SelectionPlacementPanel(note, selection, model, { aligning = false }, input::clearSelection)

@@ -138,7 +138,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     }
 }
 
-@Composable private fun SelectionAction(icon: ImageVector, label: String, destructive: Boolean = false, onClick: () -> Unit) {
+@Composable internal fun SelectionAction(icon: ImageVector, label: String, destructive: Boolean = false, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         IconButton(onClick, modifier = Modifier.size(BarButton), shapes = IconButtonDefaults.shapes(),
