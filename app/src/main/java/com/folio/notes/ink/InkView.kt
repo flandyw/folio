@@ -1257,7 +1257,7 @@ class InkView(context: Context) : View(context) {
         val z = minOf(width / (anchor.right - anchor.left), height / (anchor.bottom - anchor.top)) / base
         val ox = if (page.infinite) 0f else (width - page.width * base) / 2
         val oy = if (page.infinite) 0f else (height - page.height * base) / 2
-        val zoom = z.coerceIn(.1f, 8f)
+        val zoom = z.coerceIn(.1f, camera.maxZoom)
         camera.restore(width / 2f - ((anchor.left + anchor.right) / 2 * base + ox) * zoom,
             height / 2f - ((anchor.top + anchor.bottom) / 2 * base + oy) * zoom, zoom)
         invalidate()
@@ -1393,6 +1393,16 @@ class InkView(context: Context) : View(context) {
         if (viewport != null) camera.restore(viewport.canvasX, viewport.canvasY, viewport.canvasZoom)
     }
     private val camera = InfiniteViewport()
+    var maxZoom: Float
+        get() = camera.maxZoom
+        set(value) {
+            val limit = AppPrefs.maxZoom(value)
+            if (camera.maxZoom == limit) return
+            camera.maxZoom = limit
+            camera.scaleBy(1f, width / 2f, height / 2f)
+            reportCanvasViewport()
+            invalidate()
+        }
     var onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {}
     /**
      * Whether a zoomed page card is panned flush against its left / right side (both when it is
@@ -1401,7 +1411,7 @@ class InkView(context: Context) : View(context) {
     var onPageEdges: (left: Boolean, right: Boolean) -> Unit = { _, _ -> }
     private fun reportPageEdges() {
         if (!pageCamera || zoomWritingPane || page.infinite || width <= 0 || page.width <= 0f) return
-        val zoom = camera.zoom.coerceIn(1f, 4f)
+        val zoom = camera.zoom.coerceIn(1f, camera.maxZoom)
         val ws = workspace()
         val fitted = pageScale
         val spanW = (ws[2] - ws[0]) * fitted * zoom
@@ -1452,7 +1462,7 @@ class InkView(context: Context) : View(context) {
         if (zoomWritingPane) return
         if (!pageCamera || page.infinite || width <= 0 || height <= 0 || page.width <= 0f || page.height <= 0f) return
         val ws = workspace()
-        val zoom = camera.zoom.coerceIn(1f, 4f)
+        val zoom = camera.zoom.coerceIn(1f, camera.maxZoom)
         val fitted = pageScale
         val pageW = (ws[2] - ws[0]) * fitted * zoom
         val pageH = (ws[3] - ws[1]) * fitted * zoom
@@ -1739,8 +1749,9 @@ class InkView(context: Context) : View(context) {
     }
 
     private fun drawCommittedPage(canvas: Canvas, content: NotePage) {
-        val preview = zoomRenderState.usePreview(scale, navigating || lineAdvance != null,
-            SystemClock.uptimeMillis())
+        // Only a scale change softens ink: a pan at a steady scale keeps the sharp overscanned raster
+        // below, and a raster that no longer covers the screen is rebuilt off the UI thread meanwhile.
+        val preview = zoomRenderState.usePreview(scale, lineAdvance != null, SystemClock.uptimeMillis())
         if (preview) {
             // Coalesce rapid pinches and container resizes into one full-detail refresh.
             removeCallbacks(refreshInkDetail)
@@ -1758,7 +1769,7 @@ class InkView(context: Context) : View(context) {
                     // being built, the soft whole-page preview stands in so revealed ink never pops in.
                     updateStableInkBounds(content)
                     committedInk.draw(inkCanvas, content.strokes, scale, ::boundsOf, ::renderedOf,
-                        rasterViewport = stableInkBounds, deferred = !content.infinite, visible = visibleInkBounds,
+                        rasterViewport = stableInkBounds, deferred = !content.infinite || navigating, visible = visibleInkBounds,
                         placeholder = { drawNavigationInk(it, content) })
                 }
             })

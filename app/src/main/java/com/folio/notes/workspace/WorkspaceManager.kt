@@ -99,7 +99,8 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             captureTab()
             val tab = _state.value.tabs.find { it.notebookId == id }
                 ?: rememberedTab(target)
-                ?: EditorTab(id, id, target.pages.first().id, target.title)
+                ?: EditorTab(id, id, target.pages.first().id, target.title,
+                    viewport = if (target.mistakePractice) WorkspaceViewport(canvasZoom = AppPrefs.mistakeZoom(prefs.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM))) else WorkspaceViewport())
             selectNotebookTimer(id)
             val before = _state.value
             // A split belongs to the notebook it was opened beside (an unknown host, from an older

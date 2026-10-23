@@ -65,6 +65,12 @@ object AppPrefs {
         (value?.takeIf(Float::isFinite) ?: DEFAULT_ZOOM_PANE_HEIGHT).coerceIn(180f, 480f)
     const val FULLSCREEN = "fullscreen"
     const val KEEP_SCREEN_ON = "editor.keepScreenOn"
+    const val MAX_ZOOM = "editor.maxZoom"
+    const val DEFAULT_MAX_ZOOM = 8f
+    const val MIN_MAX_ZOOM = 1f
+    const val MAX_MAX_ZOOM = 8f
+    fun maxZoom(value: Float?): Float =
+        (value?.takeIf(Float::isFinite) ?: DEFAULT_MAX_ZOOM).coerceIn(MIN_MAX_ZOOM, MAX_MAX_ZOOM)
     const val AUTO_UPDATE = "updates.auto"
     /** Opt-in VPS builds; stable builds continue to come from GitHub. */
     const val EXPERIMENTAL_UPDATES = "updates.experimental"
@@ -266,6 +272,13 @@ object AppPrefs {
     /** Mistake practice pages are infinite canvases, so the paper only picks the printed guide. */
     fun mistakePaper(raw: String?): Paper =
         runCatching { Paper.valueOf(raw ?: "") }.getOrDefault(DEFAULT_MISTAKE_PAPER)
+
+    /** Starting canvas zoom (1 = 100%) for a new mistake-practice page; pages already opened keep their camera. */
+    const val MISTAKE_ZOOM = "mistake.zoom"
+    const val DEFAULT_MISTAKE_ZOOM = 1f
+    fun mistakeZoom(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_MISTAKE_ZOOM
+        else (value.coerceIn(.5f, 3f) * 10).let { Math.round(it) / 10f }
 
     /** A folder deleted since it was chosen falls back to the Library top level. */
     fun quickFolderId(raw: String?, folders: List<Folder>): String? =

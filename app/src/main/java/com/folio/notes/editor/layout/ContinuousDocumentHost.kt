@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.EditorSession
 import com.folio.notes.editor.EditorViewportCoordinator
 import com.folio.notes.editor.FastScrollMinThumb
@@ -45,6 +46,8 @@ import com.folio.notes.ink.LocalPenPointer
 import com.folio.notes.input.LocalStylusActivity
 import com.folio.notes.input.holdPenFromScrolling
 import com.folio.notes.library.semanticsLabel
+import com.folio.notes.settings.rememberPref
+import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.launch
@@ -76,6 +79,16 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
     val minimumThumbPx = with(density) { FastScrollMinThumb.toPx() }
     var documentZoom by editor.viewport.zoom
     var documentPan by editor.viewport.pan
+    val prefs = rememberPrefs()
+    val maxZoom by rememberPref(prefs, AppPrefs.MAX_ZOOM) { AppPrefs.maxZoom(it.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM)) }
+    LaunchedEffect(maxZoom, documentZoom > maxZoom) {
+        if (documentZoom > maxZoom) {
+            val ratio = maxZoom / documentZoom
+            documentPan = DocumentViewport.zoomPan(documentPan, viewportWidth / 2f, viewportWidth, baseWidthPx * documentScale * maxZoom, ratio)
+            pages.requestScrollToItem(pages.firstVisibleItemIndex, DocumentViewport.zoomScroll(pages.firstVisibleItemScrollOffset, 0f, ratio))
+            documentZoom = maxZoom
+        }
+    }
     var inkNavigating by editor.interaction.navigating
     var scrubbing by editor.interaction.scrubbing
     val stickyLift by editor.interaction.stickyLift
@@ -84,7 +97,7 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
     val pen = LocalPenPointer.current
     val eraserPainter = remember { EraserRingPainter() }
     val objectLift by editor.interaction.objectLift
-    Box(Modifier.fillMaxSize().pointerInput(inputStylusActivity, motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, haptics, pageCount) {
+    Box(Modifier.fillMaxSize().pointerInput(inputStylusActivity, motion, viewportWidth, baseWidthPx, stripWidthPx, stripInsetPx, trackTopPx, trackBottomPx, minimumThumbPx, haptics, pageCount, maxZoom) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val cancellationSerial = inputStylusActivity.cancellationSerial
@@ -183,7 +196,7 @@ internal data class DocumentHostLayout(val baseWidth: Dp, val viewportWidth: Flo
                                 travel += delta
                                 velocity.addPosition(event.changes.first().uptimeMillis, travel)
                                 val oldZoom = documentZoom
-                                val newZoom = (oldZoom * factor).coerceIn(0.5f, 4f)
+                                val newZoom = (oldZoom * factor).coerceIn(0.5f, maxZoom)
                                 val ratio = newZoom / oldZoom
                                 documentPan = DocumentViewport.zoomPan(documentPan, centroid.x, viewportWidth, baseWidthPx * documentScale * newZoom, ratio)
                                 documentZoom = newZoom

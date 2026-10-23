@@ -201,6 +201,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
     val smoothing by rememberPref(p, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
     val startHold by rememberPref(p, AppPrefs.PEN_START_HOLD) { AppPrefs.penStartHold(it.getString(AppPrefs.PEN_START_HOLD, null)) }
+    val maxZoom by rememberPref(p, AppPrefs.MAX_ZOOM) { AppPrefs.maxZoom(it.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM)) }
     SettingsGroup("Input") {
         SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Until you choose, this turns off by itself the first time a pen is used. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
         SettingsDivider()
@@ -216,6 +217,13 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     SettingsGroup("Hold at stroke start", footer = "With the pen selected, hold the stylus still for half a second before drawing to use this tool for one stroke. It uses that tool's saved settings; lift to return to the pen. With Tidy up shapes and Straighten highlighter enabled, hold again at the end to straighten the highlight.") {
         SettingsSegmentedRow("Switch to", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
             { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } })
+    }
+    SettingsGroup("Zoom") {
+        SettingsSliderRow("Maximum zoom", "${(maxZoom * 100).roundToInt()}%", maxZoom, AppPrefs.MIN_MAX_ZOOM..AppPrefs.MAX_MAX_ZOOM,
+            { p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.maxZoom(it.roundToInt().toFloat())) } }, steps = 6,
+            subtitle = "Limits how far you can zoom into pages, canvases and reference views.",
+            lowLabel = "100%", highLabel = "800%",
+            onReset = if (maxZoom != AppPrefs.DEFAULT_MAX_ZOOM) ({ p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM) } }) else null)
     }
     val taper by rememberPref(p, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
     SettingsGroup("Pen feel", footer = "Pressure response and per-tool pen settings are in the pen's tool options in the editor. Soft ends change how every pen stroke is drawn, old and new; the rest apply to new strokes.") {
@@ -636,8 +644,13 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     SettingsGroup("Review confirmation") { SettingsPrefSwitch(AppPrefs.UX_REVIEW_CONFIRM, true, "Confirm answer reveal and skip", "Turn off for single-tap review. Keyboard controls: Space reveal, 1–4 rate, S skip.") }
     val p = rememberPrefs()
     val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
-    SettingsGroup("Practice pages", footer = "Every question you practise opens on its own infinite canvas; this picks the guide printed behind it. It applies to the next question; pages you have already written keep their own paper.") {
+    val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
+    SettingsGroup("Practice pages", footer = "Every question you practise opens on its own infinite canvas, already at the starting zoom with the guide printed behind it. These apply to the next question; pages you have already written keep their own paper and view.") {
         SettingsChipRow("Paper guide", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.MISTAKE_PAPER, it.name) } })
+        SettingsSliderRow("Starting zoom", "${(zoom * 100).roundToInt()}%", zoom, .5f..3f,
+            { p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.mistakeZoom(it)) } }, steps = 24,
+            onReset = if (zoom != AppPrefs.DEFAULT_MISTAKE_ZOOM) ({ p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM) } }) else null,
+            lowLabel = "50%", highLabel = "300%")
     }
     SettingsGroup("Split layout") {
         SettingsBlock { SettingsBlockHint("The question sits beside your writing. Drag the divider to give one more room, or double-tap it for the default split; the last position is remembered.") }

@@ -14,6 +14,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.viewinterop.AndroidView
+import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.EditorPageActions
 import com.folio.notes.editor.EditorSurfaceRole
 import com.folio.notes.editor.InkSurfaceConfig
@@ -24,6 +25,8 @@ import com.folio.notes.ink.InkView
 import com.folio.notes.ink.shapes.ShapeAssistOptions
 import com.folio.notes.input.StylusActivity
 import com.folio.notes.model.NotePage
+import com.folio.notes.settings.rememberPref
+import com.folio.notes.settings.rememberPrefs
 
 /** The single Compose/native bridge. Samples, cancellation and raster teardown remain native. */
 @Composable internal fun InkViewHost(
@@ -32,6 +35,8 @@ import com.folio.notes.model.NotePage
     penSmoothing: Float, shapeHoldMs: Long, shapeAssistOptions: ShapeAssistOptions, stickyTextSize: Float, onBound: (InkView) -> Unit,
     onReleased: (InkView) -> Unit, configure: (InkView) -> Unit,
 ) {
+    val prefs = rememberPrefs()
+    val maxZoom by rememberPref(prefs, AppPrefs.MAX_ZOOM) { AppPrefs.maxZoom(it.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM)) }
     val registry = LocalEditorSurfaces.current
     val documentInput = LocalDocumentInput.current
     val role = when {
@@ -71,6 +76,7 @@ import com.folio.notes.model.NotePage
             view.onDocumentGestureCancel = if (documentInput != null) { { documentInput.cancel() } } else null
             view.onDocumentSelectionDrag = if (continuous && documentInput != null) { dx, dy, commit -> documentInput.dragSelection(page.id, dx, dy, commit) } else null
             view.documentSelectionOwner = continuous && documentInput?.selectedOn(page.id) == true
+            view.maxZoom = maxZoom
             onBound(view)
             val tool = surface.tool
             val options = surface.options
