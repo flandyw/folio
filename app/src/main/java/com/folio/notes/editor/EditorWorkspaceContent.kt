@@ -271,10 +271,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         if (haptics) penHaptics?.start() else penHaptics?.stop()
         onDispose { penHaptics?.stop() }
     }
-    // Writing feedback needs no Bluetooth, so it has its own switch; a new feel applies on reconnect.
+    // Writing feedback needs no Bluetooth, so it has its own switch; a new feel applies on the next stroke.
     val writingFeedback by rememberPref(appPrefs, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
-    val writingFeel by rememberPref(appPrefs, AppPrefs.WRITING_FEEL) { it.getString(AppPrefs.WRITING_FEEL, null) }
-    DisposableEffect(writingFeedback, writingFeel) {
+    DisposableEffect(writingFeedback) {
         val penFeedback = (context.applicationContext as? FolioApplication)?.penFeedback
         if (writingFeedback) penFeedback?.start()
         onDispose { penFeedback?.stop() }

@@ -161,6 +161,8 @@ object AppPrefs {
     const val FAST_PAN = "input.fastPan"
     const val WRITING_FEEDBACK = "pen.writingFeedback"
     const val WRITING_FEEL = "pen.writingFeel"
+    const val WRITING_FEEL_HIGHLIGHTER = "pen.writingFeel.highlighter"
+    const val WRITING_FEEL_ERASER = "pen.writingFeel.eraser"
     const val FAST_PAN_MULTIPLIER = "input.fastPanMultiplier"
     const val TIMER_CUSTOM_MIN = "timer.customMinutes"
     const val TIMER_READING_MIN = "timer.readingMinutes"

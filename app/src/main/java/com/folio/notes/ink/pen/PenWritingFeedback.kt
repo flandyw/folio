@@ -52,15 +52,12 @@ class PenWritingFeedback(private val context: Context) {
     /** Last outcome, shown in Settings: which identity was accepted, or why none was. */
     var status by mutableStateOf<FeedbackStatus>(FeedbackStatus.Idle)
         private set
-    /** Where the texture comes from; read from preferences on every [start]. */
-    private var feel = WritingFeel.AUTO
 
     val isReady: Boolean get() = pen?.isBinderAlive == true
 
     fun start() {
         if (running || !isSupported()) return
         running = true
-        feel = WritingFeel.of(context.getSharedPreferences("preferences", 0).getString(AppPrefs.WRITING_FEEL, null))
         identities = ArrayDeque(listOf(context.packageName) + LICENSED_APPS)
         next()
     }
@@ -78,7 +75,7 @@ class PenWritingFeedback(private val context: Context) {
     /** Pen tip down with a writing tool; [tool] is its `TEXTURE_*`, used unless a fixed [WritingFeel] is chosen. */
     fun begin(tool: Int) {
         val binder = pen ?: return
-        val type = feel.texture ?: tool
+        val type = WritingFeel.pick(context.getSharedPreferences("preferences", 0), tool).texture ?: tool
         if (type != texture) { texture = type; oneWay(binder, SET_TEXTURE) { writeInt(type) } }
         if (vibrating) return
         vibrating = true
@@ -278,12 +275,23 @@ sealed interface FeedbackStatus {
 
 /** The pen texture: follow the tool, or one fixed feel for everything. */
 enum class WritingFeel(val label: String, val description: String, val texture: Int?) {
-    AUTO("Match the tool", "Pen and shapes feel like a ballpoint, the highlighter like a felt pen, the eraser like rubber.", null),
-    PENCIL("Pencil", "A grainy, papery drag for every tool.", PenWritingFeedback.TEXTURE_PENCIL),
-    BALLPEN("Ballpoint", "A light, smooth glide for every tool.", PenWritingFeedback.TEXTURE_BALLPEN),
-    PEN("Felt pen", "A soft, damped stroke for every tool.", PenWritingFeedback.TEXTURE_PEN);
+    AUTO("Match the tool", "The tool's natural feel: ballpoint for pen and shapes, felt pen for the highlighter, rubber for the eraser.", null),
+    PENCIL("Pencil", "A grainy, papery drag.", PenWritingFeedback.TEXTURE_PENCIL),
+    BALLPEN("Ballpoint", "A light, smooth glide.", PenWritingFeedback.TEXTURE_BALLPEN),
+    PEN("Felt pen", "A soft, damped stroke.", PenWritingFeedback.TEXTURE_PEN);
 
     companion object {
         fun of(raw: String?) = entries.firstOrNull { it.name == raw } ?: AUTO
+
+        /** Preference holding the feel for the tool behind a `TEXTURE_*`: pen and shapes, highlighter, eraser. */
+        fun key(tool: Int) = when (tool) {
+            PenWritingFeedback.TEXTURE_ERASER -> AppPrefs.WRITING_FEEL_ERASER
+            PenWritingFeedback.TEXTURE_PEN -> AppPrefs.WRITING_FEEL_HIGHLIGHTER
+            else -> AppPrefs.WRITING_FEEL
+        }
+
+        /** A tool's own feel; until it has one it follows the pen's (the old single setting). */
+        fun pick(p: android.content.SharedPreferences, tool: Int) =
+            of(p.getString(key(tool), null) ?: p.getString(AppPrefs.WRITING_FEEL, null))
     }
 }

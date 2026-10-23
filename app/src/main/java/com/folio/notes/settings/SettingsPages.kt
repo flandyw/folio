@@ -705,7 +705,11 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val context = LocalContext.current
     val feedback = remember(context) { (context.applicationContext as? FolioApplication)?.penFeedback }
     val on by rememberPref(p, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
-    val feel by rememberPref(p, AppPrefs.WRITING_FEEL) { WritingFeel.of(it.getString(AppPrefs.WRITING_FEEL, null)) }
+    val feels = listOf(
+        "Pen and shapes" to PenWritingFeedback.TEXTURE_BALLPEN,
+        "Highlighter" to PenWritingFeedback.TEXTURE_PEN,
+        "Eraser" to PenWritingFeedback.TEXTURE_ERASER,
+    )
     val status = when (val st = feedback?.status) {
         is FeedbackStatus.Connected -> if (st.own) "Connected." else "Connected through a partner app's licence (HiPaint or StarNote)."
         FeedbackStatus.Connecting -> "Connecting to the pen service…"
@@ -721,10 +725,14 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             onReset = if (on != AppPrefs.DEFAULT_WRITING_FEEDBACK) ({ p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) } }) else null,
         )
         if (on) {
-            SettingsDivider()
-            SettingsRadioGroup {
-                WritingFeel.entries.forEach { f ->
-                    SettingsRadioRow(f.label, f.description, feel == f) { p.write { putString(AppPrefs.WRITING_FEEL, f.name) } }
+            feels.forEach { (name, texture) ->
+                val feel by rememberPref(p, WritingFeel.key(texture)) { WritingFeel.pick(it, texture) }
+                SettingsDivider()
+                Text(name, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleSmall)
+                SettingsRadioGroup {
+                    WritingFeel.entries.forEach { f ->
+                        SettingsRadioRow(f.label, f.description, feel == f) { p.write { putString(WritingFeel.key(texture), f.name) } }
+                    }
                 }
             }
         }
