@@ -407,7 +407,8 @@ private enum class TabClose { NONE, TAB, SPLIT }
                                     Modifier.height(TabSlotHeight).padding(start = leading.coerceAtLeast(0.dp), end = if (tab.id == firstSplit && inPair) 0.dp else FolioSpacing.dp4),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Tab(tab, tab.id == activeId, held, pressed, close, onClose, { split?.toggle?.invoke() },
+                                    // Both halves of an open split look alike: neither document is the background one.
+                                    Tab(tab, tab.id == activeId || inPair, held, pressed, close, onClose, { split?.toggle?.invoke() },
                                         modifier = Modifier.semantics {
                                             role = Role.Tab
                                             selected = tab.id == activeId

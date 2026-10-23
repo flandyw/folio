@@ -6,17 +6,19 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.layout.DocumentMotion
 import com.folio.notes.editor.layout.DocumentPageGeometry
 import com.folio.notes.editor.layout.PageNavigation
+import com.folio.notes.model.Notebook
 import kotlin.math.roundToInt
 
 /** Single owner for explicit navigation, landing protection and continuous-page anchors. */
 internal class EditorViewportCoordinator(
     val list: LazyListState, val motion: DocumentMotion, private val model: FolioViewModel,
     private val notebookId: String, private val camera: EditorViewportState,
+    /** The document this column shows; the split view's other pane passes its own notebook. */
+    private val live: () -> Notebook? = { model.state.value.active?.takeIf { it.id == notebookId } },
 ) {
     private var navigation = PageNavigation()
     var generation by mutableIntStateOf(0)
         private set
-    private fun live() = model.state.value.active?.takeIf { it.id == notebookId }
 
     fun jump(index: Int) {
         val note = live()?.takeIf { it.pages.isNotEmpty() } ?: return

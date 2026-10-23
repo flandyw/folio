@@ -6,7 +6,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -49,16 +48,26 @@ import com.folio.notes.app.WorkspaceViewModel
 import com.folio.notes.editor.EditorCommand
 import com.folio.notes.editor.EditorPageActions
 import com.folio.notes.editor.EditorPageMutations
+import com.folio.notes.editor.EditorBrowserState
 import com.folio.notes.editor.EditorScreen
+import com.folio.notes.editor.EditorSession
+import com.folio.notes.editor.EditorToolState
+import com.folio.notes.editor.EditorViewportCoordinator
+import com.folio.notes.editor.EditorViewportState
+import com.folio.notes.editor.FastScrollTrack
+import com.folio.notes.editor.LocalEditorSurfaces
 import com.folio.notes.editor.InkSurfaceConfig
 import com.folio.notes.editor.LocalWorkspaceCommands
 import com.folio.notes.editor.PagePresentation
+import com.folio.notes.editor.layout.ContinuousDocumentHost
+import com.folio.notes.editor.layout.DocumentHostLayout
 import com.folio.notes.editor.layout.DocumentMotion
+import com.folio.notes.editor.layout.DocumentViewport
+import com.folio.notes.editor.sticky.StickyNotes
+import com.folio.notes.ink.EraserPreview
 import com.folio.notes.editor.page.EditorPage
 import com.folio.notes.editor.page.PageNavigator
 import com.folio.notes.editor.toolbar.ToolOptions
-import com.folio.notes.input.LocalStylusActivity
-import com.folio.notes.input.StylusActivity
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.input.isPen
 import com.folio.notes.model.Notebook
@@ -67,6 +76,7 @@ import com.folio.notes.model.Stroke
 import com.folio.notes.model.Tool
 import com.folio.notes.pdf.PdfLink
 import com.folio.notes.pdf.PdfLinkTarget
+import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
@@ -126,10 +136,11 @@ internal val LocalTabDrag = compositionLocalOf<MutableState<TabDrag?>?> { null }
 internal val LocalEditorBarHeight = compositionLocalOf<MutableIntState?> { null }
 
 /**
- * Tools the other pane takes straight from the shared toolbar. Text, lasso, sticky notes and the
- * like need the editor's own panels, so a pen with one of those moves the editor over instead.
+ * Tools the other pane takes straight from the shared toolbar (the hand just pans it). Text, lasso,
+ * sticky notes and the like need the editor's own panels, so a pen with one of those moves the
+ * editor over instead.
  */
-private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASER) + ShapePickerTools
+private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASER, Tool.HAND) + ShapePickerTools
 
 /**
  * The editor, and optionally a second document beside it. The toolbar's split button opens the
@@ -193,7 +204,7 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
         BoxWithConstraints(Modifier.fillMaxSize().padding(top = barTop).onGloballyPositioned { areaInWindow = it.boundsInWindow() }) {
             val stacked = maxWidth < 600.dp
             SideEffect { areaStacked = stacked }
-            val divider = 12.dp
+            val divider = 6.dp
             val availablePx = with(LocalDensity.current) { ((if (stacked) maxHeight else maxWidth) - divider).toPx() }
             val editorFirst = !state.editorOnRight
             val fraction = SplitPanes.coerce(dragging ?: state.splitFraction)
@@ -230,11 +241,11 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
                                 })
                         }
                     }
-                    // The pane the toolbar is working on, outlined like the active half of a browser split.
-                    if (paired) Box(Modifier.matchParentSize().border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f)))
                     if (closing == SplitRelease.CloseEditor) ReleaseToClose()
                 },
                 handle = {
+                    // Both panes share one paper colour; the bar is the only seam between them.
+                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh))
                     SplitDivider(
                         vertical = !stacked,
                         onDrag = { delta -> dragging = SplitPanes.dragged(dragging ?: fraction, delta, availablePx, invert = !editorFirst) },
@@ -259,7 +270,7 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
                     if (choosing || !paired) SplitChooserPane(state, model, replacing = paired,
                         onPick = ::openBeside, onCancel = { choosing = false })
                     else key(companion!!.notebookId, state.workspaceRestoreRequest) {
-                        CompanionPane(model, companion, note!!, sharedInk.value, onFocus = model::swapCompanion)
+                        CompanionPane(model, companion, note!!, sharedInk.value, haptics, onFocus = model::swapCompanion)
                     }
                     if (closing == SplitRelease.CloseCompanion) ReleaseToClose()
                 },
@@ -430,61 +441,37 @@ private enum class SplitSlot { EDITOR, HANDLE, OTHER }
 }
 
 /**
- * Makes the pane the editor on a deliberate finger tap, and when a pen touches it holding a tool the
- * pane can't use on its own (with an ink tool the pen just writes there). The pen's
- * contact is consumed (the read-only page underneath gets a cancel), so the stroke is never drawn
- * into the wrong document; a finger still scrolls, zooms and follows links in the pane, and a palm
- * near a pen that was just writing is never taken for a tap.
+ * Makes the pane the editor when a pen touches it holding a tool the pane can't use on its own
+ * (with an ink tool or the hand the pen just works here). The pen's contact is consumed (the page
+ * underneath gets a cancel), so nothing is drawn into the wrong document. Fingers are never taken:
+ * they scroll, zoom and follow links in either pane alike, so neither pane is "the inactive one".
  */
-private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, linkFollowedAt: () -> Long, onFocus: () -> Unit): Modifier = composed {
-    val scope = rememberCoroutineScope()
+private fun Modifier.focusOnTouch(penWorks: Boolean, onFocus: () -> Unit): Modifier = composed {
     val focus by rememberUpdatedState(onFocus)
-    val writes by rememberUpdatedState(penWrites)
-    pointerInput(stylus) {
+    val works by rememberUpdatedState(penWorks)
+    pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            // With an ink tool the pen simply writes here; the toolbar stays where it is.
-            if (isPen(down.type) && writes) return@awaitEachGesture
-            if (isPen(down.type)) {
-                down.consume()
-                focus()
-                do {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    event.changes.forEach { it.consume() }
-                } while (event.changes.any { it.pressed })
-                return@awaitEachGesture
-            }
-            if (down.type != PointerType.Touch || stylus.isRecent(down.uptimeMillis) || stylus.isTouching) return@awaitEachGesture
-            var tapped = false
-            withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    if (event.changes.any { it.id != down.id && it.pressed }) break
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
-                    if (!change.pressed) { tapped = true; break }
-                }
-            }
-            if (!tapped) return@awaitEachGesture
-            val at = down.uptimeMillis
-            // The page sees this tap after us; let it follow a PDF link first, which keeps the
-            // pane a reference rather than swapping documents under the link.
-            scope.launch {
-                kotlinx.coroutines.delay(120)
-                if (linkFollowedAt() < at) focus()
-            }
+            if (!isPen(down.type) || works) return@awaitEachGesture
+            down.consume()
+            focus()
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { it.consume() }
+            } while (event.changes.any { it.pressed })
         }
     }
 }
 
 /**
- * The other document, laid out like the editor: a scrolling column of its pages (an infinite canvas
- * stays a single canvas), with no bar of its own. The shared toolbar's pen writes here directly; a
- * finger scrolls, flings and follows links, and a tap (or a pen holding a tool only the editor can
- * use) makes this pane the editor.
+ * The other document, laid out exactly like the editor: the same paper column (an infinite canvas
+ * stays a single canvas) on the editor's own document host, so pinch zoom, panning, flings, the
+ * fast-scroll thumb and sticky notes beside the paper behave the same in both panes. The shared
+ * toolbar's pen, eraser, shapes and hand work here directly; a pen holding a tool only the editor can
+ * use makes this pane the editor, without either document moving.
  */
 @Composable private fun CompanionPane(model: FolioViewModel, pane: EditorTab, note: Notebook,
-    sharedInk: InkSurfaceConfig?,
+    sharedInk: InkSurfaceConfig?, haptics: Boolean,
     onFocus: () -> Unit) {
     val index = note.pages.indexOfFirst { it.id == pane.currentPageId }.coerceAtLeast(0)
     val page = note.pages.getOrNull(index) ?: return
@@ -492,19 +479,16 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
     val scope = rememberCoroutineScope()
     val pdfBacked = remember(note.id) { note.pages.any { it.pdfIndex != null } }
     var links by remember(note.id) { mutableStateOf(emptyList<PdfLink>()) }
-    var linkFollowedAt by remember { mutableLongStateOf(0L) }
-    val stylus = LocalStylusActivity.current
     // Link rectangles arrive once per notebook; a native notebook simply has none.
     LaunchedEffect(note.id, pdfBacked) {
         links = if (pdfBacked) try { model.repository.pdfs.pdfPageLinks(note.id, note.pages) } catch (_: Exception) { emptyList() } else emptyList()
     }
     val handOptions = remember { ToolOptions.defaults(Tool.HAND) }
-    // Both documents are editable at once: the pane borrows the editor's pen, eraser or shape.
+    // Both documents are editable at once: the pane borrows the editor's pen, eraser, shape or hand.
     val writable = sharedInk != null && sharedInk.tool in PaneInkTools
-    val surface = if (writable) sharedInk!!.copy(finger = false, multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
+    val surface = if (writable) sharedInk!!.copy(multiTouchUndo = false, followEnabled = false, rulerEnabled = false, ruler = null)
         else InkSurfaceConfig(tool = Tool.HAND, options = handOptions, finger = false, snapEnabled = false, shapeRecognition = false, multiTouchUndo = false)
     fun openLink(link: PdfLink) {
-        linkFollowedAt = android.os.SystemClock.uptimeMillis()
         when (val target = link.target) {
             is PdfLinkTarget.Page -> model.companionPage(target.pageIndex)
             is PdfLinkTarget.Url -> try {
@@ -512,45 +496,59 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
             } catch (_: Exception) { model.reportError("Couldn't open this link") }
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        // Pages fill the pane's width with a margin, like the editor's column at its fitted zoom.
-        val paperWidth = (maxWidth - FolioSpacing.dp16 * 2).coerceIn(120.dp, 1100.dp)
-        val paperWidthPx = with(LocalDensity.current) { paperWidth.toPx() }
-        // Start where this document was last seen (as the editor or as this pane), page-relative so a
-        // different zoom or pane width still lands on the same line. A stale anchor is ignored.
-        val start = remember(note.id) {
-            pane.viewport.documentPageId?.let { id -> note.pages.indexOfFirst { it.id == id } }?.takeIf { it == index || it == index - 1 }
-                ?.let { at -> at to ((pane.viewport.documentPageY ?: 0f) * paperWidthPx / note.pages[at].width).roundToInt().coerceAtLeast(0) }
-                ?: (index to 0)
-        }
-        val pages = rememberLazyListState(initialFirstVisibleItemIndex = start.first, initialFirstVisibleItemScrollOffset = start.second)
-        val motionDensity = LocalDensity.current.density
-        val motion = remember(pages, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
-        // The page mostly on screen is this pane's page: page links, undo and the saved position follow it.
-        val shownIndex by remember(pages) { derivedStateOf {
-            val info = pages.layoutInfo
-            info.visibleItemsInfo.maxByOrNull { item ->
-                minOf(item.offset + item.size, info.viewportEndOffset) - maxOf(item.offset, info.viewportStartOffset)
-            }?.index ?: pages.firstVisibleItemIndex
-        } }
+    val prefs = rememberPrefs()
+    // Start where this document was last seen (as the editor or as this pane), page-relative so a
+    // different zoom or pane width still lands on the same line. A stale anchor starts at the page top.
+    val start = remember {
+        pane.viewport.takeIf { vp -> vp.documentPageId?.let { id -> note.pages.indexOfFirst { it.id == id } }.let { it == index || it == index - 1 } }
+            ?: pane.viewport.copy(scrollOffset = 0, documentPageId = page.id, documentPageY = 0f)
+    }
+    // Visit-scoped presentation only, like the editor's: camera, page frames and the pages' native surfaces.
+    val session = remember { EditorSession(EditorToolState(prefs, Tool.HAND), EditorViewportState(start), EditorBrowserState()) }
+    val pages = rememberLazyListState(initialFirstVisibleItemIndex = note.pages.indexOfFirst { it.id == start.documentPageId }.coerceAtLeast(0),
+        initialFirstVisibleItemScrollOffset = start.scrollOffset.coerceAtLeast(0))
+    val motionDensity = LocalDensity.current.density
+    val motion = remember(pages, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
+    DisposableEffect(motion) { onDispose { motion.reset() } }
+    val coordinator = remember(pages, motion) {
+        EditorViewportCoordinator(pages, motion, model, note.id, session.viewport, live = { model.state.value.notes.find { it.id == note.id } })
+    }
+    var documentZoom by session.viewport.zoom
+    var documentPan by session.viewport.pan
+    // The page mostly on screen is this pane's page: page links, undo and the saved position follow it.
+    val shownIndex by remember(pages) { derivedStateOf {
+        val info = pages.layoutInfo
+        info.visibleItemsInfo.filter { it.index < note.pages.size }.maxByOrNull { item ->
+            minOf(item.offset + item.size, info.viewportEndOffset) - maxOf(item.offset, info.viewportStartOffset)
+        }?.index ?: pages.firstVisibleItemIndex
+    } }
+    if (!page.infinite) {
         LaunchedEffect(shownIndex) { if (shownIndex != index && !pages.isScrollInProgress) model.companionPage(shownIndex) }
         LaunchedEffect(pages.isScrollInProgress) { if (!pages.isScrollInProgress && shownIndex != index) model.companionPage(shownIndex) }
-        // A linked page turn (or a PDF link) moves the column to the new page.
-        LaunchedEffect(index) { if (index != shownIndex) pages.animateScrollToItem(index) }
-        // The exact spot on screen, in the editor's own terms, so trading places with the editor (or a
-        // restart) keeps both documents where they were instead of jumping to the top of a page.
-        fun anchor(): WorkspaceViewport? {
-            if (page.infinite) return null
-            val item = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.offset + it.size > 0 } ?: return null
-            val sheet = note.pages.getOrNull(item.index) ?: return null
-            return WorkspaceViewport(scrollOffset = -item.offset, documentPageId = sheet.id,
-                documentPageY = if (item.size > 0) -item.offset.toFloat() / item.size * sheet.height else 0f)
-        }
-        LaunchedEffect(pages, page.infinite, note.pages) {
-            if (!page.infinite) snapshotFlow { anchor() }.distinctUntilChanged().debounce(250).collect { it?.let(model::updateCompanionViewport) }
-        }
-        val focus = { anchor()?.let(model::updateCompanionViewport); onFocus() }
-        Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, focus)) {
+        // A linked page turn (or a PDF link) moves the column to the new page; the first index is
+        // where the column already starts, so arriving never scrolls.
+        var turnedTo by remember { mutableIntStateOf(index) }
+        LaunchedEffect(index) { if (index != turnedTo) { turnedTo = index; if (index != shownIndex) { motion.reset(); pages.animateScrollToItem(index) } } }
+        LaunchedEffect(pages) { snapshotFlow { pages.firstVisibleItemIndex to pages.firstVisibleItemScrollOffset }.collect { coordinator.capture() } }
+    }
+    // The exact spot on screen, in the editor's own terms (zoom, pan and a page-relative anchor), so
+    // trading places with the editor, or a restart, keeps the document exactly where it was.
+    fun spot(): WorkspaceViewport? {
+        if (page.infinite) return null
+        val anchor = session.viewport.anchor ?: return null
+        val offset = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.key == anchor.pageId }?.let { -it.offset } ?: pages.firstVisibleItemScrollOffset
+        return WorkspaceViewport(documentZoom, documentPan, offset, documentPageId = anchor.pageId, documentPageY = anchor.localY)
+    }
+    val shownPage by rememberUpdatedState(index)
+    LaunchedEffect(pages, page.infinite) {
+        // The page is part of the key: a page turn resets the stored frame, so the spot is written again.
+        if (!page.infinite) snapshotFlow { shownPage to spot() }.distinctUntilChanged().debounce(250).collect { (_, vp) -> vp?.let(model::updateCompanionViewport) }
+    }
+    val focus = { spot()?.let(model::updateCompanionViewport); onFocus() }
+    BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+        val density = LocalDensity.current
+        val paneWidth = maxWidth
+        Box(Modifier.fillMaxSize().focusOnTouch(writable, focus)) {
             if (page.infinite) key(note.id, page.id) {
                 var viewport by remember(pane.notebookId, page.id) { mutableStateOf(pane.viewport) }
                 LaunchedEffect(viewport) { kotlinx.coroutines.delay(200); model.updateCompanionViewport(viewport) }
@@ -562,34 +560,59 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
                     actions = EditorPageActions(mutations = remember(page.id) { model.pageMutations(page.id) }, onActive = {},
                         onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
                         onLoad = { model.loadPage(page.id) }, onCameraChanged = onCamera, onPdfLink = ::openLink))
-            } else Box(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.fillMaxSize().graphicsLayer { translationY = motion.stretch },
-                    state = pages,
-                    contentPadding = PaddingValues(vertical = FolioSpacing.dp12),
-                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
-                    itemsIndexed(note.pages, key = { _, item -> item.id }) { itemIndex, item ->
-                        val mutations = remember(item.id) { model.pageMutations(item.id) }
-                        // Writing on a page makes it this pane's page, so Undo knows where to look.
-                        val paneMutations = remember(mutations, itemIndex) { object : EditorPageMutations by mutations {
-                            override fun appendStroke(before: List<Stroke>, stroke: Stroke, after: List<Stroke>) {
-                                if (model.state.value.companion?.currentPageId != item.id) model.companionPage(itemIndex)
-                                mutations.appendStroke(before, stroke, after)
+            } else {
+                // The editor's own column metrics, so the two documents line up and trade places without moving.
+                val baseWidth = (paneWidth - 20.dp).coerceIn(1.dp, 900.dp)
+                val baseWidthPx = with(density) { baseWidth.toPx() }
+                val viewportWidth = with(density) { paneWidth.toPx() }
+                val documentScale = 1f + 2f * remember(note.pages) { StickyNotes.workspaceSide(note.pages) }
+                var windowBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+                val transfers = session.interaction.transfers
+                SideEffect { transfers.update(note.pages) }
+                LaunchedEffect(viewportWidth, baseWidthPx, documentScale) {
+                    documentPan = DocumentViewport.clampPan(documentPan, baseWidthPx * documentScale * documentZoom, viewportWidth)
+                }
+                fun panBy(dx: Float, dy: Float) {
+                    documentPan = DocumentViewport.clampPan(documentPan + dx, baseWidthPx * documentScale * documentZoom, viewportWidth)
+                    motion.drag(dy)
+                }
+                val eraser = sharedInk?.takeIf { writable && it.tool == Tool.ERASER }?.let { EraserPreview(it.options.width / 2f, page.width, it.eraserWholeStroke) }
+                Box(Modifier.fillMaxSize().onGloballyPositioned { windowBounds = it.boundsInWindow() }) {
+                    CompositionLocalProvider(LocalEditorSurfaces provides session.surfaces) {
+                        ContinuousDocumentHost(note.id, note.pages.size, session, pages, motion, coordinator,
+                            DocumentHostLayout(baseWidth, viewportWidth, documentScale, 8.dp, windowBounds, eraser),
+                            activeView = null, haptics = haptics, pullAdding = false, panBy = ::panBy) {
+                            itemsIndexed(note.pages, key = { _, item -> item.id }) { itemIndex, item ->
+                                val mutations = remember(item.id) { model.pageMutations(item.id) }
+                                // Writing on a page makes it this pane's page, so Undo knows where to look.
+                                val paneMutations = remember(mutations, itemIndex) { object : EditorPageMutations by mutations {
+                                    override fun appendStroke(before: List<Stroke>, stroke: Stroke, after: List<Stroke>) {
+                                        if (model.state.value.companion?.currentPageId != item.id) model.companionPage(itemIndex)
+                                        mutations.appendStroke(before, stroke, after)
+                                    }
+                                } }
+                                Box(Modifier.fillMaxWidth()) {
+                                    EditorPage(note.id, item, model, surface = surface,
+                                        presentation = PagePresentation(active = false,
+                                            pageLabel = "Page ${itemIndex + 1} of ${note.pages.size}",
+                                            paperWidth = baseWidth * documentZoom,
+                                            pdfLinks = links),
+                                        actions = EditorPageActions(mutations = paneMutations, onActive = {},
+                                            onPan = ::panBy,
+                                            onPanEnd = motion::release,
+                                            onSelection = {}, onTextEdit = {}, onTextCreate = {},
+                                            onLoad = { model.loadPage(item.id) },
+                                            onPageFrame = transfers::paper,
+                                            onPageRegion = transfers::region,
+                                            onEraserBrush = { session.interaction.eraserBrush.value = it },
+                                            onPdfLink = ::openLink))
+                                }
                             }
-                        } }
-                        Box(Modifier.width(paperWidth)) {
-                            EditorPage(note.id, item, model, surface = surface,
-                                presentation = PagePresentation(active = false,
-                                    pageLabel = "Page ${itemIndex + 1} of ${note.pages.size}",
-                                    paperWidth = paperWidth,
-                                    pdfLinks = links),
-                                actions = EditorPageActions(mutations = paneMutations, onActive = {},
-                                    onPan = { _, dy -> motion.drag(dy) },
-                                    onPanEnd = motion::release,
-                                    onSelection = {}, onTextEdit = {}, onTextCreate = {},
-                                    onLoad = { model.loadPage(item.id) },
-                                    onPdfLink = ::openLink))
                         }
+                    }
+                    Box(Modifier.align(Alignment.CenterEnd).padding(end = FolioSpacing.dp2).padding(top = FolioSpacing.dp16, bottom = FolioSpacing.dp16)
+                        .width(110.dp).fillMaxHeight()) {
+                        FastScrollTrack(pages, note.pages.size, session.interaction.scrubbing.value, Modifier.fillMaxSize())
                     }
                 }
             }

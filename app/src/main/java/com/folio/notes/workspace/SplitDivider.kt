@@ -1,7 +1,13 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.workspace
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -15,6 +21,8 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -23,7 +31,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.folio.notes.input.FolioTouch
-import com.folio.notes.ui.FolioShapes
 
 /**
  * The draggable split between two panes, shared by the workspace editor/companion split and
@@ -49,6 +56,13 @@ fun SplitDivider(
     touch: Dp = FolioTouch.target,
 ) {
     val drag = rememberDraggableState(onDrag)
+    val interaction = remember { MutableInteractionSource() }
+    // The pill answers the finger instead of a ripple spreading over both panes' edges.
+    val dragged by interaction.collectIsDraggedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val held = dragged || pressed
+    val gripLength by animateDpAsState(if (held) 64.dp else 40.dp, label = "dividerGrip")
+    val gripColor by animateColorAsState(if (held) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, label = "dividerGripColor")
     // A slim divider reserves less space, but its gesture target still extends over the
     // adjoining pane edges. Keep it above those panes so the whole target receives drags.
     Box(
@@ -60,18 +74,21 @@ fun SplitDivider(
             contentAlignment = Alignment.Center,
             modifier = (if (vertical) Modifier.requiredWidth(touch).fillMaxHeight() else Modifier.requiredHeight(touch).fillMaxWidth())
             .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
                 onClick = onClick ?: {},
                 onDoubleClick = onDoubleTap,
                 onLongClick = onLongClick,
                 onLongClickLabel = if (onLongClick != null) "Pane options" else null,
             )
             .semantics { this.contentDescription = contentDescription }
-            .draggable(drag, if (vertical) Orientation.Horizontal else Orientation.Vertical, onDragStopped = { onRelease() })
+            .draggable(drag, if (vertical) Orientation.Horizontal else Orientation.Vertical, interactionSource = interaction, onDragStopped = { onRelease() })
         ) {
-            val grip = if (thickness < FolioTouch.target) 3.dp else 4.dp
+            // Never wider than the bar itself, so the pill sits exactly on the seam.
+            val grip = minOf(if (thickness < FolioTouch.target) 3.dp else 4.dp, thickness - 2.dp).coerceAtLeast(2.dp)
             Box(
-                Modifier.then(if (vertical) Modifier.width(grip).height(48.dp) else Modifier.height(grip).width(48.dp))
-                    .background(MaterialTheme.colorScheme.outlineVariant, FolioShapes.hairline)
+                Modifier.then(if (vertical) Modifier.width(grip).height(gripLength) else Modifier.height(grip).width(gripLength))
+                    .background(gripColor, CircleShape)
             )
         }
     }

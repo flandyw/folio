@@ -365,7 +365,8 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
 
     /**
      * Moves the editor into the other pane. The documents stay where they are on screen: the editor
-     * changes side and takes the other pane's share, so the divider does not move either.
+     * changes side and takes the other pane's share, so the divider does not move either. The tool
+     * travels with the toolbar, so working in the other document never changes what the pen does.
      */
     fun swapCompanion() {
         with(runtime) {
@@ -377,7 +378,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
             prefs.edit().putFloat(AppPrefs.SPLIT_FRACTION, share).putBoolean(AppPrefs.EDITOR_ON_RIGHT, !_state.value.editorOnRight).apply()
             _state.update { it.copy(companion = active.copy(id = "companion", search = PdfSearchState()), companionPdfSearch = PdfSearchState(),
                 editorOnRight = !it.editorOnRight, splitFraction = share, companionHostId = pane.notebookId,
-                tabs = it.tabs.withTab(pane.copy(id = pane.notebookId))) }
+                tabs = it.tabs.withTab(pane.copy(id = pane.notebookId, tool = active.tool))) }
             // Avoid capturing the old active page over the destination (same-notebook split).
             selectNotebookTimer(null)
             _state.update { it.copy(activeId = null) }
