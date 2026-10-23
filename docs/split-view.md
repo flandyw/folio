@@ -44,6 +44,9 @@ it, a chooser that appears in the new pane, and no modes to pick.
   A finger tap, or a pen holding a tool only the editor can use (text, lasso, sticky notes, mark
   area…), makes it the editor; the documents stay put and only the toolbar's contents change. Page
   link, swap sides and saved workspaces are in the notebook menu and the command palette.
+- **Trading places is seamless:** the pane keeps its exact spot as a page-relative anchor (the editor's
+  `documentPageId`/`documentPageY`, written just before it takes focus and debounced while scrolling), so
+  when it becomes the editor, and the editor becomes the pane, neither document moves on screen.
 - **Divider:** drag to resize (it settles on 30/50/70%). Drag past the limit towards an edge and the pane
   being squeezed shows *Release to close*. Letting go there closes that pane, and closing the editor's pane
   leaves the other document as the editor. Double-tap for an even split.
@@ -82,6 +85,8 @@ saved workspace's `mode` field is ignored when it is read.
 3. Drag the divider to each edge: *Release to close* appears, and the remaining document keeps its page
    and zoom.
 4. Rest a palm on the other pane while writing: the panes don't switch.
+8. Scroll both panes to the middle of a page (zoom the editor in, too), then tap the other pane, and tap
+   back: each document stays on the same line instead of jumping to the top of its page.
 5. Follow a link in a PDF pane with a finger: it turns the page and the pane doesn't take focus.
 6. Open a third notebook from the tab strip and come back: the split returns. Rotate the device and
    restart the app with a split open.

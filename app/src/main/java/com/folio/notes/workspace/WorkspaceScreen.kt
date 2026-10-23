@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.workspace
 
 import android.content.Intent
@@ -71,6 +71,8 @@ import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import com.folio.notes.ui.PopoverRow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -510,22 +512,45 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
             } catch (_: Exception) { model.reportError("Couldn't open this link") }
         }
     }
-    val pages = rememberLazyListState(initialFirstVisibleItemIndex = index)
-    val motionDensity = LocalDensity.current.density
-    val motion = remember(pages, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
-    // The page mostly on screen is this pane's page: page links, undo and the saved position follow it.
-    val shownIndex by remember(pages) { derivedStateOf {
-        val info = pages.layoutInfo
-        info.visibleItemsInfo.maxByOrNull { item ->
-            minOf(item.offset + item.size, info.viewportEndOffset) - maxOf(item.offset, info.viewportStartOffset)
-        }?.index ?: pages.firstVisibleItemIndex
-    } }
-    LaunchedEffect(shownIndex) { if (shownIndex != index && !pages.isScrollInProgress) model.companionPage(shownIndex) }
-    LaunchedEffect(pages.isScrollInProgress) { if (!pages.isScrollInProgress && shownIndex != index) model.companionPage(shownIndex) }
-    // A linked page turn (or a PDF link) moves the column to the new page.
-    LaunchedEffect(index) { if (index != shownIndex) pages.animateScrollToItem(index) }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, onFocus)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+        // Pages fill the pane's width with a margin, like the editor's column at its fitted zoom.
+        val paperWidth = (maxWidth - FolioSpacing.dp16 * 2).coerceIn(120.dp, 1100.dp)
+        val paperWidthPx = with(LocalDensity.current) { paperWidth.toPx() }
+        // Start where this document was last seen (as the editor or as this pane), page-relative so a
+        // different zoom or pane width still lands on the same line. A stale anchor is ignored.
+        val start = remember(note.id) {
+            pane.viewport.documentPageId?.let { id -> note.pages.indexOfFirst { it.id == id } }?.takeIf { it == index || it == index - 1 }
+                ?.let { at -> at to ((pane.viewport.documentPageY ?: 0f) * paperWidthPx / note.pages[at].width).roundToInt().coerceAtLeast(0) }
+                ?: (index to 0)
+        }
+        val pages = rememberLazyListState(initialFirstVisibleItemIndex = start.first, initialFirstVisibleItemScrollOffset = start.second)
+        val motionDensity = LocalDensity.current.density
+        val motion = remember(pages, motionDensity) { DocumentMotion(pages::dispatchRawDelta, scope, motionDensity) }
+        // The page mostly on screen is this pane's page: page links, undo and the saved position follow it.
+        val shownIndex by remember(pages) { derivedStateOf {
+            val info = pages.layoutInfo
+            info.visibleItemsInfo.maxByOrNull { item ->
+                minOf(item.offset + item.size, info.viewportEndOffset) - maxOf(item.offset, info.viewportStartOffset)
+            }?.index ?: pages.firstVisibleItemIndex
+        } }
+        LaunchedEffect(shownIndex) { if (shownIndex != index && !pages.isScrollInProgress) model.companionPage(shownIndex) }
+        LaunchedEffect(pages.isScrollInProgress) { if (!pages.isScrollInProgress && shownIndex != index) model.companionPage(shownIndex) }
+        // A linked page turn (or a PDF link) moves the column to the new page.
+        LaunchedEffect(index) { if (index != shownIndex) pages.animateScrollToItem(index) }
+        // The exact spot on screen, in the editor's own terms, so trading places with the editor (or a
+        // restart) keeps both documents where they were instead of jumping to the top of a page.
+        fun anchor(): WorkspaceViewport? {
+            if (page.infinite) return null
+            val item = pages.layoutInfo.visibleItemsInfo.firstOrNull { it.offset + it.size > 0 } ?: return null
+            val sheet = note.pages.getOrNull(item.index) ?: return null
+            return WorkspaceViewport(scrollOffset = -item.offset, documentPageId = sheet.id,
+                documentPageY = if (item.size > 0) -item.offset.toFloat() / item.size * sheet.height else 0f)
+        }
+        LaunchedEffect(pages, page.infinite, note.pages) {
+            if (!page.infinite) snapshotFlow { anchor() }.distinctUntilChanged().debounce(250).collect { it?.let(model::updateCompanionViewport) }
+        }
+        val focus = { anchor()?.let(model::updateCompanionViewport); onFocus() }
+        Box(Modifier.fillMaxSize().focusOnTouch(stylus, writable, { linkFollowedAt }, focus)) {
             if (page.infinite) key(note.id, page.id) {
                 var viewport by remember(pane.notebookId, page.id) { mutableStateOf(pane.viewport) }
                 LaunchedEffect(viewport) { kotlinx.coroutines.delay(200); model.updateCompanionViewport(viewport) }
@@ -537,9 +562,7 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
                     actions = EditorPageActions(mutations = remember(page.id) { model.pageMutations(page.id) }, onActive = {},
                         onPan = { _, _ -> }, onPanEnd = {}, onSelection = {}, onTextEdit = {}, onTextCreate = {},
                         onLoad = { model.loadPage(page.id) }, onCameraChanged = onCamera, onPdfLink = ::openLink))
-            } else BoxWithConstraints(Modifier.fillMaxSize()) {
-                // Pages fill the pane's width with a margin, like the editor's column at its fitted zoom.
-                val paperWidth = (maxWidth - FolioSpacing.dp16 * 2).coerceIn(120.dp, 1100.dp)
+            } else Box(Modifier.fillMaxSize()) {
                 LazyColumn(Modifier.fillMaxSize().graphicsLayer { translationY = motion.stretch },
                     state = pages,
                     contentPadding = PaddingValues(vertical = FolioSpacing.dp12),
@@ -575,7 +598,7 @@ private fun Modifier.focusOnTouch(stylus: StylusActivity, penWrites: Boolean, li
             index = index, count = note.pages.size, singlePage = page.infinite,
             onTurn = { forward -> model.companionPage(index + if (forward) 1 else -1) },
             onJumpToEnd = { last -> model.companionPage(if (last) note.pages.lastIndex else 0) },
-            onToggleView = onFocus, onBrowse = onFocus,
+            onToggleView = focus, onBrowse = focus,
             modifier = Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp16).guardUiTouches())
     }
 }
