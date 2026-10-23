@@ -172,7 +172,7 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
                         reportError("Couldn't close the document. Retry save first.")
                     } else {
                         val state = _state.value
-                        val adjacent = state.tabs.adjacentAfterClosing(id)
+                        val adjacent = state.tabs.adjacentAfterClosing(id) { tab -> state.notes.notebook(tab.notebookId)?.mistakePractice == false }
                         val remaining = state.tabs.filterNot { it.id == id }
                         _state.update { it.copy(tabs = remaining) }
                         if (state.activeId == id) {

@@ -123,11 +123,13 @@ fun linkedCompanionTarget(active: Notebook, companionNote: Notebook, newPageInde
 fun List<EditorTab>.withTab(tab: EditorTab): List<EditorTab> =
     if (any { it.id == tab.id }) map { if (it.id == tab.id) tab else it } else this + tab
 
-fun List<EditorTab>.adjacentAfterClosing(id: String): EditorTab? {
+/** The tab to the left of the closed one (the first, if it was leftmost); tabs failing [eligible] are never picked. */
+fun List<EditorTab>.adjacentAfterClosing(id: String, eligible: (EditorTab) -> Boolean = { true }): EditorTab? {
     val index = indexOfFirst { it.id == id }
     if (index < 0) return null
     val remaining = filterNot { it.id == id }
-    return remaining.getOrNull(index.coerceAtMost(remaining.lastIndex))
+    val left = remaining.take(index).lastOrNull(eligible)
+    return left ?: remaining.drop(index).firstOrNull(eligible)
 }
 
 /** Small saved-instance-state payload; never serializes notebook content or search results. */
