@@ -717,7 +717,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         FeedbackStatus.Unavailable -> "This tablet has no ColorOS pen service."
         else -> "Connects when a notebook is open."
     }
-    SettingsGroup("Writing feedback", footer = "If nothing buzzes, check that the Pencil's vibration is on in ColorOS settings.") {
+    SettingsGroup("Writing feedback", footer = "Requires an installed, licensed HiPaint or StarNote and Pencil vibration enabled in ColorOS settings. Compatibility depends on the tablet's pen service.") {
         SettingsSwitchRow(
             "Buzz while writing",
             "The Pencil Pro vibrates softly while its tip is down with a pen, shape, highlighter or eraser, like the system notes app. No Bluetooth permission needed. $status",

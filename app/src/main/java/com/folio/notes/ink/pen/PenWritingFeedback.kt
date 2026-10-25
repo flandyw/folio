@@ -20,6 +20,7 @@ import com.folio.notes.app.AppPrefs
 import com.folio.notes.model.ShapePickerTools
 import com.folio.notes.model.Tool
 import com.oplus.ocs.base.common.Feature
+import java.util.UUID
 
 /**
  * Continuous in-pen writing feedback for the OnePlus / OPPO Pencil Pro, through the vendor's own
@@ -29,10 +30,10 @@ import com.oplus.ocs.base.common.Feature
  * The pen service is handed out by ColorOS's open capability service (OCS) as capability
  * `IPE_PENCIL_CLIENT`. OCS only grants it to apps OPPO has licensed, checked by the package name the
  * caller *states*. Folio has no licence of its own, so it asks under the name of each licensed note
- * app (HiPaint, StarNote) in turn. OCS takes the stated name on trust, so
- * neither app needs to be installed (confirmed on device; the route ReveriePaint uses). The
- * user owns both the pen and the tablet, so this only lets them use the pen's feedback in the app
- * they choose. If every name is refused, or on any other brand, everything here is a silent no-op.
+ * app (HiPaint, StarNote) in turn. That app must be installed: OCS reads its manifest's AUTH_CODE
+ * and signing certificate. The direct service-broker request instead checks the real caller's UID,
+ * so it cannot use these identities. If every name is refused, or on any other brand, feedback is
+ * a silent no-op. A granted binder still needs device verification against the pen manager.
  *
  * Wire details come from the OCS SDK 1.0.11 shipped in StarNote: the auth listener receives a
  * `CapabilityInfo` (feature list, version, optional `AuthResult`, binder), and the binder speaks
@@ -103,6 +104,7 @@ class PenWritingFeedback(private val context: Context) {
         identity = name
         status = FeedbackStatus.Connecting
         bound = bindAs(name, OCS_ACTION, OCS_SERVICE) || bindAs(name, OCS_FALLBACK_ACTION, OCS_FALLBACK_SERVICE)
+        Log.i(TAG, "$name bind ${if (bound) "accepted" else "refused"}")
         if (!bound) { status = FeedbackStatus.Unavailable; identities.clear() }
         else handler.postDelayed(authTimeout, AUTH_TIMEOUT_MS)
     }
@@ -111,6 +113,8 @@ class PenWritingFeedback(private val context: Context) {
         val intent = Intent(action).apply {
             this.component = component
             type = "internal_service_$CAPABILITY"
+            // Extras do not distinguish Android bindings; a fresh category makes OCS run onBind again.
+            addCategory("${context.packageName}.penFeedback.${UUID.randomUUID()}")
             putExtra("bind_type", 1)
             putExtra("internal_third_packagename", name)
             putExtra("internal_capability_client", CAPABILITY)
@@ -163,8 +167,11 @@ class PenWritingFeedback(private val context: Context) {
     }
 
     private val connection = object : ServiceConnection {
-        // OCS answers through the auth listener passed in the bind intent, not through this binder.
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) = Unit
+        // Authentication comes through the listener in the bind intent, not this broker binder.
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val descriptor = runCatching { service?.interfaceDescriptor }.getOrNull()
+            Log.i(TAG, "connected to ${name?.flattenToShortString()}: $descriptor")
+        }
         override fun onServiceDisconnected(name: ComponentName?) { handler.post { pen = null; vibrating = false } }
     }
 
@@ -248,7 +255,7 @@ class PenWritingFeedback(private val context: Context) {
         const val TEXTURE_PEN = 3
         const val TEXTURE_MARKER = 4
 
-        /** OPPO-licensed note apps whose identity OCS accepts for the pen capability; need not be installed. */
+        /** OCS reads the stated app's installed licence; the pen manager may impose further checks. */
         private val LICENSED_APPS = listOf(
             "net.huanci.hsjpro", // HiPaint; confirmed by ReveriePaint
             "com.onyx.galaxy.global.note", // StarNote (global); ships an OCS AUTH_CODE, untried as a stand-in
@@ -281,7 +288,7 @@ sealed interface FeedbackStatus {
     data object Unavailable : FeedbackStatus
 }
 
-/** The pen texture: follow the tool, or one fixed feel for everything. */
+/** Each tool group's texture: its natural feel, or its own fixed choice. */
 enum class WritingFeel(val label: String, val description: String, val texture: Int?) {
     AUTO("Match the tool", "The tool's natural feel: ballpoint for pen and shapes, marker for the highlighter, rubber for the eraser.", null),
     PENCIL("Pencil", "A grainy, papery drag.", PenWritingFeedback.TEXTURE_PENCIL),
@@ -299,8 +306,8 @@ enum class WritingFeel(val label: String, val description: String, val texture: 
             else -> AppPrefs.WRITING_FEEL
         }
 
-        /** A tool's own feel; until it has one it follows the pen's (the old single setting). */
+        /** An unset tool uses its natural texture, independently of the pen's saved choice. */
         fun pick(p: android.content.SharedPreferences, tool: Int) =
-            of(p.getString(key(tool), null) ?: p.getString(AppPrefs.WRITING_FEEL, null))
+            of(p.getString(key(tool), null))
     }
 }
