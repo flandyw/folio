@@ -273,8 +273,8 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     }
     // Writing feedback needs no Bluetooth, so it has its own switch; a new feel applies on the next stroke.
     val writingFeedback by rememberPref(appPrefs, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
+    val penFeedback = remember(context) { (context.applicationContext as? FolioApplication)?.penFeedback }
     DisposableEffect(writingFeedback) {
-        val penFeedback = (context.applicationContext as? FolioApplication)?.penFeedback
         if (writingFeedback) penFeedback?.start()
         onDispose { penFeedback?.stop() }
     }
@@ -365,7 +365,8 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     }
     fun applyStylusShortcut(action: StylusShortcut) {
         val effect = StylusShortcuts.effect(action, tool, previousTool)
-        if (effect != StylusShortcutEffect.None) penHaptics?.pulse()
+        // The pen service's pulse needs no Bluetooth; the BLE pulse covers tablets where it is not connected.
+        if (effect != StylusShortcutEffect.None && haptics && penFeedback?.pulse() != true) penHaptics?.pulse()
         when (effect) {
             is StylusShortcutEffect.SwitchTool -> if (selectTool(effect.tool)) {
                 // The pencil's double-tap arrives as a broadcast, not as input, so Compose may not draw a frame

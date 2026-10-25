@@ -28,8 +28,8 @@ import com.oplus.ocs.base.common.Feature
  *
  * The pen service is handed out by ColorOS's open capability service (OCS) as capability
  * `IPE_PENCIL_CLIENT`. OCS only grants it to apps OPPO has licensed, checked by the package name the
- * caller *states*. Folio asks under its own name first; if OCS refuses, it asks again under the name
- * of each licensed note app (HiPaint, StarNote) in turn. OCS takes the stated name on trust, so
+ * caller *states*. Folio has no licence of its own, so it asks under the name of each licensed note
+ * app (HiPaint, StarNote) in turn. OCS takes the stated name on trust, so
  * neither app needs to be installed (confirmed on device; the route ReveriePaint uses). The
  * user owns both the pen and the tablet, so this only lets them use the pen's feedback in the app
  * they choose. If every name is refused, or on any other brand, everything here is a silent no-op.
@@ -58,7 +58,7 @@ class PenWritingFeedback(private val context: Context) {
     fun start() {
         if (running || !isSupported()) return
         running = true
-        identities = ArrayDeque(listOf(context.packageName) + LICENSED_APPS)
+        identities = ArrayDeque(LICENSED_APPS)
         next()
     }
 
@@ -80,6 +80,13 @@ class PenWritingFeedback(private val context: Context) {
         if (vibrating) return
         vibrating = true
         oneWay(binder, START_FEEDBACK) {}
+    }
+
+    /** One function pulse in the pen, e.g. to confirm a double tap; false if the pen service is not connected. */
+    fun pulse(): Boolean {
+        val binder = pen?.takeIf { it.isBinderAlive } ?: return false
+        oneWay(binder, PULSE) { writeInt(0) }
+        return true
     }
 
     /** Pen lifted, cancelled, or the tool stopped writing. Safe to call repeatedly. */
@@ -131,7 +138,7 @@ class PenWritingFeedback(private val context: Context) {
         if (!running) return
         runCatching { binder.linkToDeath(death, 0) }
         pen = binder
-        status = FeedbackStatus.Connected(identity == context.packageName)
+        status = FeedbackStatus.Connected
         Log.i(TAG, "connected as $identity")
         oneWay(binder, SET_CALLBACK) { writeStrongBinder(penCallback) }
     }
@@ -230,6 +237,7 @@ class PenWritingFeedback(private val context: Context) {
         // ISdkAidlInterface transactions.
         private const val SET_CALLBACK = 1
         private const val SET_TEXTURE = 4
+        private const val PULSE = 5
         private const val UNSET_CALLBACK = 10
         private const val START_FEEDBACK = 11
         private const val STOP_FEEDBACK = 12
@@ -238,6 +246,7 @@ class PenWritingFeedback(private val context: Context) {
         const val TEXTURE_ERASER = 1
         const val TEXTURE_BALLPEN = 2
         const val TEXTURE_PEN = 3
+        const val TEXTURE_MARKER = 4
 
         /** OPPO-licensed note apps whose identity OCS accepts for the pen capability; need not be installed. */
         private val LICENSED_APPS = listOf(
@@ -256,7 +265,7 @@ class PenWritingFeedback(private val context: Context) {
         /** Texture for a tool, or null when the tool does not write (lasso, hand, text, laser…). */
         fun textureFor(tool: Tool, eraserTip: Boolean): Int? = when {
             eraserTip || tool == Tool.ERASER -> TEXTURE_ERASER
-            tool == Tool.HIGHLIGHTER -> TEXTURE_PEN
+            tool == Tool.HIGHLIGHTER -> TEXTURE_MARKER
             tool == Tool.PEN || tool in ShapePickerTools -> TEXTURE_BALLPEN
             else -> null
         }
@@ -267,18 +276,18 @@ class PenWritingFeedback(private val context: Context) {
 sealed interface FeedbackStatus {
     data object Idle : FeedbackStatus
     data object Connecting : FeedbackStatus
-    /** [own]: OCS accepted Folio itself rather than a licensed partner's name. */
-    data class Connected(val own: Boolean) : FeedbackStatus
+    data object Connected : FeedbackStatus
     data object Refused : FeedbackStatus
     data object Unavailable : FeedbackStatus
 }
 
 /** The pen texture: follow the tool, or one fixed feel for everything. */
 enum class WritingFeel(val label: String, val description: String, val texture: Int?) {
-    AUTO("Match the tool", "The tool's natural feel: ballpoint for pen and shapes, felt pen for the highlighter, rubber for the eraser.", null),
+    AUTO("Match the tool", "The tool's natural feel: ballpoint for pen and shapes, marker for the highlighter, rubber for the eraser.", null),
     PENCIL("Pencil", "A grainy, papery drag.", PenWritingFeedback.TEXTURE_PENCIL),
     BALLPEN("Ballpoint", "A light, smooth glide.", PenWritingFeedback.TEXTURE_BALLPEN),
-    PEN("Felt pen", "A soft, damped stroke.", PenWritingFeedback.TEXTURE_PEN);
+    PEN("Pen", "A smooth, even stroke.", PenWritingFeedback.TEXTURE_PEN),
+    MARKER("Marker", "A soft, broad, damped stroke.", PenWritingFeedback.TEXTURE_MARKER);
 
     companion object {
         fun of(raw: String?) = entries.firstOrNull { it.name == raw } ?: AUTO
@@ -286,7 +295,7 @@ enum class WritingFeel(val label: String, val description: String, val texture: 
         /** Preference holding the feel for the tool behind a `TEXTURE_*`: pen and shapes, highlighter, eraser. */
         fun key(tool: Int) = when (tool) {
             PenWritingFeedback.TEXTURE_ERASER -> AppPrefs.WRITING_FEEL_ERASER
-            PenWritingFeedback.TEXTURE_PEN -> AppPrefs.WRITING_FEEL_HIGHLIGHTER
+            PenWritingFeedback.TEXTURE_MARKER -> AppPrefs.WRITING_FEEL_HIGHLIGHTER
             else -> AppPrefs.WRITING_FEEL
         }
 

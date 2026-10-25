@@ -707,11 +707,11 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val on by rememberPref(p, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
     val feels = listOf(
         "Pen and shapes" to PenWritingFeedback.TEXTURE_BALLPEN,
-        "Highlighter" to PenWritingFeedback.TEXTURE_PEN,
+        "Highlighter" to PenWritingFeedback.TEXTURE_MARKER,
         "Eraser" to PenWritingFeedback.TEXTURE_ERASER,
     )
-    val status = when (val st = feedback?.status) {
-        is FeedbackStatus.Connected -> if (st.own) "Connected." else "Connected through a partner app's licence (HiPaint or StarNote)."
+    val status = when (feedback?.status) {
+        FeedbackStatus.Connected -> "Connected through a partner app's licence (HiPaint or StarNote)."
         FeedbackStatus.Connecting -> "Connecting to the pen service…"
         FeedbackStatus.Refused -> "ColorOS refused the pen service on this tablet."
         FeedbackStatus.Unavailable -> "This tablet has no ColorOS pen service."

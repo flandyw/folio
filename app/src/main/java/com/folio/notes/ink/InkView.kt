@@ -1907,6 +1907,7 @@ class InkView(context: Context) : View(context) {
         // A router reset emits CANCEL, which would discard the held position before the drop.
         stickyNotes.dropLift()
         inputRouter.reset(::handleTouchEvent)
+        if (buzzing) { penFeedback?.end(); buzzing = false }
         onLiveInk(null, false)
         onFollowLanding(null)
         endObjectLift()
@@ -2226,6 +2227,8 @@ class InkView(context: Context) : View(context) {
     }
 
     private val penFeedback = (context.applicationContext as? FolioApplication)?.penFeedback
+    /** This view started the pen's buzz, so it must stop it even if it leaves mid-stroke. */
+    private var buzzing = false
 
     /** Buzzes the pen while its tip is down with a writing tool; lift, cancel or a second finger stops it. */
     private fun writingFeedback(event: MotionEvent) {
@@ -2234,9 +2237,9 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 if (readOnly || !isStylus(event, 0)) return
                 val eraserTip = event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
-                PenWritingFeedback.textureFor(tool, eraserTip)?.let(feedback::begin)
+                PenWritingFeedback.textureFor(tool, eraserTip)?.let { feedback.begin(it); buzzing = true }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> feedback.end()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> { feedback.end(); buzzing = false }
         }
     }
 
