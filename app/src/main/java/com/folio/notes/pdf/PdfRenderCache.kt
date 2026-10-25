@@ -48,10 +48,13 @@ internal class PdfRenderCache<Document : Closeable, Image : Any>(
     /** Fresh, caller-owned image for exports or OCR that recycle their working bitmaps. */
     suspend fun render(noteId: String, index: Int, width: Int): Image? {
         require(index >= 0 && width > 0)
-        return renderLock.withLock {
-            currentCoroutineContext().ensureActive()
-            document(noteId)?.let { draw(it, index, width) }
-        }
+        return withDocument(noteId) { draw(it, index, width) }
+    }
+
+    /** Runs [block] on the open document under the render lock; nothing is cached. */
+    suspend fun <T> withDocument(noteId: String, block: suspend (Document) -> T): T? = renderLock.withLock {
+        currentCoroutineContext().ensureActive()
+        document(noteId)?.let { block(it) }
     }
 
     /** Keep one resolution per page, upgrading as needed; never upscale a thumbnail. */

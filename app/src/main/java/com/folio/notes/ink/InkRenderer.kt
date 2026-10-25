@@ -620,12 +620,14 @@ object InkRenderer {
         images: Map<String, Bitmap?>? = null,
         boundsOf: (Stroke) -> FloatArray = ::rawBounds,
         renderOf: (Stroke) -> RenderedStroke = ::rendered,
-        drawInk: ((Canvas) -> Unit)? = null
+        drawInk: ((Canvas) -> Unit)? = null,
+        backgroundDetail: ((Canvas) -> Unit)? = null,
     ) {
         canvas.drawColor(Color.WHITE)
         if (background != null) {
             val dst = bitmapRectPool.get()!!.apply { set(0f, 0f, page.width, page.height) }
             canvas.drawBitmap(background, null, dst, bitmapPaintPool.get()!!)
+            backgroundDetail?.invoke(canvas)
         }
         else if (page.infinite) infinitePaper(canvas, page)
         else if (page.pdfIndex == null) {

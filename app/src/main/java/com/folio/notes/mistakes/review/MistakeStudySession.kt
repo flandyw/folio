@@ -6,6 +6,8 @@ import com.folio.notes.mistakes.sync.ExamContext
 import com.folio.notes.study.FocalStudyEntry
 import com.folio.notes.study.FocalStudyInterval
 import com.folio.notes.study.FocalSubject
+import com.folio.notes.study.FocalSubjectSwitch
+import com.folio.notes.study.focalSubjectSwitchesJson
 import com.folio.notes.study.FocalSubjects
 import org.json.JSONArray
 import org.json.JSONObject
@@ -39,7 +41,10 @@ internal class MistakeStudySession(private val userId: String) {
     fun entry(now: Long, completed: Boolean = false): FocalStudyEntry? {
         if (intervals.isEmpty()) return null
         val subjects = questions.map { it.optString("subject").ifBlank { "Uncategorised" } }.distinct()
-        val subjectIds = questions.map { it.optString("subjectId").takeIf(String::isNotBlank) }.distinct()
+        // One session, one subject at a time: each question's interval is filed under its own subject.
+        val switches = questions.indices.mapNotNull { index -> questions[index].optString("subjectId").takeIf(String::isNotBlank)
+            ?.let { FocalSubjectSwitch(intervals[index].startAt, it) } }
+            .fold(listOf<FocalSubjectSwitch>()) { list, item -> if (list.lastOrNull()?.subjectId == item.subjectId) list else list + item }
         val description = questions.distinctBy { it.getString("reviewId") }.joinToString("\n") { question ->
             listOf("subject", "exam", "paper", "question").map { question.optString(it) }
                 .filter(String::isNotBlank).joinToString(" · ")
@@ -49,13 +54,13 @@ internal class MistakeStudySession(private val userId: String) {
                 .put("endAt", intervals[index].endAt))
         } }
         return FocalStudyEntry(id = id, notebookId = null,
-            title = "Mistake practice · ${if (subjects.size == 1) subjects.single() else "Mixed subjects"}".take(512),
-            subjectId = subjectIds.singleOrNull(), kind = "study", userId = userId,
+            title = "Mistake practice · ${subjects.joinToString(" & ")}".take(512),
+            subjectId = switches.lastOrNull()?.subjectId, kind = "study", userId = userId,
             startedAt = intervals.first().startAt, endedAt = intervals.last().endAt ?: now,
             activeMillis = intervals.sumOf { ((it.endAt ?: now) - it.startAt).coerceAtLeast(0L) },
             intervals = intervals.toList(), completed = completed, paused = intervals.last().endAt != null,
             notes = description,
-            metadata = JSONObject().put("mistakePractice", true).put("description", description)
+            metadata = JSONObject().put("mistakePractice", true).put("description", description).put("subjectSwitches", focalSubjectSwitchesJson(switches))
                 .put("examtrack", JSONObject().put("questions", details)).toString())
     }
 }

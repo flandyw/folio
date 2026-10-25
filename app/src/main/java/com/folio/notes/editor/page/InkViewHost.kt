@@ -27,6 +27,8 @@ import com.folio.notes.input.StylusActivity
 import com.folio.notes.model.NotePage
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** The single Compose/native bridge. Samples, cancellation and raster teardown remain native. */
 @Composable internal fun InkViewHost(
@@ -51,6 +53,19 @@ import com.folio.notes.settings.rememberPrefs
     val pageLinks = remember(presentation.pdfLinks, page.pdfIndex) { presentation.pdfLinks.filter { it.pageIndex == page.pdfIndex } }
     val pageZones = remember(presentation.markZones, page.id, page.pdfIndex, presentation.markAssist) {
         presentation.markZones.filter { presentation.markAssist || it.manual }.mapNotNull { it.onPage(page) }
+    }
+    val detailScope = rememberCoroutineScope()
+    val pdfDetailSource = remember(assets.pdfRegion) {
+        assets.pdfRegion?.let { render -> { region: android.graphics.RectF, scale: Float, done: (android.graphics.Bitmap?) -> Unit ->
+            detailScope.launch {
+                var bitmap: android.graphics.Bitmap? = null
+                try { bitmap = render(region, scale) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) {}
+                finally { done(bitmap) }
+            }
+            Unit
+        } }
     }
     AndroidView(
         factory = { context -> InkView(context).also { view ->
@@ -77,6 +92,7 @@ import com.folio.notes.settings.rememberPrefs
             view.onDocumentSelectionDrag = if (continuous && documentInput != null) { dx, dy, commit -> documentInput.dragSelection(page.id, dx, dy, commit) } else null
             view.documentSelectionOwner = continuous && documentInput?.selectedOn(page.id) == true
             view.maxZoom = maxZoom
+            view.pdfDetailSource = pdfDetailSource
             onBound(view)
             val tool = surface.tool
             val options = surface.options

@@ -3,6 +3,8 @@ package com.folio.notes.storage
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -40,6 +42,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * What Folio reads out of a notebook's imported `source.pdf`: embedded text (for search and exam
@@ -406,6 +409,23 @@ class NotebookPdfs internal constructor(private val context: Context, private va
                 } catch (error: Throwable) { bitmap.recycle(); throw error }
             }
         }
+
+        /** [region] of a [pageWidth]×[pageHeight] page (page units) at [pixelScale] px per unit. */
+        internal fun renderRegion(index: Int, pageWidth: Float, pageHeight: Float, region: RectF, pixelScale: Float): Bitmap {
+            return renderer.openPage(index).use { pdfPage ->
+                val bitmap = Bitmap.createBitmap((region.width() * pixelScale).roundToInt().coerceAtLeast(1),
+                    (region.height() * pixelScale).roundToInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+                val transform = Matrix().apply {
+                    setScale(pageWidth / pdfPage.width * pixelScale, pageHeight / pdfPage.height * pixelScale)
+                    postTranslate(-region.left * pixelScale, -region.top * pixelScale)
+                }
+                try {
+                    bitmap.eraseColor(Color.WHITE)
+                    pdfPage.render(bitmap, null, transform, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    bitmap
+                } catch (error: Throwable) { bitmap.recycle(); throw error }
+            }
+        }
         override fun close() { renderer.close(); descriptor.close() }
     }
 
@@ -441,6 +461,12 @@ class NotebookPdfs internal constructor(private val context: Context, private va
     suspend fun pdfBackground(noteId: String, page: NotePage, targetWidth: Int = 1400): Bitmap? = withContext(Dispatchers.IO) {
         val index = page.pdfIndex ?: return@withContext null
         pdfRenders.render(noteId, index, targetWidth)
+    }
+
+    /** Fresh, uncached render of part of a page, for a sharp zoomed-in view; null for a native page. */
+    suspend fun pdfRegion(noteId: String, page: NotePage, region: RectF, pixelScale: Float): Bitmap? = withContext(Dispatchers.IO) {
+        val index = page.pdfIndex ?: return@withContext null
+        pdfRenders.withDocument(noteId) { it.renderRegion(index, page.width, page.height, region, pixelScale) }
     }
 
     /** Drops everything remembered about a notebook's PDF, as the notebook is deleted. */

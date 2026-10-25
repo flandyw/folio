@@ -327,14 +327,22 @@ class FocalStudyManager(context: Context) {
     }
 
     /**
-     * Changes the subject of the open session, for a timer started under the wrong one. Its title
-     * follows only while it is still the generated "<subject> Focus" one; a plan keeps its title.
-     * Published as a save_progress on the same row, so the time recorded so far is untouched.
+     * Switches the open session to another subject. It stays one session: the time so far keeps its
+     * subject and the rest is filed under the new one (Focal's `metadata.subjectSwitches`); a change
+     * within a minute just corrects the subject. Its title follows only while it is still the
+     * generated "<subject> Focus" one; a plan keeps its title. Published as a save_progress on the same row.
      */
     fun changeFocusSubject(subjectId: String?, now: Long = this.now()): Boolean {
         val state = _state.value
         val focus = state.visibleFocus ?: return false
         if (focus.subjectId == subjectId) return true
+        val previous = state.entries.firstOrNull { it.id == focus.sessionId }
+        if (previous != null && subjectId != null) {
+            val switches = focalWithSubjectSwitch(focalSubjectSwitches(previous)
+                .ifEmpty { listOfNotNull(focus.subjectId?.let { FocalSubjectSwitch(focus.startedAt, it) }) }, now, subjectId)
+            val metadata = JSONObject(previous.metadata ?: "{}").put("subjectSwitches", focalSubjectSwitchesJson(switches)).toString()
+            _state.update { current -> current.copy(entries = current.entries.map { if (it.id == previous.id) it.copy(metadata = metadata) else it }) }
+        }
         val generated = focus.title == focalSessionTitle(focus.subjectId, state.subjects)
         val next = focus.copy(subjectId = subjectId,
             title = if (generated) focalSessionTitle(subjectId, state.subjects) else focus.title)
@@ -448,7 +456,7 @@ class FocalStudyManager(context: Context) {
                 confidence = (if (completed) confidence else previous?.confidence)?.takeIf { it in 1..5 },
                 userId = previous?.userId ?: state.userId,
                 completed = completed, deleted = deleted, paused = focus.resumedAt == null || completed || deleted,
-                intervals = focus.intervals, changeId = changeId, notebookTitle = focus.notebookTitle,
+                intervals = focus.intervals, changeId = changeId, notebookTitle = focus.notebookTitle, metadata = previous?.metadata,
                 synced = if (!completed && !deleted && !forceUpload) previous?.synced ?: false else false)
             saved = entry
             // A heartbeat or receipt must never see new focus state with the old entry, or a

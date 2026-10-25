@@ -459,7 +459,7 @@ internal fun FocalStudyContent(
                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(if (entry.kind == "exam") "Timed exam" else "Study", subjectName(entry.subjectId),
+                            Text(listOfNotNull(if (entry.kind == "exam") "Timed exam" else "Study", focalSubjectNames(entry, state.subjects),
                                 if (entry.paused) "Paused" else "In progress", formatStudyClock(elapsed)).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -553,7 +553,7 @@ internal fun FocalStudyContent(
                 }
             }
             items(day.entries, key = { it.id }) { entry ->
-                HistoryCard(entry, subjectName(entry.subjectId), cardColor, dedicated,
+                HistoryCard(entry, focalSubjectNames(entry, state.subjects), cardColor, dedicated,
                     onShow = if (dedicated && entry.kind == "study") { { showOnTimeline(entry) } } else null,
                     onDelete = if (dedicated && entry.kind == "study") { { deleteHistoryId = entry.id } } else null)
             }
@@ -752,7 +752,7 @@ internal fun PlannedStudyCard(entry: FocalStudyEntry, subjects: List<FocalSubjec
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                     Text(entry.title.ifBlank { "Untitled plan" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(listOfNotNull(subjects.firstOrNull { it.id == entry.subjectId }?.name,
+                    Text(listOfNotNull(focalSubjectNames(entry, subjects),
                         slots.takeIf { it.isNotEmpty() }?.let { formatStudyMinutes(studyRoundedMinutes(it.sumOf { s -> requireNotNull(s.endAt) - s.startAt })) },
                         if (slots.size > 1) "${slots.size} blocks" else null).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)

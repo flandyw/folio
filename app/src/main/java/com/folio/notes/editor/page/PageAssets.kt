@@ -1,6 +1,7 @@
 package com.folio.notes.editor.page
 
 import android.graphics.Bitmap
+import android.graphics.RectF
 import androidx.compose.runtime.*
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.follow.WritingGuide
@@ -15,6 +16,8 @@ import kotlinx.coroutines.withContext
 internal data class PageAssets(
     val background: Bitmap?, val pictures: Map<String, Bitmap>, val guides: List<WritingGuide>,
     val ready: Boolean, val error: Boolean, val retry: () -> Unit,
+    /** Renders part of the PDF page sharper than [background]: page-unit region, px per unit. */
+    val pdfRegion: (suspend (RectF, Float) -> Bitmap?)? = null,
 )
 
 @Composable internal fun rememberPageAssets(noteId: String, page: NotePage, model: FolioViewModel,
@@ -76,5 +79,11 @@ internal data class PageAssets(
         val decoded = model.repository.loadImages(noteId, page)
         pictures = decoded
     }
-    return PageAssets(background, pictures, writingGuides, ready, error) { retry++ }
+    val pdfRegion = remember(noteId, page.id, page.pdfIndex, page.width, page.height) {
+        if (page.pdfIndex == null) null else {
+            val render: suspend (RectF, Float) -> Bitmap? = { region, scale -> model.repository.pdfs.pdfRegion(noteId, page, region, scale) }
+            render
+        }
+    }
+    return PageAssets(background, pictures, writingGuides, ready, error, { retry++ }, pdfRegion)
 }

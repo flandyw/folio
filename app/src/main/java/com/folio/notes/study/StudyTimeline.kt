@@ -581,8 +581,9 @@ internal fun StudyTimeline(
                     val room = with(density) { widthPx(block.start, block.end).toDp() }
                     val grab = movable(live) && !razor && !picking
                     val picked = live.entry.id in picks
-                    val subject = subjects.firstOrNull { it.id == block.entry.subjectId }
-                    val hue = FocalSubjects.color(block.entry.subjectId)?.let { Color(it) } ?: scheme.primary
+                    // One subject at a time: a block the subject switched in shows each subject's stretch.
+                    val pieces = focalSubjectSpans(block.entry, listOf(FocalStudyInterval(millisAt(block.start), millisAt(block.end))), now)
+                    val hue = FocalSubjects.color(pieces.firstOrNull()?.second ?: block.entry.subjectId)?.let { Color(it) } ?: scheme.primary
                     val late = missed(block)
                     val accent = if (late) scheme.error else hue
                     val fill = when {
@@ -608,7 +609,7 @@ internal fun StudyTimeline(
                             else -> Modifier.border(1.dp, edge, FolioShapes.medium)
                         })
                         .semantics {
-                            contentDescription = "$label: ${block.entry.title}${subject?.let { ", ${it.name}" } ?: ""}, ${clock(block.start)} to ${clock(block.end)}"
+                            contentDescription = "$label: ${block.entry.title}${focalSubjectNames(block.entry, subjects)?.let { ", $it" } ?: ""}, ${clock(block.start)} to ${clock(block.end)}"
                             onClick("Show details") { selected = live.key; confirmRemove = false; draft = null; true }
                         }
                         .timelineDrag(live.key, grab,
@@ -629,11 +630,18 @@ internal fun StudyTimeline(
                             onCancel = { adjust = null }),
                         contentAlignment = Alignment.CenterStart) {
                         if (room >= 36.dp) Column(Modifier.padding(horizontal = if (grab) 14.dp else FolioSpacing.dp8)) {
-                            Text(if (room >= 150.dp) block.entry.title else subject?.name?.let(::initials) ?: block.entry.title.take(3),
+                            Text(if (room >= 150.dp) block.entry.title else pieces.mapNotNull { piece -> subjects.firstOrNull { it.id == piece.second }?.name?.let(::initials) }
+                                .distinct().joinToString("→").ifBlank { block.entry.title.take(3) },
                                 style = MaterialTheme.typography.labelMedium, fontWeight = if (room >= 150.dp) FontWeight.Medium else null,
                                 color = text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (room >= 150.dp) Text(if (block.tone == Tone.LIVE || block.tone == Tone.PAUSED) label else "${clock(block.start)}–${clock(block.end)}",
                                 style = MaterialTheme.typography.labelSmall, color = text.copy(alpha = .75f), maxLines = 1)
+                        }
+                        if (pieces.size > 1) Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp)) {
+                            pieces.forEach { (piece, subjectId) ->
+                                Box(Modifier.weight((requireNotNull(piece.endAt) - piece.startAt).coerceAtLeast(1L).toFloat()).fillMaxHeight()
+                                    .background(FocalSubjects.color(subjectId)?.let { Color(it) } ?: scheme.primary))
+                            }
                         }
                         // Always-visible grips on a block you can resize.
                         if (grab && selected != live.key) listOf(Alignment.CenterStart, Alignment.CenterEnd).forEach { side ->
@@ -759,7 +767,6 @@ internal fun StudyTimeline(
             // ── The selected block. ──
             blocks.firstOrNull { it.key == selected }?.let { picked ->
                 val entry = picked.entry
-                val subject = subjects.firstOrNull { it.id == entry.subjectId }
                 val timing = entry.active || entry.id == focus?.sessionId
                 Surface(shape = FolioShapes.large, color = scheme.surfaceContainerHighest) {
                     Split(compact, Modifier.padding(FolioSpacing.dp12), { modifier ->
@@ -776,7 +783,7 @@ internal fun StudyTimeline(
                                 }
                                 if (restriction != null) Text(restriction, style = MaterialTheme.typography.bodySmall, color = scheme.error)
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(listOfNotNull(subject?.name, "${clock(picked.start)}–${clock(picked.end)}", duration(picked.end - picked.start),
+                                Text(listOfNotNull(focalSubjectNames(entry, subjects), "${clock(picked.start)}–${clock(picked.end)}", duration(picked.end - picked.start),
                                     when { picked.tone == Tone.LIVE -> "Studying now"; picked.tone == Tone.PAUSED -> "Paused"; missed(picked) -> "Missed"; picked.tone == Tone.TODO -> "Planned"
                                         entry.kind == "exam" -> "Exam"; else -> "Done" },
                                     if (picked.count > 1) "Block ${picked.index + 1} of ${picked.count}" else null).joinToString(" · "),

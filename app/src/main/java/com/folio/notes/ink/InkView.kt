@@ -103,6 +103,20 @@ import kotlin.math.*
 class InkView(context: Context) : View(context) {
     var page = NotePage(); private set
     var background: Bitmap? = null
+    /**
+     * Renders a page-unit region of the PDF at a px-per-unit scale and calls back on the main thread
+     * (null on failure). Set by the host; it lets a zoomed PDF stay sharp past [background]'s resolution.
+     */
+    var pdfDetailSource: ((RectF, Float, (Bitmap?) -> Unit) -> Unit)? = null
+    private var pdfDetail: Bitmap? = null
+    private val pdfDetailRect = RectF()
+    private var pdfDetailScale = 0f
+    private var pdfDetailPending = false
+    private var pdfDetailFailed = false
+    private var pdfDetailGeneration = 0
+    private val pdfDetailPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val pdfVisible = android.graphics.Rect()
+    private val drawPdfDetail: (Canvas) -> Unit = { canvas -> pdfDetail?.let { canvas.drawBitmap(it, null, pdfDetailRect, pdfDetailPaint) } }
     /** Theme canvas behind the paper, including reference and peek views. */
     var canvasBackgroundColor: Int = Color.TRANSPARENT
         set(value) { if (field != value) { field = value; invalidate() } }
@@ -1643,6 +1657,7 @@ class InkView(context: Context) : View(context) {
             renderCache.retainAll(keep)
             boundsCache.retainAll(keep)
         }
+        if (background !== bitmap || page.id != value.id) dropPdfDetail()
         page = value; background = bitmap; imageBitmaps = images
         post { stickyNotes.refresh() }
         // Content deleted from outside the view stops being selected, per list so one removed
@@ -1756,9 +1771,9 @@ class InkView(context: Context) : View(context) {
             // Coalesce rapid pinches and container resizes into one full-detail refresh.
             removeCallbacks(refreshInkDetail)
             postDelayed(refreshInkDetail, 90L)
-        }
+        } else requestPdfDetail(content)
         InkRenderer.pageCached(canvas, content, background, images = imageBitmaps,
-            boundsOf = ::boundsOf, renderOf = ::renderedOf,
+            boundsOf = ::boundsOf, renderOf = ::renderedOf, backgroundDetail = drawPdfDetail,
             drawInk = { inkCanvas ->
                 if (preview) drawNavigationInk(inkCanvas, content)
                 else {
@@ -1773,6 +1788,42 @@ class InkView(context: Context) : View(context) {
                         placeholder = { drawNavigationInk(it, content) })
                 }
             })
+    }
+
+    private fun dropPdfDetail() {
+        pdfDetail = null; pdfDetailFailed = false; pdfDetailGeneration++
+    }
+
+    /**
+     * The shared PDF background is about 1400 px wide, so a page shown wider than that (a large
+     * screen or any zoom) is upscaled and blurry. Once the scale settles, render just the visible
+     * part at screen resolution and draw it over the background; pans inside it reuse it.
+     */
+    private fun requestPdfDetail(content: NotePage) {
+        val base = background ?: return
+        val source = pdfDetailSource ?: return
+        if (content.pdfIndex == null || content.infinite || content.width <= 0f || content.height <= 0f) return
+        val s = scale
+        if (base.width >= content.width * s * 0.95f) { if (pdfDetail != null) dropPdfDetail(); return }
+        if (pdfDetailPending || pdfDetailFailed || !getLocalVisibleRect(pdfVisible) || pdfVisible.isEmpty) return
+        val visible = RectF((pdfVisible.left - originX) / s, (pdfVisible.top - originY) / s,
+            (pdfVisible.right - originX) / s, (pdfVisible.bottom - originY) / s)
+        if (!visible.intersect(0f, 0f, content.width, content.height)) return
+        if (pdfDetail != null && abs(pdfDetailScale - s) <= s * 0.05f && pdfDetailRect.contains(visible)) return
+        // A quarter of overscan each way when it fits the budget, so small pans reuse the render.
+        val budget = resources.displayMetrics.run { widthPixels.toDouble() * heightPixels } * 1.5
+        val region = RectF(visible).apply { inset(-visible.width() / 4, -visible.height() / 4); intersect(0f, 0f, content.width, content.height) }
+        if (region.width() * region.height() * s * s > budget) region.set(visible)
+        val detailScale = min(s, sqrt(budget / (region.width() * region.height())).toFloat())
+        pdfDetailPending = true
+        val generation = pdfDetailGeneration
+        source(region, detailScale) { bitmap ->
+            pdfDetailPending = false
+            if (generation != pdfDetailGeneration) { invalidate(); return@source }
+            if (bitmap == null) { pdfDetailFailed = true; return@source }
+            pdfDetail = bitmap; pdfDetailRect.set(region); pdfDetailScale = s
+            invalidate()
+        }
     }
 
     /**
@@ -1852,6 +1903,7 @@ class InkView(context: Context) : View(context) {
         inputRouter.stylus.detachNavigationSurface()
         inputRouter.stylus.removeArrivalListener(penArrival)
         recentFingerInk.clear()
+        dropPdfDetail()
         // A router reset emits CANCEL, which would discard the held position before the drop.
         stickyNotes.dropLift()
         inputRouter.reset(::handleTouchEvent)
@@ -1940,7 +1992,7 @@ class InkView(context: Context) : View(context) {
             // the whole page per sample. Draw it directly instead: the dirty rect culls to the
             // tip area and the geometry cache means only newly touched strokes pay any math.
             InkRenderer.pageCached(canvas, placed, background, images = imageBitmaps,
-                boundsOf = ::boundsOf, renderOf = ::renderedOf)
+                boundsOf = ::boundsOf, renderOf = ::renderedOf, backgroundDetail = drawPdfDetail)
         } else drawCommittedPage(canvas, rest)
         // A handle drag previews scale/turn live through one matrix instead of reallocating
         // transformed copies per frame; the release commits the real geometry in one step.
