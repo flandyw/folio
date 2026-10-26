@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 /** Application-owned BackupService commands over the single shared document runtime. */
 internal class BackupService(private val runtime: FolioRuntime) {
@@ -115,19 +116,32 @@ internal class BackupService(private val runtime: FolioRuntime) {
                 try {
                     val dir = java.io.File(getApplication<Application>().cacheDir, "vcaa")
                     withContext(Dispatchers.IO) { check(dir.isDirectory || dir.mkdirs()) { "Could not prepare the download folder" } }
-                    val items = mutableListOf<PendingPdfImport>()
-                    val failures = mutableListOf<String>()
-                    chosen.forEachIndexed { index, exam ->
-                        _state.update { it.copy(importProgress = "Downloading ${index + 1} of ${chosen.size}: ${exam.title}") }
-                        val file = java.io.File(dir, "${java.util.UUID.randomUUID()}.pdf")
-                        files += file
-                        try {
-                            downloadVcaaPdf(exam.url, file)
-                            items += PendingPdfImport(Uri.fromFile(file), exam.title, exam.tags, detected = true,
-                                filename = exam.url.substringAfterLast('/'))
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { failures += "${exam.title}: ${e.message ?: "Download failed"}" }
+                    // A few papers at once: each download mostly waits on the network. Results keep the chosen order.
+                    val downloads = kotlinx.coroutines.sync.Semaphore(3)
+                    var finished = 0
+                    _state.update { it.copy(importProgress = "Downloading 0 of ${chosen.size}…") }
+                    val results = coroutineScope {
+                        chosen.map { exam ->
+                            val file = java.io.File(dir, "${java.util.UUID.randomUUID()}.pdf")
+                            files += file
+                            async {
+                                downloads.withPermit {
+                                    try {
+                                        downloadVcaaPdf(exam.url, file)
+                                        Result.success(PendingPdfImport(Uri.fromFile(file), exam.title, exam.tags, detected = true,
+                                            filename = exam.url.substringAfterLast('/')))
+                                    } catch (e: CancellationException) { throw e }
+                                    catch (e: Exception) { Result.failure(Exception("${exam.title}: ${e.message ?: "Download failed"}")) }
+                                    finally {
+                                        val done = ++finished
+                                        _state.update { it.copy(importProgress = "Downloading $done of ${chosen.size}…") }
+                                    }
+                                }
+                            }
+                        }.awaitAll()
                     }
+                    val items = results.mapNotNull { it.getOrNull() }
+                    val failures = results.mapNotNull { it.exceptionOrNull()?.message }.toMutableList()
                     if (items.isEmpty()) reportError("Could not download VCAA papers.\n" + failures.joinToString("\n"))
                     else {
                         runPdfImport(folderId, items, items.associateBy { it.uri }, initialFailures = failures) { files.forEach { it.delete() } }

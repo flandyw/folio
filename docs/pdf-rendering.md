@@ -9,8 +9,9 @@ editor and a split/reference document therefore does not close and reparse the o
 each uncached page. Native renders remain serialized, and closing/evicting a document waits for its
 current render to finish. Exports and mark OCR can still open their own scoped `PdfBackgrounds`.
 
-Shared page backgrounds have the existing byte budget: one eighth of the process heap, clamped
-to 8–64 MiB. Each source page keeps one resolution, upgraded when a sharper render is requested.
+Shared page backgrounds are budgeted from device RAM (1/64, up to 192 MiB), since bitmap pixels
+live in native memory; low-RAM devices keep one eighth of the process heap, clamped to 8–64 MiB.
+Trim-memory drops the cached backgrounds (never recycling them) but keeps parsed documents open. Each source page keeps one resolution, upgraded when a sharper render is requested.
 Editor backgrounds can satisfy smaller page-browser/library previews and subsequent previews of
 edited ink without rendering the PDF again. A small preview never satisfies a larger request.
 Cache hits bypass the native render queue, concurrent misses recheck the cache after acquiring it,

@@ -14,7 +14,10 @@ import com.folio.notes.model.NotePage
 import com.folio.notes.model.Notebook
 import com.folio.notes.storage.NoteRepository
 import com.folio.notes.storage.NotebookPdfs
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.OutputStream
@@ -100,15 +103,12 @@ class NoteExporter(private val repository: NoteRepository) {
         require(selected.isNotEmpty()) { "Select at least one page to export" }
         repository.pdfs.openPdf(note.id).use { source ->
             java.util.zip.ZipOutputStream(output).use { zip ->
-                selected.forEach { pageIndex ->
-                    val page = note.pages.getOrNull(pageIndex) ?: return@forEach
-                    val bitmap = renderPng(note, page, source, pngScale)
-                    try {
-                        val name = "${NotebookFilename.sanitize(note.title)}-p${pageIndex + 1}.png"
-                        zip.putNextEntry(java.util.zip.ZipEntry(name))
-                        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, zip)) { "Image export failed" }
-                        zip.closeEntry()
-                    } finally { bitmap.recycle() }
+                // PNG is already deflated; compressing it again only costs time.
+                zip.setLevel(java.util.zip.Deflater.NO_COMPRESSION)
+                encodePngs(selected, { note.pages.getOrNull(it)?.let { page -> renderPng(note, page, source, pngScale) } }) { pageIndex, png ->
+                    zip.putNextEntry(java.util.zip.ZipEntry("${NotebookFilename.sanitize(note.title)}-p${pageIndex + 1}.png"))
+                    zip.write(png)
+                    zip.closeEntry()
                 }
             }
         }
@@ -120,16 +120,8 @@ class NoteExporter(private val repository: NoteRepository) {
         require(selected.isNotEmpty()) { "Select at least one page to export" }
         dir.mkdirs()
         repository.pdfs.openPdf(note.id).use { source ->
-            selected.mapNotNull { pageIndex ->
-                val page = note.pages.getOrNull(pageIndex) ?: return@mapNotNull null
-                val bitmap = renderPng(note, page, source, pngScale)
-                try {
-                    val file = File(dir, "${NotebookFilename.sanitize(note.title)}-p${pageIndex + 1}.png")
-                    file.outputStream().use { out ->
-                        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Image export failed" }
-                    }
-                    file
-                } finally { bitmap.recycle() }
+            encodePngs(selected, { note.pages.getOrNull(it)?.let { page -> renderPng(note, page, source, pngScale) } }) { pageIndex, png ->
+                File(dir, "${NotebookFilename.sanitize(note.title)}-p${pageIndex + 1}.png").also { it.writeBytes(png) }
             }
         }
     }
@@ -222,9 +214,34 @@ class NoteExporter(private val repository: NoteRepository) {
         return bitmap
     }
 
+    /**
+     * Draws pages one at a time (the renderer is single-threaded) but PNG-encodes up to [ENCODERS] of them
+     * at once on other cores, since encoding, not drawing, is the slow half. [emit] still sees pages in order.
+     */
+    private suspend fun <T> encodePngs(indices: List<Int>, render: suspend (Int) -> Bitmap?, emit: (Int, ByteArray) -> T): List<T> = coroutineScope {
+        val pending = ArrayDeque<Pair<Int, Deferred<ByteArray>>>()
+        val done = ArrayList<T>(indices.size)
+        suspend fun drain() { val (index, png) = pending.removeFirst(); done += emit(index, png.await()) }
+        for (index in indices) {
+            val bitmap = render(index) ?: continue
+            pending += index to async(Dispatchers.Default) {
+                try { java.io.ByteArrayOutputStream().also { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) { "Image export failed" } }.toByteArray() }
+                finally { bitmap.recycle() }
+            }
+            if (pending.size >= ENCODERS) drain()
+        }
+        while (pending.isNotEmpty()) drain()
+        done
+    }
+
     /** A page's ink, reading it from disk when the notebook is stored lazily and it is not loaded yet. */
     private suspend fun content(note: Notebook, page: NotePage): NotePage =
         if (page.loaded) page else repository.loadPage(note.id, page)
 
     fun filename(note: Notebook): String = NotebookFilename.sanitize(note.title)
+
+    private companion object {
+        /** Pages encoding at once; each holds one full page bitmap (up to ~30 MB). */
+        const val ENCODERS = 3
+    }
 }

@@ -2130,10 +2130,22 @@ class InkView(context: Context) : View(context) {
     internal var workspaceNotes = false
         set(value) { if (field != value) { field = value; invalidate() } }
     internal var onWorkspaceNotesInvalidated: (() -> Unit)? = null
-    override fun invalidate() { super.invalidate(); onWorkspaceNotesInvalidated?.invoke() }
+    override fun invalidate() { super.invalidate(); invalidateWorkspaceNotes() }
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun invalidate(left: Int, top: Int, right: Int, bottom: Int) {
-        super.invalidate(left, top, right, bottom); onWorkspaceNotesInvalidated?.invoke()
+        super.invalidate(left, top, right, bottom); invalidateWorkspaceNotes()
+    }
+    private var stickyScanTexts: List<TextBox>? = null
+    private var stickyScanHit = false
+    private var workspaceHadNotes = false
+    /** Re-records the shared full-screen notes overlay only when this page has notes (or just lost them), not per pen sample on plain pages. */
+    private fun invalidateWorkspaceNotes() {
+        val redraw = onWorkspaceNotesInvalidated ?: return
+        val texts = documentContentPreview?.texts ?: page.texts
+        if (texts !== stickyScanTexts) { stickyScanTexts = texts; stickyScanHit = texts.any { it.isSticky } }
+        // The sticky tool draws its create-drag preview on the overlay before any note exists.
+        val notes = stickyScanHit || tool == Tool.STICKY_NOTE
+        if (notes || workspaceHadNotes) { workspaceHadNotes = notes; redraw() }
     }
     internal fun drawWorkspaceNotes(canvas: Canvas) {
         if (!workspaceNotes) return

@@ -90,6 +90,9 @@ internal class PdfRenderCache<Document : Closeable, Image : Any>(
         return document
     }
 
+    /** Forgets every cached image (never recycling: views may still draw them). */
+    fun trimImages() = synchronized(imageLock) { images.clear(); imageBytes = 0L }
+
     /** Invalidates images too, so a removed/replaced document cannot leave stale backgrounds. */
     suspend fun close(noteId: String? = null): Unit = renderLock.withLock {
         synchronized(imageLock) {

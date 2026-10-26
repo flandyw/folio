@@ -441,12 +441,27 @@ class NotebookPdfs internal constructor(private val context: Context, private va
     // Keep the editor, split/reference pane and a recently used notebook parsed. The bounded image
     // cache is independent of metadata scans and cached hits bypass even an in-progress page render.
     private val pdfRenders = PdfRenderCache<PdfBackgrounds, Bitmap>(
-        maxBytes = (Runtime.getRuntime().maxMemory() / 8)
-            .coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024).toInt(),
+        maxBytes = backgroundBudget(),
         open = ::openPdf,
         draw = { document, index, width -> document.render(index, width) },
         sizeOf = { it.allocationByteCount },
     )
+
+    /**
+     * Bitmap pixels live in native memory (API 26+), so the Java heap says little about what fits: size the
+     * background cache from device RAM like [com.folio.notes.ink.InkRasterStore], so scrolling back up a long
+     * paper on a tablet redraws cached pages instead of re-rendering them. Low-RAM devices keep the old budget.
+     */
+    private fun backgroundBudget(): Int {
+        val heap = (Runtime.getRuntime().maxMemory() / 8).coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024)
+        val manager = context.getSystemService(android.app.ActivityManager::class.java)
+        if (manager == null || manager.isLowRamDevice) return heap.toInt()
+        val memory = android.app.ActivityManager.MemoryInfo().also(manager::getMemoryInfo)
+        return (memory.totalMem / 64).coerceIn(heap, 192L * 1024 * 1024).toInt()
+    }
+
+    /** Gives cached backgrounds back under memory pressure; parsed documents stay open. */
+    fun trimMemory() = pdfRenders.trimImages()
 
     /** Drops the named document and its backgrounds, or all recent documents when unnamed. */
     suspend fun closePdf(noteId: String? = null) = withContext(Dispatchers.IO) { pdfRenders.close(noteId) }

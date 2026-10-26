@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
             level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
             InkRasterStore.clear()
             InkRenderer.trimMemory()
+            (application as FolioApplication).repository.pdfs.trimMemory()
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
