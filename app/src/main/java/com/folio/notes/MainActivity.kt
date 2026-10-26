@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
         // FolioSplash at once instead of playing Android's own exit animation.
         installSplashScreen().setOnExitAnimationListener { it.remove() }
         super.onCreate(savedInstanceState)
+        InkRasterStore.configure(this)
         val prefs = getSharedPreferences("preferences", 0)
         stylusActivity.graceMs = AppPrefs.palmMs(prefs.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS))
         prefs.registerOnSharedPreferenceChangeListener(palmPreferenceListener)

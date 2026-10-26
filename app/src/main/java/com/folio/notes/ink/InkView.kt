@@ -1831,11 +1831,12 @@ class InkView(context: Context) : View(context) {
      * as the raster budget allows), so camera pans and follow glides reuse one raster instead of
      * rebuilding it every frame.
      */
-    private fun updateStableInkBounds(content: NotePage) {
-        val left = floor(-originX / scale).toInt()
-        val top = floor(-originY / scale).toInt()
-        val right = ceil((width - originX) / scale).toInt()
-        val bottom = ceil((height - originY) / scale).toInt()
+    private fun updateStableInkBounds(content: NotePage, w: Int = width, h: Int = height,
+                                      x: Float = originX, y: Float = originY) {
+        val left = floor(-x / scale).toInt()
+        val top = floor(-y / scale).toInt()
+        val right = ceil((w - x) / scale).toInt()
+        val bottom = ceil((h - y) / scale).toInt()
         clampInkBounds(content, visibleInkBounds, left, top, right, bottom)
         val w = right - left; val h = bottom - top
         for (fraction in INK_OVERSCAN_STEPS) {
@@ -1856,9 +1857,19 @@ class InkView(context: Context) : View(context) {
     /** Starts a finite page's ink raster as soon as the view has a size, ahead of the first frame that needs it. */
     private fun prewarmInk() {
         val content = layerView()
-        if (content.infinite || width <= 0 || height <= 0) return
-        updateStableInkBounds(content)
+        if (content.infinite) return
+        if (width > 0 && height > 0) updateStableInkBounds(content)
+        // A page the list prefetched is measured frames before it is laid out. A paper column page's
+        // scale and origin don't depend on layout, so the worker can start on the exact raster now.
+        else if (measuredWidth > 0 && measuredHeight > 0 && documentPaperWidth > 0f && !cameraPage && !zoomWritingPane)
+            updateStableInkBounds(content, measuredWidth, measuredHeight, (measuredWidth - page.width * scale) / 2, -documentTop * scale)
+        else return
         committedInk.prewarm(content.strokes, stableInkBounds, scale)
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        if (width == 0) prewarmInk()
     }
 
     private fun drawNavigationInk(canvas: Canvas, content: NotePage) {

@@ -262,14 +262,23 @@ internal object InkRasterStore {
     class Kept(val strokes: List<Stroke>, val viewport: Rect, val bitmap: Bitmap)
     private class Entry(val strokes: List<Stroke>, val viewport: Rect, val scale: Float, val bitmap: Bitmap)
 
-    private const val MAX_BYTES = 64L * 1024 * 1024
     private val entries = ArrayDeque<Entry>()
+    /** 64 MB holds about four full-screen pages; a roomier device keeps more, so scrolling back stays one bitmap draw. */
+    @Volatile private var maxBytes = 64L * 1024 * 1024
+
+    /** Sized once from the device's RAM: 1/48 of it, between 64 and 320 MB (low-RAM devices keep 64). */
+    fun configure(context: android.content.Context) {
+        val manager = context.getSystemService(android.app.ActivityManager::class.java) ?: return
+        if (manager.isLowRamDevice) return
+        val memory = android.app.ActivityManager.MemoryInfo().also(manager::getMemoryInfo)
+        maxBytes = (memory.totalMem / 48).coerceIn(64L * 1024 * 1024, 320L * 1024 * 1024)
+    }
 
     @Synchronized fun put(strokes: List<Stroke>, viewport: Rect, scale: Float, bitmap: Bitmap) {
         entries.addLast(Entry(strokes, Rect(viewport), scale, bitmap))
         var bytes = entries.sumOf { it.bitmap.allocationByteCount.toLong() }
         // Dropped, never recycled: a frame in flight may still be reading the bitmap.
-        while (bytes > MAX_BYTES && entries.size > 1) bytes -= entries.removeFirst().bitmap.allocationByteCount
+        while (bytes > maxBytes && entries.size > 1) bytes -= entries.removeFirst().bitmap.allocationByteCount
     }
 
     /** The newest raster drawn for these strokes (or an earlier prefix of them) at this scale that covers [visible]. */
