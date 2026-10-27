@@ -28,5 +28,13 @@ Open <http://localhost:3000>. Set `PORT` to use a different port, for example
 the Markdown on each request, so refresh after editing. Stop it with Ctrl+C.
 Run `bun test tools/wiki-server.test.ts` to check the server.
 
-To share temporarily with a Cloudflare quick tunnel, keep the wiki server running
-and start `cloudflared tunnel --config /dev/null --url http://127.0.0.1:3000 --http-host-header localhost:3000` in another terminal. The empty config prevents local ingress rules from overriding the origin, and the host header matches the wiki server's localhost check. Anyone with the tunnel URL can read the served documentation while the tunnel is running.
+To share temporarily, install `cloudflared` and run:
+
+```sh
+bun tools/wiki-tunnel.ts
+```
+
+This starts both the wiki and a Cloudflare quick tunnel. Use `PORT=3001` if the
+default port is occupied. Cloudflare prints the public URL; Ctrl+C stops both
+services. Anyone with the URL can read the served documentation while the
+tunnel is running. Quick tunnels have no uptime guarantee.

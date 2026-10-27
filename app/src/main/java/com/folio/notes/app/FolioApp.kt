@@ -384,6 +384,27 @@ import java.io.File
             }
         }
     }
+    fun copyPage(note: Notebook, index: Int) {
+        val indices = normalizeExportIndices(listOf(index), note.pages.size)
+        if (indices.isEmpty()) return
+        val request = PageExportRequest(note, indices, PageExportFormat.PNG)
+        val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
+        model.export {
+            val file = withContext(Dispatchers.IO) {
+                val dir = File(context.cacheDir, "clipboard").apply { mkdirs() }
+                File(dir, uniqueShareFilename(selectiveShareFilenames(note, indices, PageExportFormat.PNG).first())).also { out ->
+                    out.outputStream().use { exporter.write(it, request, pngScale) }
+                }
+            }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+            context.getSystemService(android.content.ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newUri(context.contentResolver, "Page", uri))
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                android.widget.Toast.makeText(context, "Page copied", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            withContext(Dispatchers.IO) { pruneExportCache(file.parentFile!!) }
+        }
+    }
     /** Sends a whole notebook as one PDF through the share sheet; the export menu and the share shortcut both use it. */
     fun shareWholeNotebook(note: Notebook) {
         val mode = pdfExportMode
@@ -415,6 +436,7 @@ import java.io.File
             ShareShortcut.NOTEBOOK_PDF -> shareWholeNotebook(note)
             ShareShortcut.PAGE_PNG -> shareExport(PageExportRequest(note, page, PageExportFormat.PNG))
             ShareShortcut.PAGE_PDF -> shareExport(PageExportRequest(note, page, PageExportFormat.PDF, pdfExportMode))
+            ShareShortcut.COPY_PAGE -> copyPage(note, state.pageIndex)
         }
     }
     // Null when the shortcut is off, so the share button keeps no long-press at all.
@@ -664,6 +686,9 @@ import java.io.File
                 }
                 ExportOption(Icons.Rounded.Share, "Share page as image", "Send a PNG of the current page to another app") {
                     state.active?.let { shareExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
+                }
+                ExportOption(Icons.Rounded.ContentCopy, "Copy page as image", "Copy a PNG of the current page to the clipboard") {
+                    state.active?.let { copyPage(it, state.pageIndex) }; exportMenu = false
                 }
                 ExportOption(Icons.Rounded.AutoStories, "Export specific pages", "Choose pages for a PDF or PNG images") {
                     exportMenu = false; pageExportDialog = true
