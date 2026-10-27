@@ -15,6 +15,8 @@
 
 Folio is a native Android notebook built with Kotlin and Jetpack Compose. Write with a stylus or finger, keep pages organized, and take your notebooks with you in `.folio` backups.
 
+Explore the [Folio wiki](docs/wiki/README.md) for feature guides, data and account information, and developer documentation.
+
 ## Features
 
 - Pressure-sensitive handwriting, drawing tools, and undo/redo
@@ -39,34 +41,50 @@ In **Settings → Account & updates**, enable **Experimental builds** to check t
 server; leave it off for stable GitHub releases. Server setup and publishing are
 documented in [release-server/README.md](release-server/README.md).
 
-## Build
+## Development
 
-Requires JDK 25 and Android SDK 36.
+Folio has one Android module, `:app`. Development requires JDK 25 and Android
+SDK 36. Source is under `app/src/main/java/com/folio/notes/`, organized by
+feature. Start with [AGENTS.md](AGENTS.md) for the source map, conventions,
+storage invariants and checks.
 
-```sh
-./gradlew :app:assembleDebug
-```
+Set `JAVA_HOME` to JDK 25 and `ANDROID_HOME` to the Android SDK when they are
+not already configured. The Gradle wrapper downloads the project's Gradle
+version. Local builds use placeholder Focal settings unless
+`FOCAL_SUPABASE_URL` and `FOCAL_SUPABASE_PUBLISHABLE_KEY` are supplied through
+the environment, Gradle properties or untracked `local.properties`; account
+and sync features need a real project. Use only a publishable or anon client
+key, never a service key. The app packages ARM native libraries, so use an ARM
+device or emulator.
 
-For repeated local builds, keep `app/build` and the Gradle caches: avoid `clean`
-unless diagnosing a build problem. On Windows, use
-`.\build.ps1 -Tasks ':app:assembleDebug'` for the same build without lint.
+The canonical local check is `./build.sh -p`: it builds a signed experimental
+APK and **publishes it to the Folio server without prompting**. It requires the
+configured signing and server credentials. The build script expects
+`.signing/folio-release.p12`, `.signing/password` and Android build-tools 36.0.0
+(or `FOLIO_BUILD_TOOLS` pointing to the tools). Use `./build.sh -n` to build
+the signed APK without publishing. Both reserve an experimental version number.
 
-CI builds and publishes signed R8 releases on pushes to `main` or manual dispatch.
-Run local build and lint checks with:
+Run JVM tests with `./gradlew :app:testDebugUnitTest`. Focused smoke checks live
+in `tools/`; many need `./gradlew :app:prepareBackupSmoke` first. The relevant
+feature guide or AGENTS.md identifies which checks to run. The offline KaTeX
+check is `node tools/katex-smoke.cjs`. Smoke scripts require Node.js; most also
+use the Kotlin compiler cached by a Gradle build.
 
-```sh
-./gradlew :app:assembleDebug :app:lintDebug
-```
+On Windows, `.\build.ps1 -Tasks ':app:assembleDebug'` builds a debug APK without
+lint. Do not run `:app:lintDebug` as a routine check: it takes substantially
+longer. Keep `app/build` and the Gradle caches for repeated builds; avoid `clean`
+unless diagnosing a build problem. CI publishes signed R8 releases on pushes to
+`main` or manual dispatch.
 
-On the configured VPS, run `bash ./build.sh` to make a signed experimental build,
-then answer `y` to publish it. Each run gets a new version code even without a new
-commit (`commitCount × 10000 + localBuildNumber`) and a name such as `2.1.7-exp.2`.
-Stable Gradle/CI builds use `commitCount × 10000`; the next stable commit therefore
-supersedes the preceding experimental builds.
+### Engineering guides
 
-Version numbers are supplied lazily to the APK outputs. Focal connection settings
-are generated separately from version metadata, so changing a commit or
-experimental build number can reuse Kotlin/Java compilation in both debug and
-release builds. Gradle's configuration and build caches remain enabled. To inspect
-local task timings, add `--profile` to either build command; reports are written to
-`build/reports/profile/`.
+- [Application architecture](docs/application-architecture.md): state, commands, readers and the writer
+- [Document transactions](docs/document-transactions.md): grouped edits, recovery and required device checks
+- [Continuous editor](docs/continuous-editor.md), [page navigation](docs/page-navigation.md) and [split view](docs/split-view.md)
+- [Pen feel](docs/pen-feel.md), [palm rejection](docs/palm-rejection.md), [shape assist](docs/shape-assist.md) and [writing follow](docs/writing-follow.md)
+- [Focal sync](docs/focal-sync.md), [study sessions](docs/study-sessions.md) and [planner](docs/planner.md)
+- [Release server](release-server/README.md): publishing and server setup
+
+Other feature and device-check guides are in [docs/](docs/). Storage-format and
+journal changes require the device round-trip described in the document
+transactions guide before release.

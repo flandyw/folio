@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - Build (canonical check): `./build.sh -p` — signed experimental build, published to the Folio server without prompting. Do not run `:app:lintDebug` (takes far too long) unless explicitly asked, even where `docs/` mention it.
-- There is no unit/instrumented test suite and no single-test command. Pure logic is exercised by Node smoke scripts in `tools/`, which compile the pure Kotlin files against the Gradle cache. Run `./gradlew :app:assembleDebug :app:prepareBackupSmoke` first, then:
+- JVM unit tests live in `app/src/test`; run `./gradlew :app:testDebugUnitTest` or use Gradle's `--tests` option for a focused test. There are no instrumented tests. Pure logic is also exercised by Node smoke scripts in `tools/`, many of which need `./gradlew :app:prepareBackupSmoke` first:
   - `node tools/backup-smoke.cjs`
   - `node tools/marking-smoke.cjs`
   - `node tools/update-smoke.cjs [server-manifest.json]`
@@ -25,4 +25,4 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - CI (`.github/workflows/release.yml`) only publishes signed releases; it does not run checks, so run `./build.sh -p` locally before finishing.
 - Features have design docs in `docs/` (`writing-follow.md`, `document-transactions.md`, `focal-sync.md`, `pen-feel.md`, `split-view.md`, …). Read the relevant one before changing that area.
-- Storage-format or journal/snapshot changes can't be verified by tests here; say so explicitly and point to the manual on-device check in `docs/document-transactions.md` (*Required device round-trip*).
+- Automated checks do not replace the required on-device round-trip for storage-format or journal/snapshot changes; see `docs/document-transactions.md` (*Required device round-trip*).

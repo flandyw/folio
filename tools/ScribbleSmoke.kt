@@ -45,11 +45,21 @@ fun main() {
     val www = (0..12).map { p(it * 10f, if (it % 2 == 0) 0f else 30f) }
     val mm = (0..300).map { i -> val t = i / 300.0 * 6 * PI; p((t * 8).toFloat(), (-abs(sin(t / 2)) * 30).toFloat()) }
     for (writing in listOf(www, mm)) check(!InkGeometry.isScribble(writing, 1f)) { "writing $writing" }
+    // Scratching out a word: tall legs that barely advance along it, unlike `www` (a third of a leg per leg).
+    val scratch = (0..40).map { p(it * 5f + if (it % 2 == 0) 0f else 1f, if (it % 2 == 0) 0f else 40f) }
+    for (s in listOf(0f, .5f, 1f)) for (gesture in listOf(scratch, dense(scratch)))
+        check(InkGeometry.isScribble(gesture, s)) { "scratch-out at $s" }
+    // Every letter goes, stems parallel to the legs included, and the next word stays.
+    val word = listOf(stroke(listOf(p(52f, 5f), p(52f, 35f))), stroke(listOf(p(100f, 20f), p(140f, 20f))),
+        stroke((0..24).map { p(170f + 12 * cos(it * PI / 12).toFloat(), 20f + 12 * sin(it * PI / 12).toFloat()) }))
+    val nextWord = stroke(listOf(p(240f, 5f), p(240f, 35f)))
+    check(InkGeometry.scribbleErase(word + nextWord, stroke(scratch), 14f) == listOf(nextWord)) { "scratched-out word" }
     check(!InkGeometry.isScribble(sharp + p(Float.NaN, 0f)))
     check(InkGeometry.isScribble(sharp, Float.NaN))
     val target = stroke(listOf(p(50f, -10f), p(50f, 40f)))
     val distant = stroke(listOf(p(150f, 0f), p(150f, 40f)))
-    val once = stroke(listOf(p(50f, 1f), p(50f, 3f)))
+    // Grazed by the first leg only; ink between two legs counts as touched by both.
+    val once = stroke(listOf(p(50f, -2f), p(50f, -1f)))
     val originals = listOf(distant, target, once)
     check(InkGeometry.scribbleErase(originals, stroke(sharp), 0f) == listOf(distant, once))
     val untouched = listOf(distant, once)

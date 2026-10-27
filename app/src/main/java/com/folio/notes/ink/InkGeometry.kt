@@ -632,9 +632,6 @@ object InkGeometry {
             val side = p.y * ux - p.x * uy; sideMin = min(sideMin, side); sideMax = max(sideMax, side)
         }
         val axisSpan = axisMax - axisMin
-        // Handwriting (`www`, `mm`, loops) zigzags while running far along the line; a scrub stays
-        // about as deep as it is long.
-        if (sideMax - sideMin > axisSpan * (1f + .6f * ease)) return emptyList()
         val minLeg = max(8f - 2f * ease, axisSpan * (.18f - .06f * ease))
         val turns = ArrayList<Int>()
         turns.add(0)
@@ -657,6 +654,11 @@ object InkGeometry {
         }
         if (extreme != turns.last()) turns.add(extreme)
         val corners = turns.map { points[it] }
+        // Handwriting (`www`, `mm`, loops) zigzags while running far along the line; a scrub stays
+        // about as deep as it is long, unless it scratches out a word, each leg barely advancing.
+        val side = sideMax - sideMin
+        if (side > axisSpan * (1f + .6f * ease) &&
+            side / (corners.size - 1).coerceAtLeast(1) > axisSpan * (.2f + .05f * ease)) return emptyList()
         val total = corners.zipWithNext().sumOf { (a, b) -> distance(a, b).toDouble() }.toFloat()
         if (total < 80f - 20f * ease || total / span < 2.2f) return emptyList()
         var reversals = 0
@@ -748,7 +750,8 @@ object InkGeometry {
         for (index in strokes.indices) {
             val target = strokes[index]
             if (!canErase(target)) { survivors?.add(target); continue }
-            val reach = contactRadius + target.width / 2f
+            // Ink lying between two of the scrub's lines is wiped by both, even running parallel to them.
+            val reach = contactRadius + target.width / 2f + halo / 2f
             // Reject distant ink before expanding shapes or walking long freehand paths.
             // The view supplies its identity-cached bounds, so this stays cheap on dense pages.
             val box = boundsOf(target)

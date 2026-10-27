@@ -105,7 +105,7 @@ fun supabaseConfig(name: String, fallback: String): String {
 
 // Safe placeholders for local/CI builds without credentials. Production values are
 // injected via FOCAL_SUPABASE_URL / FOCAL_SUPABASE_PUBLISHABLE_KEY secrets
-// (see .github/workflows/*.yml and docs/focal.md). Mistake review and study sessions
+// (see .github/workflows/release.yml and docs/focal-sync.md). Mistake review and study sessions
 // share this one project since ExamTrack was merged into Focal. Never commit real keys here.
 tasks.register<GenerateFocalConfigTask>("generateFocalConfig") {
     url.set(supabaseConfig("FOCAL_SUPABASE_URL", "https://example.supabase.co"))

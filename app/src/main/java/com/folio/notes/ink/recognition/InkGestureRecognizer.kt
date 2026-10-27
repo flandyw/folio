@@ -31,6 +31,7 @@ internal object InkGestureRecognizer {
         val client = DigitalInkRecognition.getClient(DigitalInkRecognizerOptions.builder(model).build())
         val availability = MutableStateFlow(Availability.NOT_STARTED)
         var busy = false
+        val waiting = ArrayDeque<() -> Unit>()
     }
     private val gestures by lazy { Classifier(DigitalInkRecognitionModelIdentifier.EN_AU_GESTURE) }
     private val shapes by lazy { Classifier(DigitalInkRecognitionModelIdentifier.SHAPES) }
@@ -56,14 +57,21 @@ internal object InkGestureRecognizer {
         }.addOnFailureListener { c.availability.value = Availability.UNAVAILABLE }
     }
 
-    /** Always completes on main; missing/busy/failed models preserve the drawing. No score is a probability. */
+    /** Always completes on main; missing/failed models preserve the drawing. No score is a probability. */
     fun classify(model: Model, stroke: Stroke, result: (String?) -> Unit) {
         prepare(model)
         val c = classifier(model)
         synchronized(c) {
-            if (c.availability.value != Availability.READY || c.busy) { main.post { result(null) }; return }
+            if (c.availability.value != Availability.READY) { main.post { result(null) }; return }
+            // Queue rather than drop: two quick scrubs must both be judged.
+            if (c.busy) { c.waiting.addLast { recognize(c, model, stroke, result) }; return }
             c.busy = true
         }
+        recognize(c, model, stroke, result)
+    }
+
+    private fun recognize(c: Classifier, model: Model, stroke: Stroke, result: (String?) -> Unit) {
+        fun next() = synchronized(c) { c.waiting.removeFirstOrNull().also { if (it == null) c.busy = false } }?.invoke()
         worker.execute {
             try {
                 val points = Ink.Stroke.builder()
@@ -72,12 +80,11 @@ internal object InkGestureRecognizer {
                 } else stroke.points.forEach { points.addPoint(Ink.Point.create(it.x, it.y)) }
                 val ink = Ink.builder().addStroke(points.build()).build()
                 c.client.recognize(ink).addOnCompleteListener { task ->
-                    synchronized(c) { c.busy = false }
-                    result(if (task.isSuccessful) task.result.candidates.firstOrNull()?.text else null)
+                    try { result(if (task.isSuccessful) task.result.candidates.firstOrNull()?.text else null) } finally { next() }
                 }
             } catch (_: Exception) {
-                synchronized(c) { c.busy = false }
                 main.post { result(null) }
+                next()
             }
         }
     }
