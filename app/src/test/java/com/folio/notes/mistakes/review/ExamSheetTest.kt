@@ -50,9 +50,17 @@ class ExamSheetTest {
     }
 
     @Test fun darkPaperInvertsLightnessKeepingHue() {
-        night(255, 255, 255).forEach { assertTrue(it in 15..22) }           // paper → soft dark grey
-        night(27, 27, 27).forEach { assertTrue(it in 210..225) }             // pen ink → near white
+        night(255, 255, 255).forEach { assertTrue(it in 32..40) }           // paper → dark grey
+        night(27, 27, 27).forEach { assertTrue(it in 215..230) }             // pen ink → near white
         val red = night(198, 40, 40); assertTrue(red[0] > red[1] && red[0] > red[2])   // red stays red
         val blue = night(31, 78, 180); assertTrue(blue[2] > blue[0] && blue[2] > blue[1])
+    }
+
+    @Test fun headerMarksAreNotRepeatedInTheQuestion() {
+        val text = "Find the rule and domain for \\(f^{-1}\\). (2 marks)"
+        assertEquals("Find the rule and domain for \\(f^{-1}\\).", ExamSheet.questionBody(text, 2.0))
+        assertEquals(text, ExamSheet.questionBody(text, null))
+        assertEquals("Explain (in words) why.", ExamSheet.questionBody("Explain (in words) why. ( 1 Mark )", 1.0))
+        assertNull(ExamSheet.questionBody("(3 marks)", 3.0))
     }
 }

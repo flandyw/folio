@@ -177,14 +177,29 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
      * re-render before giving up: an unrecoverable blank throws, and the caller keeps readable native
      * source. Never return an empty bitmap — caching one shows a permanent gap in every list card.
      */
-    suspend fun render(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap =
-        renderRequest(JSONObject().put("latex", latex).put("displayMode", display)
-            .put("fontSize", fontSize).put("color", color), density)
+    suspend fun render(latex: String, display: Boolean, fontSize: Float, color: String, density: Float): Bitmap {
+        val k = density / pixelRatio()
+        return renderRequest(JSONObject().put("latex", latex).put("displayMode", display)
+            .put("fontSize", fontSize * k).put("color", color), density / k)
+    }
 
     suspend fun renderDocument(
         blocks: JSONArray, fontSize: Float, lineHeight: Float, width: Float, color: String, density: Float,
-    ): Bitmap = renderRequest(JSONObject().put("blocks", blocks).put("width", width)
-        .put("fontSize", fontSize).put("lineHeight", lineHeight).put("color", color), density)
+    ): Bitmap {
+        val k = density / pixelRatio()
+        return renderRequest(JSONObject().put("blocks", blocks).put("width", width * k)
+            .put("fontSize", fontSize * k).put("lineHeight", lineHeight * k).put("color", color), density / k)
+    }
+
+    /**
+     * The WebView paints at the screen's pixel ratio whatever [render] is asked for, so a caller laying
+     * out at another density (the exam sheet draws at its own scale) has its sizes scaled to that ratio
+     * here, and the picture lands at the pixels per unit it asked for instead of small in one corner.
+     */
+    private suspend fun pixelRatio(): Float {
+        loaded.await()
+        return evaluate("window.devicePixelRatio").toFloatOrNull()?.takeIf { it > 0f } ?: resources.displayMetrics.density
+    }
 
     /** A formula picture plus where its text baseline sits, in the caller's units from the top of the picture. */
     class Snippet(val bitmap: Bitmap, val baseline: Float)
@@ -197,8 +212,7 @@ internal class KaTeXWebView(context: Context) : WebView(wholeDocumentContext(con
      */
     suspend fun renderSnippet(latex: String, display: Boolean, fontSize: Float, color: String, pixelsPerUnit: Float): Snippet {
         loaded.await()
-        val ratio = evaluate("window.devicePixelRatio").toFloatOrNull()?.takeIf { it > 0f }
-            ?: resources.displayMetrics.density
+        val ratio = pixelRatio()
         measureBaseline = !display
         baseline = 0f
         try {

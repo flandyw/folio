@@ -130,6 +130,10 @@ internal object ExamSheet {
     }
     /** VCAA papers allow about 1.5 minutes a mark. */
     fun paceSeconds(marks: Double?): Long? = marks?.takeIf { it > 0 && it.isFinite() }?.let { (it * 90).roundToLong() }
+    private val trailingMarks = Regex("""\s*\(\s*\d+(\.\d+)?\s*marks?\s*\)\s*$""", RegexOption.IGNORE_CASE)
+    /** The question text without a trailing "(N marks)" when the header already shows the marks. */
+    fun questionBody(text: String?, marks: Double?): String? =
+        text?.let { if (marksLabel(marks) != null) it.replace(trailingMarks, "") else it }?.takeIf(String::isNotBlank)
     fun imageWidth(raw: Float): Float = if (raw.isFinite()) raw.coerceIn(.2f, 1f) else 1f
     fun clock(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
     fun linesKey(mistakeId: String) = "mistake.exam.lines.$mistakeId"
@@ -141,13 +145,13 @@ internal object ExamSheet {
 
     /**
      * Dark paper: inverts lightness and turns hue half way round, which restores the original hue
-     * (a "smart invert"), then lifts black to a soft dark grey. White paper becomes #121212-ish, black
+     * (a "smart invert"), then lifts black to a dark grey. White paper becomes #242424-ish, a step above the desk, black
      * ink near-white, and coloured ink and highlights keep their colour family. The hue matrix's rows
      * sum to 1, so inverting before or after it is the same.
      */
     fun nightMatrix(): FloatArray {
         val hue = floatArrayOf(-.574f, 1.430f, .144f, .426f, .430f, .144f, .426f, 1.430f, -.856f)
-        val k = .88f; val offset = 255 * k + 18
+        val k = .82f; val offset = 255 * k + 36
         return FloatArray(20).also { m ->
             for (r in 0..2) { for (c in 0..2) m[r * 5 + c] = -k * hue[r * 3 + c]; m[r * 5 + 4] = offset }
             m[18] = 1f
@@ -319,7 +323,8 @@ private val paperInk = Color(0xFF1B1B1B)
     // A dark theme darkens the paper and its ink together, keeping hues, so what is shared stays the real sheet.
     val night = MaterialTheme.colorScheme.surface.luminance() < .5f && android.os.Build.VERSION.SDK_INT >= 31
     val nightEffect = remember(night) { if (night) ExamSheet.nightEffect() else null }
-    BoxWithConstraints(modifier.clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+    // The desk sits a step below the review's surface so the sheet reads as paper in either theme.
+    BoxWithConstraints(modifier.clipToBounds().background(if (night) Color.Black else MaterialTheme.colorScheme.surfaceDim)) {
         val viewW = constraints.maxWidth.toFloat()
         val viewH = constraints.maxHeight.toFloat()
         val screenDensity = LocalDensity.current.density
@@ -359,7 +364,7 @@ private val paperInk = Color(0xFF1B1B1B)
                     sheetLayer.record { this@drawWithContent.drawContent() }
                     drawLayer(sheetLayer)
                 }) {
-                    ExamSheetContent(m, context, user, attachments, prefs, lines, revealed, imageWidths,
+                    ExamSheetContent(m, context, user, attachments, prefs, lines, revealed, night, imageWidths,
                         onQuestionHeight = { questionHeight = it }, onImageRect = { key, rect -> imageRects[key] = rect })
                 }
             }
@@ -415,8 +420,8 @@ private val paperInk = Color(0xFF1B1B1B)
                 onDone = { endResize(key) })
         }
         // The notebook screen's own bar and tool strip, cut down to the sheet's tools, with the
-        // exam's controls either side and the bar tinted so the paper reads apart from a notebook.
-        MaterialTheme(colorScheme = examToolbarColors(MaterialTheme.colorScheme)) {
+        // exam's controls either side, on the review's own surface so the header reads as one band.
+        MaterialTheme(colorScheme = barColors(MaterialTheme.colorScheme)) {
             FloatingInkToolbar(
                 modifier = Modifier.align(Alignment.TopCenter),
                 onMainHeight = { toolbarHeight = it },
@@ -456,7 +461,7 @@ private val paperInk = Color(0xFF1B1B1B)
 /** The printed page: header, question, pictures, ruled answer space and, once revealed, the guide. */
 @Composable private fun ExamSheetContent(
     m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository,
-    prefs: SharedPreferences, lines: Int, revealed: Boolean, imageWidths: MutableMap<String, Float>,
+    prefs: SharedPreferences, lines: Int, revealed: Boolean, night: Boolean, imageWidths: MutableMap<String, Float>,
     onQuestionHeight: (Float) -> Unit, onImageRect: (String, Rect) -> Unit,
 ) {
     val unit = LocalDensity.current.density
@@ -464,19 +469,20 @@ private val paperInk = Color(0xFF1B1B1B)
     val body = TextStyle(fontFamily = FontFamily.Serif, fontSize = 17.sp, lineHeight = 25.sp, color = paperInk)
     // Paper is white in a dark theme too; rich text and maths read their colours from the theme.
     MaterialTheme(colorScheme = lightColorScheme(onSurface = paperInk, onSurfaceVariant = Color(0xFF55575A))) {
-        Column(Modifier.requiredWidth(ExamSheet.WIDTH.dp).shadow(3.dp).background(Color.White)
+        // Inverted, a shadow would glow around dark paper, so the dark sheet stands on the desk's contrast alone.
+        Column(Modifier.requiredWidth(ExamSheet.WIDTH.dp).then(if (night) Modifier else Modifier.shadow(3.dp)).background(Color.White)
             .onGloballyPositioned { root[0] = it }) {
-            Column(Modifier.fillMaxWidth().padding(start = ExamSheet.MARGIN.dp, end = ExamSheet.MARGIN.dp, top = ExamSheet.MARGIN.dp, bottom = 18.dp)
+            Column(Modifier.fillMaxWidth().padding(start = ExamSheet.MARGIN.dp, end = ExamSheet.MARGIN.dp, top = ExamSheet.MARGIN.dp, bottom = 6.dp)
                 .onSizeChanged { onQuestionHeight(it.height / unit) }) {
                 context?.let { c ->
                     val crumb = listOf(c.subject, c.title, c.paper).filter(String::isNotBlank).joinToString(" · ")
-                    if (crumb.isNotBlank()) Text(crumb, Modifier.padding(bottom = 10.dp), fontSize = 12.sp, color = Color(0xFF6B6D70), fontFamily = FontFamily.SansSerif)
+                    if (crumb.isNotBlank()) Text(crumb.uppercase(), Modifier.padding(bottom = 14.dp), fontSize = 10.sp, letterSpacing = .8.sp, fontWeight = FontWeight.Medium, color = Color(0xFF6B6D70), fontFamily = FontFamily.SansSerif)
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(m.question, Modifier.weight(1f, fill = false), fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = paperInk)
-                    ExamSheet.marksLabel(m.totalMarks)?.let { Text(" $it", fontFamily = FontFamily.SansSerif, fontSize = 18.sp, color = paperInk) }
+                    Text(m.question, Modifier.weight(1f, fill = false), fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = paperInk)
+                    ExamSheet.marksLabel(m.totalMarks)?.let { Text(" $it", fontFamily = FontFamily.SansSerif, fontSize = 17.sp, color = paperInk) }
                 }
-                if (!m.questionText.isNullOrBlank()) RichText(m.questionText, Modifier.padding(top = 10.dp), style = body)
+                ExamSheet.questionBody(m.questionText, m.totalMarks)?.let { RichText(it, Modifier.padding(top = 12.dp), style = body) }
                 m.attachments.forEach { attachment ->
                     ExamImage(attachment, user, attachments, prefs, imageWidths) { coords ->
                         root[0]?.takeIf { it.isAttached && coords.isAttached }?.let { r ->
@@ -601,13 +607,8 @@ private val paperInk = Color(0xFF1B1B1B)
     }
 }
 
-/** The notebook bar in the exam's colours: the bar and its popovers take a tint of the accent's container. */
-private fun examToolbarColors(base: ColorScheme): ColorScheme {
-    fun tint(c: Color, amount: Float) = androidx.compose.ui.graphics.lerp(c, base.primaryContainer, amount)
-    return base.copy(
-        surfaceContainerHigh = tint(base.surfaceContainerHigh, .35f),
-        surfaceContainerHighest = tint(base.surfaceContainerHighest, .35f),
-        surfaceBright = tint(base.surfaceBright, .25f),
-        secondaryContainer = base.primary.copy(alpha = .22f).compositeOver(base.surfaceContainerHigh),
-    )
-}
+/** The bar on the review's surface, as the embedded editor is in Write mode: one header band, not two tones. */
+private fun barColors(base: ColorScheme): ColorScheme = base.copy(
+    surfaceContainerHigh = base.surface,
+    surfaceBright = base.surface,
+)
