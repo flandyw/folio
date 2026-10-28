@@ -143,7 +143,7 @@ object AppPrefs {
     }
     /** Draw the pen stroke in progress through a front-buffered layer (API 29+). Experimental; off by default. */
     const val LOW_LATENCY_INK = "input.lowLatencyInk"
-    const val DEFAULT_LOW_LATENCY_INK = false
+    const val DEFAULT_LOW_LATENCY_INK = true
     /** Soft pen stroke ends (render-time only, 0 = off). */
     const val INK_TAPER = "input.inkTaper"
     fun inkTaper(value: Float): Float = InkTaper.normalize(value)

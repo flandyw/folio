@@ -23,9 +23,11 @@ internal class PenTipPrediction {
     /** The platform/Kalman model of where the stylus is heading; created with the first pen stroke. */
     private var predictor: MotionEventPredictor? = null
     /** Predicted pen path as page-unit x/y pairs: first the drawn tip, then up to a few frames ahead. */
-    private val tail = FloatArray(2 * POINTS)
+    val tail = FloatArray(2 * POINTS)
     private val raw = FloatArray(2 * POINTS)
-    private var count = 0
+    /** Points held in [tail]; under 2 means there is no tail to draw. */
+    var count = 0
+        private set
     /** True while the motion predictor has nothing to offer, so the simple two-sample guess keeps the tip responsive. */
     var idle = true
         private set

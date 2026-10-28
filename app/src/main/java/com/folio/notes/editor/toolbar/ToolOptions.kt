@@ -253,7 +253,7 @@ object EditorQuickPrefs {
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             val lowLatency by rememberPref(prefs, AppPrefs.LOW_LATENCY_INK) { it.getBoolean(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK) }
-            SwitchRow("Low-latency ink (experimental)", lowLatency, { prefs.edit().putBoolean(AppPrefs.LOW_LATENCY_INK, it).apply() },
+            SwitchRow("Low-latency ink", lowLatency, { prefs.edit().putBoolean(AppPrefs.LOW_LATENCY_INK, it).apply() },
                 hint = "Ink follows the tip more closely. Turn off if it flickers on lift.")
         }
     }

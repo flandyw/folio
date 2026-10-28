@@ -1,8 +1,10 @@
 package com.folio.notes.ink
 
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
 import android.graphics.RectF
 import android.os.Build
 import android.view.SurfaceHolder
@@ -13,6 +15,7 @@ import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import com.folio.notes.model.InkPoint
+import kotlin.math.hypot
 
 /**
  * An optional low-latency layer for the pen stroke in progress (Settings › Writing › Pen feel, off by default).
@@ -27,8 +30,11 @@ import com.folio.notes.model.InkPoint
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 internal class LowLatencyInk private constructor(private val decor: ViewGroup) {
-    /** A run of window-space points as x, y, diameter triples, drawn with [clip] (window space) applied. Immutable. */
-    private class Chunk(val points: FloatArray, val color: Int, val clip: RectF)
+    /**
+     * New window-space points as x, y, diameter triples plus the predicted tail (x, y pairs, drawn at the tip's
+     * width), clipped to [clip] (window space). [first] starts a new stroke on the render thread. Immutable.
+     */
+    private class Chunk(val points: FloatArray, val tail: FloatArray, val color: Int, val clip: RectF, val first: Boolean)
 
     private val surface = SurfaceView(decor.context).apply {
         setZOrderOnTop(true)
@@ -39,15 +45,21 @@ internal class LowLatencyInk private constructor(private val decor: ViewGroup) {
     @Volatile private var surfaceReady = false
     private var renderer: CanvasFrontBufferedRenderer<Chunk>? = null
     private var dirty = false
-    private var lastX = 0f; private var lastY = 0f; private var lastDiameter = 0f
-    private var hasLast = false
+    private var first = true
+    /** The last chunk drew a tail, so the next must be sent even without new points, to wipe it. */
+    private var hadTail = false
+    private var lastPageX = 0f; private var lastPageY = 0f; private var along = 0f
     private val where = IntArray(2)
     private val window = RectF()
     private val wipe = Runnable { wipeNow() }
 
-    /** Render-thread state. */
+    /** Render-thread state: every point of the stroke so far (to redraw what an old tail covered) and that tail's box. */
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private var drawn = FloatArray(3 * 256)
+    private var drawnCount = 0
+    private var widest = 0f
+    private val tailBox = RectF()
 
     private val holderCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) { surfaceReady = true }
@@ -57,21 +69,60 @@ internal class LowLatencyInk private constructor(private val decor: ViewGroup) {
 
     private val callback = object : CanvasFrontBufferedRenderer.Callback<Chunk> {
         override fun onDrawFrontBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, param: Chunk) {
+            if (param.first) { drawnCount = 0; widest = 0f; tailBox.setEmpty() }
+            val before = drawnCount
             val p = param.points
+            if (3 * drawnCount + p.size > drawn.size) drawn = drawn.copyOf(maxOf(2 * drawn.size, 3 * drawnCount + p.size))
+            p.copyInto(drawn, 3 * drawnCount)
+            drawnCount += p.size / 3
+            for (i in 2 until p.size step 3) widest = maxOf(widest, p[i])
+            paint.color = param.color; fill.color = param.color
             canvas.save()
             canvas.clipRect(param.clip)
-            paint.color = param.color; fill.color = param.color
-            if (p.size == 3) canvas.drawCircle(p[0], p[1], p[2] / 2f, fill)
-            var i = 3
-            while (i + 2 < p.size) {
-                paint.strokeWidth = p[i + 2]
-                canvas.drawLine(p[i - 3], p[i - 2], p[i], p[i + 1], paint)
-                i += 3
+            // The last tail was a guess: wipe its box and redraw the real stroke beneath it (as androidx.ink does).
+            if (!tailBox.isEmpty) {
+                canvas.save()
+                canvas.clipRect(tailBox)
+                canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                drawSegments(canvas, 0, before, tailBox)
+                canvas.restore()
+            }
+            drawSegments(canvas, maxOf(before - 1, 0), drawnCount, null)
+            tailBox.setEmpty()
+            val t = param.tail
+            if (t.size >= 4 && drawnCount > 0) {
+                val d = drawn[3 * drawnCount - 1]
+                paint.strokeWidth = d
+                tailBox.set(t[0], t[1], t[0], t[1])
+                for (i in 2 until t.size step 2) {
+                    canvas.drawLine(t[i - 2], t[i - 1], t[i], t[i + 1], paint)
+                    tailBox.union(t[i], t[i + 1])
+                }
+                tailBox.inset(-(maxOf(d, widest) / 2f + 2f), -(maxOf(d, widest) / 2f + 2f))
             }
             canvas.restore()
         }
         // Nothing is committed: the page draws the finished stroke, and the front buffer is simply wiped.
         override fun onDrawMultiBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, params: Collection<Chunk>) = Unit
+    }
+
+    /** Draws stroke points [from] until [to] as round-capped segments, only those touching [box] when given. */
+    private fun drawSegments(canvas: Canvas, from: Int, to: Int, box: RectF?) {
+        val d = drawn
+        if (to - from == 1 && drawnCount == 1) {
+            if (box == null || box.contains(d[0], d[1])) canvas.drawCircle(d[0], d[1], d[2] / 2f, fill)
+            return
+        }
+        for (i in from + 1 until to) {
+            val a = 3 * (i - 1); val b = 3 * i
+            if (box != null) {
+                val r = maxOf(d[a + 2], d[b + 2]) / 2f
+                if (minOf(d[a], d[b]) - r > box.right || maxOf(d[a], d[b]) + r < box.left ||
+                    minOf(d[a + 1], d[b + 1]) - r > box.bottom || maxOf(d[a + 1], d[b + 1]) + r < box.top) continue
+            }
+            paint.strokeWidth = d[b + 2]
+            canvas.drawLine(d[a], d[a + 1], d[b], d[b + 1], paint)
+        }
     }
 
     private fun attach(): Boolean = try {
@@ -87,7 +138,7 @@ internal class LowLatencyInk private constructor(private val decor: ViewGroup) {
         renderer = null
         surface.holder.removeCallback(holderCallback)
         if (surface.parent === decor) decor.removeView(surface)
-        surfaceReady = false; dirty = false; hasLast = false
+        surfaceReady = false; dirty = false; first = true
     }
 
     /** True when strokes can be drawn now; false until the surface exists (the page then simply draws alone). */
@@ -97,34 +148,41 @@ internal class LowLatencyInk private constructor(private val decor: ViewGroup) {
     fun begin() {
         surface.removeCallbacks(wipe)
         if (dirty) wipeNow()
-        hasLast = false
+        first = true; hadTail = false
     }
 
     /**
-     * Draws [points] from index [from] on, converted from page units to the window with the view's own
-     * placement ([originX], [originY], [scale] as in the view) and clipped to [localClip] (view pixels).
+     * Draws [points] from index [from] on and the predicted [tail] ([tailCount] page-unit x/y pairs starting at the
+     * drawn tip), converted from page units to the window with the view's own placement ([originX], [originY],
+     * [scale] as in the view) and clipped to [localClip] (view pixels). The start thins like the page's live stroke.
      */
     fun append(view: View, originX: Float, originY: Float, scale: Float, localClip: RectF, color: Int,
-        strokeWidth: Float, points: List<InkPoint>, from: Int) {
+        strokeWidth: Float, points: List<InkPoint>, from: Int, tail: FloatArray, tailCount: Int) {
         val target = renderer ?: return
-        if (from >= points.size || !surfaceReady) return
+        if (!surfaceReady || (from >= points.size && tailCount < 2 && !first && !hadTail)) return
         view.getLocationInWindow(where)
-        val count = points.size - from
-        val carry = if (hasLast) 1 else 0
-        val out = FloatArray(3 * (count + carry))
+        val ox = where[0] + originX; val oy = where[1] + originY
+        val taper = InkTaper.length()
+        val count = (points.size - from).coerceAtLeast(0)
+        val out = FloatArray(3 * count)
         var o = 0
-        if (carry == 1) { out[o++] = lastX; out[o++] = lastY; out[o++] = lastDiameter }
         for (i in from until points.size) {
             val p = points[i]
-            lastX = where[0] + originX + p.x * scale
-            lastY = where[1] + originY + p.y * scale
-            lastDiameter = strokeWidth * InkRenderer.penPressureScale(p.pressure) * scale
-            out[o++] = lastX; out[o++] = lastY; out[o++] = lastDiameter
+            if (first && i == from) along = 0f else along += hypot(p.x - lastPageX, p.y - lastPageY)
+            lastPageX = p.x; lastPageY = p.y
+            out[o++] = ox + p.x * scale
+            out[o++] = oy + p.y * scale
+            out[o++] = strokeWidth * InkRenderer.penPressureScale(p.pressure) * InkTaper.scaleAt(along, taper) * scale
         }
-        hasLast = true
+        val n = if (tailCount >= 2) tailCount else 0
+        hadTail = n > 0
+        val window2 = FloatArray(2 * n)
+        for (i in 0 until n) { window2[2 * i] = ox + tail[2 * i] * scale; window2[2 * i + 1] = oy + tail[2 * i + 1] * scale }
         window.set(localClip.left + where[0], localClip.top + where[1], localClip.right + where[0], localClip.bottom + where[1])
+        val chunk = Chunk(out, window2, color, RectF(window), first)
+        if (count > 0) first = false
         dirty = true
-        try { target.renderFrontBufferedLayer(Chunk(out, color, RectF(window))) } catch (_: Throwable) { }
+        try { target.renderFrontBufferedLayer(chunk) } catch (_: Throwable) { }
     }
 
     /** The stroke is done (or was cancelled): wipe the layer once the page has had a couple of frames to draw it. */
@@ -139,7 +197,7 @@ internal class LowLatencyInk private constructor(private val decor: ViewGroup) {
 
     private fun wipeNow() {
         if (!dirty) return
-        dirty = false; hasLast = false
+        dirty = false; first = true; hadTail = false
         try { renderer?.clear() } catch (_: Throwable) { }
     }
 

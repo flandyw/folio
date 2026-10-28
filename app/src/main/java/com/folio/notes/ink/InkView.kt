@@ -2243,6 +2243,7 @@ class InkView(context: Context) : View(context) {
         val handled = handleTouchEvent(admitted)
         writingFeedback(admitted)
         if (predicting) refreshPrediction(admitted) else clearPrediction()
+        streamLowLatency()
         // A held pause turned the stroke into a shape the page draws; the freehand preview must not linger over it.
         if (heldShape != null) lowLatency?.let { it.cancel(); lowLatency = null }
         onLiveInk(draft?.let { if (it.layer == activeLayer) it else it.copy(layer = activeLayer) }, isWritingGesture)
@@ -2699,7 +2700,6 @@ class InkView(context: Context) : View(context) {
                                 val before = growing.size
                                 growing.addAll(accepted)
                                 settleLiveStart(growing, before)
-                                streamLowLatency()
                                 current
                             }
                             else -> {
@@ -2816,6 +2816,8 @@ class InkView(context: Context) : View(context) {
         }
         draft = if (current.tool in FREEHAND_TOOLS) {
             (current.points as ArrayList<InkPoint>).addAll(accepted)
+            // The pen is up: send the last samples and wipe the guess, or it would hang past the stroke's end.
+            clearPrediction()
             streamLowLatency()
             current
         } else current.copy(points = listOf(current.points.first(), end))
@@ -3892,11 +3894,12 @@ class InkView(context: Context) : View(context) {
     private fun streamLowLatency() {
         val layer = lowLatency ?: return
         val stroke = draft ?: return
-        if (stroke.tool != Tool.PEN || heldShape != null || stroke.points.size <= lowLatencySent) return
+        if (stroke.tool != Tool.PEN || heldShape != null) return
         getLocalVisibleRect(visibleScratch)
         lowLatencyClip.set(visibleScratch)
         if (!page.infinite) lowLatencyClip.intersect(originX, originY, originX + page.width * scale, originY + page.height * scale)
-        layer.append(this, originX, originY, scale, lowLatencyClip, stroke.color, stroke.width, stroke.points, lowLatencySent)
+        layer.append(this, originX, originY, scale, lowLatencyClip, stroke.color, stroke.width, stroke.points, lowLatencySent,
+            prediction.tail, prediction.count)
         lowLatencySent = stroke.points.size
     }
 

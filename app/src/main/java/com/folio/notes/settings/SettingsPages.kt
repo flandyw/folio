@@ -240,7 +240,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             "Lay the stylus over and the highlighter lays down a broader stroke, like the side of a marker. The width is set when the pen touches down.")
         SettingsDivider()
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            SettingsPrefSwitch(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK, "Low-latency ink (experimental)",
+            SettingsPrefSwitch(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK, "Low-latency ink",
                 "Draws the pen's newest ink through a direct display layer so it follows the tip more closely. The page still draws the stroke underneath. Opaque pen ink only; turn it off if ink looks heavier while writing or flickers when you lift.")
             SettingsDivider()
         }

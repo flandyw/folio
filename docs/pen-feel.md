@@ -12,11 +12,15 @@ choosing the numbers that were always stored.
   *drawn* tip (the pen filter can hold that a pixel behind the real pen) and cuts it at 28 screen pixels.
   `PenTipPrediction.drawTail` paints it past the tip; it never enters the stroke. While the predictor has nothing
   yet (the first samples of a stroke) the old two-sample linear guess (`StrokePrediction.predict`) is used.
-- **Low-latency ink (experimental, off).** Settings › Writing › Pen feel. `LowLatencyInk` puts one
+- **Low-latency ink (on by default).** Settings › Writing › Pen feel. `LowLatencyInk` puts one
   transparent `SurfaceView` over the window and draws each new piece of an opaque pen stroke straight into
-  an `androidx.graphics` `CanvasFrontBufferedRenderer` front buffer. The page keeps drawing the same
-  stroke underneath, so a late or failed layer costs nothing but a slightly heavier edge while writing; it is
-  wiped ~48 ms after pen-up. Pen, on the page only (not notes, ruler, highlighter or translucent ink), API 29+.
+  an `androidx.graphics` `CanvasFrontBufferedRenderer` front buffer, skipping the app/compositor frame queue.
+  The predicted tail is drawn there too (otherwise the layer would show the real tip ahead of the page's guess and
+  hide it): each input event wipes the previous tail's box, redraws the stroke segments under it, then draws the new
+  tail, the same scheme androidx.ink's `InProgressStrokesView` uses. Widths match the page's live stroke (pressure
+  scale and start taper). The page keeps drawing the same stroke underneath, so a late or failed layer costs nothing
+  but a slightly heavier edge while writing; it is wiped ~48 ms after pen-up, and the tail is wiped by the lift
+  sample itself. Pen, on the page only (not notes, ruler, highlighter or translucent ink), API 29+.
 
 ## Smoothing
 
@@ -118,7 +122,7 @@ On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke t
 6. **Highlighter tilt:** upright vs. flat contact widths; the stroke width does not change mid-stroke.
 7. **Keep notebooks small:** write a page, close and reopen, undo/redo, export: it must look the same; compare the `.fps` size with the option off.
 8. **Tidy up handwriting:** lasso a few tilted lines with an underline and a highlighter; preview, apply, undo once; a locked layer is untouched.
-9. **Low-latency ink:** with it on, write on a finite page, a canvas, in split view and with a floating toolbar; look for flicker or a ghost at pen-up, a double-heavy edge while writing, anything left behind after undo, and rotation/multi-window behaviour. Turn it off again and confirm the overlay is gone. This path has not been run on a device.
+9. **Low-latency ink:** with it on (default), write fast loops and zigzags: the tail must track the tip with no stale spikes left behind mid-stroke or after lift; write on a finite page, a canvas, in split view and with a floating toolbar; look for flicker or a ghost at pen-up, a double-heavy edge while writing, anything left behind after undo, and rotation/multi-window behaviour. Turn it off again and confirm the overlay is gone. The front-buffer path (and its prediction) has not yet been verified on a device.
 10. **Start hold:** choose Highlighter, hold at pen-down, draw and hold again at the end with shape assist enabled. Check saved highlighter colour/width/opacity, straightening and adjustment, undo/redo, then write immediately: the next stroke is pen ink. Repeat with notebook-local tool settings, tilt and the ruler, on a canvas, in split/music/zoom layouts, across a page seam and on a sticky note. Choose Eraser; check its saved diameter, pressure, whole-stroke mode and undo, both on notes and across pages, with no initial pen dot. Quick dots, immediate writing, finger ink, the hardware eraser and eraser button must keep working. Move away and return to the start, pause at a pen stroke's end, cancel a contact, switch tools and leave the editor during the hold: none may trigger a late switch. Off disables the shortcut. Device verification remains required for the physical gesture and haptics.
 
 ## Writing feedback (OnePlus / OPPO Pencil Pro)
