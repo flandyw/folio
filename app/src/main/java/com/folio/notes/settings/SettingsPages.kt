@@ -644,6 +644,10 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     SettingsGroup("Review confirmation") { SettingsPrefSwitch(AppPrefs.UX_REVIEW_CONFIRM, true, "Confirm answer reveal and skip", "Turn off for single-tap review. Keyboard controls: Space reveal, 1–4 rate, S skip.") }
     val p = rememberPrefs()
     val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
+    val mode by rememberPref(p, AppPrefs.MISTAKE_RESPONSE_MODE) { AppPrefs.mistakeResponseMode(it.getString(AppPrefs.MISTAKE_RESPONSE_MODE, null)) }
+    SettingsGroup("Answering", footer = "How a new question opens. Exam paper prints the question on a ruled sheet you write and highlight on, like the real exam. Switching during a review changes this too.") {
+        SettingsChipRow("Respond by", listOf("write" to "Writing canvas", "type" to "Typing", "exam" to "Exam paper"), mode, { p.write { putString(AppPrefs.MISTAKE_RESPONSE_MODE, it) } })
+    }
     val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
     SettingsGroup("Practice pages", footer = "Applies to the next question you practise. Pages you have already written keep theirs.") {
         SettingsChipRow("Paper guide", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.MISTAKE_PAPER, it.name) } })

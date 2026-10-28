@@ -120,6 +120,9 @@ class InkView(context: Context) : View(context) {
     /** Theme canvas behind the paper, including reference and peek views. */
     var canvasBackgroundColor: Int = Color.TRANSPARENT
         set(value) { if (field != value) { field = value; invalidate() } }
+    /** Draws only the page's content, no white fill or guide, so a sheet laid out beneath shows through. */
+    var paperless = false
+        set(value) { if (field != value) { field = value; invalidate() } }
     var tool = Tool.PEN
         set(value) {
             if (field == value) return
@@ -1773,7 +1776,7 @@ class InkView(context: Context) : View(context) {
             postDelayed(refreshInkDetail, 90L)
         } else requestPdfDetail(content)
         InkRenderer.pageCached(canvas, content, background, images = imageBitmaps,
-            boundsOf = ::boundsOf, renderOf = ::renderedOf, backgroundDetail = drawPdfDetail,
+            boundsOf = ::boundsOf, renderOf = ::renderedOf, backgroundDetail = drawPdfDetail, paper = !paperless,
             drawInk = { inkCanvas ->
                 if (preview) drawNavigationInk(inkCanvas, content)
                 else {
@@ -2004,7 +2007,7 @@ class InkView(context: Context) : View(context) {
             // the whole page per sample. Draw it directly instead: the dirty rect culls to the
             // tip area and the geometry cache means only newly touched strokes pay any math.
             InkRenderer.pageCached(canvas, placed, background, images = imageBitmaps,
-                boundsOf = ::boundsOf, renderOf = ::renderedOf, backgroundDetail = drawPdfDetail)
+                boundsOf = ::boundsOf, renderOf = ::renderedOf, backgroundDetail = drawPdfDetail, paper = !paperless)
         } else drawCommittedPage(canvas, rest)
         // A handle drag previews scale/turn live through one matrix instead of reallocating
         // transformed copies per frame; the release commits the real geometry in one step.

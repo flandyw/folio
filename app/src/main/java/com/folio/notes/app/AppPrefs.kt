@@ -115,7 +115,8 @@ object AppPrefs {
     const val MISTAKE_RECORD_STUDY = "mistake.recordStudy"
     const val DEFAULT_MISTAKE_RECORD_STUDY = true
     const val DEFAULT_MISTAKE_RESPONSE_MODE = "write"
-    fun mistakeResponseMode(raw: String?): String = if (raw == "type") "type" else DEFAULT_MISTAKE_RESPONSE_MODE
+    /** "write" (the editor), "type" (a typed answer) or "exam" (the question printed on ruled exam paper). */
+    fun mistakeResponseMode(raw: String?): String = if (raw == "type" || raw == "exam") raw else DEFAULT_MISTAKE_RESPONSE_MODE
     const val DEFAULT_COVER = "notebook.defaultCover"
     const val DEFAULT_PAGE_COVER = "notebook.defaultPageCover"
     const val QUICK_FOLDER = "notebook.quickFolder"

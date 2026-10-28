@@ -643,9 +643,12 @@ object InkRenderer {
         renderOf: (Stroke) -> RenderedStroke = ::rendered,
         drawInk: ((Canvas) -> Unit)? = null,
         backgroundDetail: ((Canvas) -> Unit)? = null,
+        paper: Boolean = true,
     ) {
-        canvas.drawColor(Color.WHITE)
-        if (background != null) {
+        if (paper) canvas.drawColor(Color.WHITE)
+        // A paperless view draws over a sheet its host lays out underneath.
+        if (!paper) Unit
+        else if (background != null) {
             val dst = bitmapRectPool.get()!!.apply { set(0f, 0f, page.width, page.height) }
             canvas.drawBitmap(background, null, dst, bitmapPaintPool.get()!!)
             backgroundDetail?.invoke(canvas)

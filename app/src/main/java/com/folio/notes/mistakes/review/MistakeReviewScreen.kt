@@ -383,7 +383,12 @@ import kotlinx.coroutines.launch
             }
         }
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+        if (responseMode == "exam") Box(Modifier.fillMaxSize().padding(padding)) {
+            // The exam paper replaces the split: the question is printed on the sheet itself.
+            MistakeExamPaper(m, context, attempt.userId, model.attachments, practicePage, folio, state, finger, shapes,
+                busy, revealed, Modifier.fillMaxSize())
+            PracticeConfetti(celebration, reviewPreferences.practiceEffects, reviewPreferences.practiceFinish, Modifier.matchParentSize())
+        } else BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             // The IME must not turn a portrait tablet into a landscape split mid-sentence.
             val wide = if (typing) maxWidth >= 840.dp else mistakeLayout(maxWidth.value.toInt(), maxHeight.value.toInt()).splitReview
             val compactTyping = typing && imeVisible && maxHeight < 300.dp
@@ -542,13 +547,13 @@ import kotlinx.coroutines.launch
     val colors = MaterialTheme.colorScheme
     SingleChoiceSegmentedButtonRow(Modifier.padding(horizontal = FolioSpacing.dp4)
         .semantics { contentDescription = "Response mode" }) {
-        listOf("write" to "Write", "type" to "Type").forEachIndexed { index, (mode, label) ->
+        listOf("write" to "Write", "type" to "Type", "exam" to "Paper").forEachIndexed { index, (mode, label) ->
             val selected = responseMode == mode
-            val waiting = !selected && if (mode == "write") hasInk else hasTyped
+            val waiting = !selected && if (mode == "type") hasTyped else hasInk
             SegmentedButton(selected = selected, onClick = { onModeChange(mode) }, enabled = enabled,
                 modifier = Modifier.heightIn(min = 48.dp).then(if (showLabels) Modifier else Modifier.width(48.dp))
                     .semantics { contentDescription = "$label response${if (waiting) ", has working" else ""}" },
-                shape = SegmentedButtonDefaults.itemShape(index, 2),
+                shape = SegmentedButtonDefaults.itemShape(index, 3),
                 colors = SegmentedButtonDefaults.colors(
                     activeContainerColor = colors.secondaryContainer, activeContentColor = colors.onSecondaryContainer,
                     inactiveContainerColor = colors.surface, inactiveContentColor = colors.onSurfaceVariant),
@@ -556,7 +561,7 @@ import kotlinx.coroutines.launch
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     BadgedBox(badge = { if (waiting) Badge(containerColor = colors.primary) }) {
-                        Icon(if (mode == "type") Icons.Rounded.Keyboard else Icons.Rounded.Edit, null, Modifier.size(18.dp))
+                        Icon(when (mode) { "type" -> Icons.Rounded.Keyboard; "exam" -> Icons.Rounded.Description; else -> Icons.Rounded.Edit }, null, Modifier.size(18.dp))
                     }
                     if (showLabels) Text(label, maxLines = 1)
                 }
@@ -580,11 +585,11 @@ import kotlinx.coroutines.launch
 }
 
 /** Typed working on the practice page, top to bottom. Handwriting has no text to share. */
-private fun workingTexts(page: NotePage?): List<String> =
+internal fun workingTexts(page: NotePage?): List<String> =
     page?.texts?.sortedWith(compareBy({ it.y }, { it.x }))?.map { it.text.trim() }?.filter(String::isNotEmpty) ?: emptyList()
 
 /** The question as raw text, followed by [working] when there is any. */
-private fun mistakeShareText(m: ExamTrackMistake, working: List<String>): String = buildString {
+internal fun mistakeShareText(m: ExamTrackMistake, working: List<String>): String = buildString {
     append(m.question.trim())
     m.questionText?.trim()?.takeIf(String::isNotEmpty)?.let { append("\n\n").append(it) }
     if (working.isNotEmpty()) append("\n\nMy working:\n").append(working.joinToString("\n\n"))
@@ -609,13 +614,13 @@ private suspend fun renderWorkingPng(context: android.content.Context, folio: Fo
     }
 }
 
-private fun copyText(context: android.content.Context, text: String) {
+internal fun copyText(context: android.content.Context, text: String) {
     (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
         .setPrimaryClip(android.content.ClipData.newPlainText("Question and working", text))
 }
 
 /** Opens the Android share sheet with [text] and/or [image]. */
-private fun shareText(context: android.content.Context, text: String?, image: java.io.File? = null) {
+internal fun shareText(context: android.content.Context, text: String?, image: java.io.File? = null) {
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
         if (text != null) putExtra(android.content.Intent.EXTRA_TEXT, text)
         if (image == null) type = "text/plain"
@@ -634,7 +639,7 @@ private fun shareText(context: android.content.Context, text: String?, image: ja
 
 /** Tap shares a picture of the working and copies the text; long-press shares the question text alone. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun ShareTextButton(typed: Boolean, onShare: (questionOnly: Boolean) -> Unit) {
+@Composable internal fun ShareTextButton(typed: Boolean, onShare: (questionOnly: Boolean) -> Unit) {
     Box(
         Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).combinedClickable(
             role = androidx.compose.ui.semantics.Role.Button,
