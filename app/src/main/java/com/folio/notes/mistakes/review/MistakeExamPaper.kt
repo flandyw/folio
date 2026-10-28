@@ -218,7 +218,7 @@ private val paperInk = Color(0xFF1B1B1B)
 @Composable internal fun MistakeExamPaper(
     m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository,
     page: NotePage?, folio: FolioViewModel, state: FolioState, finger: Boolean, shapes: Boolean, haptics: Boolean,
-    busy: Boolean, revealed: Boolean, onSettings: () -> Unit, modifier: Modifier = Modifier,
+    busy: Boolean, revealed: Boolean, modifier: Modifier = Modifier,
 ) {
     val prefs = rememberPrefs()
     val androidContext = LocalContext.current
@@ -507,13 +507,13 @@ private val paperInk = Color(0xFF1B1B1B)
                     ExamTopBar(
                         mainTools = mainTools,
                         timer = { ExamClock(elapsed, ExamSheet.paceSeconds(m.totalMarks)) },
+                        lines = lines,
                         onMoreLines = { extraLines += 4; prefs.edit().putInt(ExamSheet.linesKey(m.id), extraLines).apply() },
                         onFewerLines = if (lines > 2 && extraLines > -30) ({ extraLines -= 2; prefs.edit().putInt(ExamSheet.linesKey(m.id), extraLines).apply() }) else null,
                         resizing = resizing,
                         onResize = if (m.attachments.isNotEmpty()) ({ resizing = !resizing }) else null,
                         onFit = { fitted = null },
                         onShare = { share(false) }, onShareQuestion = { share(true) },
-                        onSettings = onSettings,
                     )
                 },
             )
@@ -664,11 +664,17 @@ private val paperInk = Color(0xFF1B1B1B)
     Surface(Modifier.semantics(mergeDescendants = true) {
         contentDescription = "Time on this question ${ExamSheet.clock(elapsed)}" + (pace?.let { ", about ${ExamSheet.clock(it)} at exam pace" } ?: "")
     }, shape = CircleShape, color = if (over) colors.errorContainer else colors.surfaceContainerHighest) {
-        Row(Modifier.padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp6),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Icon(Icons.Rounded.Timer, null, Modifier.size(16.dp), tint = if (over) colors.onErrorContainer else colors.primary)
+        Row(Modifier.padding(start = FolioSpacing.dp8, end = FolioSpacing.dp12, top = FolioSpacing.dp6, bottom = FolioSpacing.dp6),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            // How much of the exam-pace allowance is used; an hourglass when there are no marks to pace by.
+            // Its own icon, so it never reads as the Study timer toggle in the bar above.
+            if (pace != null) CircularProgressIndicator(
+                progress = { (elapsed.toFloat() / pace).coerceIn(0f, 1f) }, modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
+                color = if (over) colors.error else colors.primary, trackColor = colors.outlineVariant, gapSize = 0.dp)
+            else Icon(Icons.Rounded.HourglassTop, null, Modifier.size(16.dp), tint = colors.primary)
             Text(ExamSheet.clock(elapsed) + (pace?.let { " / ${ExamSheet.clock(it)}" } ?: ""),
-                style = MaterialTheme.typography.labelLarge, color = if (over) colors.onErrorContainer else colors.onSurface)
+                style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                color = if (over) colors.onErrorContainer else colors.onSurface)
         }
     }
 }

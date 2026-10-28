@@ -280,12 +280,14 @@ internal val DockGap = FolioSpacing.dp4
 /**
  * The notebook bar for a mistake's exam paper: the same bar, dock buttons and centred tool strip as
  * [EditorTopBar], folding the same way on narrow panes. A sheet is one page with no layers, so the
- * left side holds answer space and picture sizing instead of pages, find, layers and add page; the
- * clock, share and the menu stay on the right.
+ * left side holds the answer space (a lines stepper), picture sizing and fit instead of pages, find,
+ * layers and add page; the right holds the clock and share. The review's own bar above keeps the
+ * menu, so this one has none.
  */
 @Composable internal fun ExamTopBar(
     mainTools: @Composable () -> Unit,
     timer: @Composable () -> Unit,
+    lines: Int,
     onMoreLines: () -> Unit,
     onFewerLines: (() -> Unit)?,
     resizing: Boolean,
@@ -293,25 +295,32 @@ internal val DockGap = FolioSpacing.dp4
     onFit: () -> Unit,
     onShare: () -> Unit,
     onShareQuestion: () -> Unit,
-    onSettings: () -> Unit,
 ) {
-    var overflow by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val timerWidth = remember { mutableStateOf(0.dp) }
         MeasureNaturalWidth(timerWidth) { timer() }
         val toolsNeed = 400.dp
         val rowWidth = maxWidth - BarInset * 2
         val barGap = FolioSpacing.dp12
-        val left = dockWidth(3 + if (onResize != null) 1 else 0)
-        val rightBase = dockWidth(2)
-        val rightWithTimer = rightBase + timerWidth.value + DockGap
-        val timerInline = rowWidth >= toolsNeed + maxOf(left, rightWithTimer) * 2 + barGap * 2
-        val stacked = rowWidth < toolsNeed + maxOf(left, rightBase) * 2 + barGap * 2
-        val side = maxOf(left, if (timerInline) rightWithTimer else rightBase)
+        val stepperWidth = DockButtonWidth * 2 + 72.dp
+        val left = stepperWidth + DockGap + dockWidth(1 + if (onResize != null) 1 else 0)
+        val right = timerWidth.value + DockGap + dockWidth(1)
+        val stacked = rowWidth < toolsNeed + maxOf(left, right) * 2 + barGap * 2
+        val side = maxOf(left, right)
         @Composable fun LeftControls() {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
-                DockButton(Icons.Rounded.Add, "Add answer lines", onMoreLines)
-                DockButton(Icons.Rounded.Remove, "Remove answer lines", { onFewerLines?.invoke() }, enabled = onFewerLines != null)
+                // Answer space reads as a count with its own − / +, not as two loose zoom-like buttons.
+                Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DockButton(Icons.Rounded.Remove, "Remove answer lines", { onFewerLines?.invoke() }, enabled = onFewerLines != null)
+                        Row(Modifier.widthIn(min = 72.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.CenterHorizontally)) {
+                            Icon(Icons.AutoMirrored.Rounded.Notes, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("$lines lines", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        }
+                        DockButton(Icons.Rounded.Add, "Add answer lines", onMoreLines)
+                    }
+                }
                 if (onResize != null) DockButton(Icons.Rounded.PhotoSizeSelectLarge, if (resizing) "Done resizing pictures" else "Resize pictures", onResize,
                     tint = if (resizing) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                 DockButton(Icons.Rounded.FitScreen, "Fit the page to the screen", onFit)
@@ -319,27 +328,14 @@ internal val DockGap = FolioSpacing.dp4
         }
         @Composable fun RightControls() {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
-                if (timerInline) Row(verticalAlignment = Alignment.CenterVertically) { timer() }
+                timer()
                 DockButton(Icons.Rounded.IosShare, "Share a picture of your answer · hold to share the question text", onShare, onLongClick = onShareQuestion)
-                Box {
-                    DockButton(Icons.Rounded.MoreVert, "Paper actions", { overflow = true })
-                    if (overflow) FolioPopover({ overflow = false }, width = 320.dp) {
-                        val run: (() -> Unit) -> Unit = { overflow = false; it() }
-                        Text("Exam paper", style = MaterialTheme.typography.titleMedium)
-                        if (!timerInline) timer()
-                        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                            PopoverRow(Icons.Rounded.IosShare, "Share a picture of your answer") { run(onShare) }
-                            PopoverRow(Icons.AutoMirrored.Rounded.ShortText, "Share the question text") { run(onShareQuestion) }
-                            HorizontalDivider()
-                            PopoverRow(Icons.Rounded.Tune, "App settings…") { run(onSettings) }
-                        }
-                    }
-                }
             }
         }
         EditorBar(tabs = null, activeId = null, onHome = {}, onSelectTab = {}, onCloseTab = {}, onNewTab = null) {
             val row = Modifier.fillMaxWidth().height(BarRowHeight).padding(horizontal = BarInset)
             if (stacked) {
+                // A phone can be narrower than both groups together; they wrap rather than clip.
                 FlowRow(Modifier.fillMaxWidth().heightIn(min = BarRowHeight).padding(horizontal = BarInset),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     itemVerticalAlignment = Alignment.CenterVertically) {
