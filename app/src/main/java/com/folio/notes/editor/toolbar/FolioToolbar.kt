@@ -277,6 +277,87 @@ internal val DockGap = FolioSpacing.dp4
     }
 }
 
+/**
+ * The notebook bar for a mistake's exam paper: the same bar, dock buttons and centred tool strip as
+ * [EditorTopBar], folding the same way on narrow panes. A sheet is one page with no layers, so the
+ * left side holds answer space and picture sizing instead of pages, find, layers and add page; the
+ * clock, share and the menu stay on the right.
+ */
+@Composable internal fun ExamTopBar(
+    mainTools: @Composable () -> Unit,
+    timer: @Composable () -> Unit,
+    onMoreLines: () -> Unit,
+    onFewerLines: (() -> Unit)?,
+    resizing: Boolean,
+    onResize: (() -> Unit)?,
+    onFit: () -> Unit,
+    onShare: () -> Unit,
+    onShareQuestion: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    var overflow by remember { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val timerWidth = remember { mutableStateOf(0.dp) }
+        MeasureNaturalWidth(timerWidth) { timer() }
+        val toolsNeed = 400.dp
+        val rowWidth = maxWidth - BarInset * 2
+        val barGap = FolioSpacing.dp12
+        val left = dockWidth(3 + if (onResize != null) 1 else 0)
+        val rightBase = dockWidth(2)
+        val rightWithTimer = rightBase + timerWidth.value + DockGap
+        val timerInline = rowWidth >= toolsNeed + maxOf(left, rightWithTimer) * 2 + barGap * 2
+        val stacked = rowWidth < toolsNeed + maxOf(left, rightBase) * 2 + barGap * 2
+        val side = maxOf(left, if (timerInline) rightWithTimer else rightBase)
+        @Composable fun LeftControls() {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
+                DockButton(Icons.Rounded.Add, "Add answer lines", onMoreLines)
+                DockButton(Icons.Rounded.Remove, "Remove answer lines", { onFewerLines?.invoke() }, enabled = onFewerLines != null)
+                if (onResize != null) DockButton(Icons.Rounded.PhotoSizeSelectLarge, if (resizing) "Done resizing pictures" else "Resize pictures", onResize,
+                    tint = if (resizing) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                DockButton(Icons.Rounded.FitScreen, "Fit the page to the screen", onFit)
+            }
+        }
+        @Composable fun RightControls() {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DockGap)) {
+                if (timerInline) Row(verticalAlignment = Alignment.CenterVertically) { timer() }
+                DockButton(Icons.Rounded.IosShare, "Share a picture of your answer · hold to share the question text", onShare, onLongClick = onShareQuestion)
+                Box {
+                    DockButton(Icons.Rounded.MoreVert, "Paper actions", { overflow = true })
+                    if (overflow) FolioPopover({ overflow = false }, width = 320.dp) {
+                        val run: (() -> Unit) -> Unit = { overflow = false; it() }
+                        Text("Exam paper", style = MaterialTheme.typography.titleMedium)
+                        if (!timerInline) timer()
+                        Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+                            PopoverRow(Icons.Rounded.IosShare, "Share a picture of your answer") { run(onShare) }
+                            PopoverRow(Icons.AutoMirrored.Rounded.ShortText, "Share the question text") { run(onShareQuestion) }
+                            HorizontalDivider()
+                            PopoverRow(Icons.Rounded.Tune, "App settings…") { run(onSettings) }
+                        }
+                    }
+                }
+            }
+        }
+        EditorBar(tabs = null, activeId = null, onHome = {}, onSelectTab = {}, onCloseTab = {}, onNewTab = null) {
+            val row = Modifier.fillMaxWidth().height(BarRowHeight).padding(horizontal = BarInset)
+            if (stacked) {
+                FlowRow(Modifier.fillMaxWidth().heightIn(min = BarRowHeight).padding(horizontal = BarInset),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    itemVerticalAlignment = Alignment.CenterVertically) {
+                    LeftControls(); RightControls()
+                }
+                HorizontalDivider(Modifier.padding(horizontal = BarInset), color = BarTones.divider)
+                Box(row, contentAlignment = Alignment.Center) { mainTools() }
+            } else {
+                Row(row, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(barGap)) {
+                    Box(Modifier.width(side), contentAlignment = Alignment.CenterStart) { LeftControls() }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { mainTools() }
+                    Box(Modifier.width(side), contentAlignment = Alignment.CenterEnd) { RightControls() }
+                }
+            }
+        }
+    }
+}
+
 /** Shared dock button; reserve the full Material touch width in the row budget. */
 /** Opens a second document beside this one, or closes the split; lit while the split is open. */
 @Composable private fun SplitViewButton(split: SplitViewControl) {

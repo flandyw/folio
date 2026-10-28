@@ -123,6 +123,8 @@ class InkView(context: Context) : View(context) {
     /** Draws only the page's content, no white fill or guide, so a sheet laid out beneath shows through. */
     var paperless = false
         set(value) { if (field != value) { field = value; invalidate() } }
+    /** Off when the host filters this view's drawing (a dark sheet): the front-buffer layer cannot be filtered. */
+    var frontBuffer = true
     var tool = Tool.PEN
         set(value) {
             if (field == value) return
@@ -3891,7 +3893,7 @@ class InkView(context: Context) : View(context) {
     /** Starts the optional low-latency layer for a plain opaque pen stroke on the page, when it is on and ready. */
     private fun startLowLatency(onPage: Boolean) {
         lowLatency = null; lowLatencySent = 0
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q || !frontBuffer) return
         if (!context.getSharedPreferences("preferences", 0).getBoolean(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK)) {
             LowLatencyInk.dispose(this); return
         }

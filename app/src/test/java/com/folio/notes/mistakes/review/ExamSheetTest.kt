@@ -43,4 +43,16 @@ class ExamSheetTest {
         val untouched = listOf(above)
         assertSame(untouched, ExamSheet.reflow(untouched, -300f, -100f, 320f, 1f))
     }
+
+    private fun night(r: Int, g: Int, b: Int): List<Int> {
+        val m = ExamSheet.nightMatrix()
+        return (0..2).map { row -> (m[row * 5] * r + m[row * 5 + 1] * g + m[row * 5 + 2] * b + m[row * 5 + 4]).toInt().coerceIn(0, 255) }
+    }
+
+    @Test fun darkPaperInvertsLightnessKeepingHue() {
+        night(255, 255, 255).forEach { assertTrue(it in 15..22) }           // paper → soft dark grey
+        night(27, 27, 27).forEach { assertTrue(it in 210..225) }             // pen ink → near white
+        val red = night(198, 40, 40); assertTrue(red[0] > red[1] && red[0] > red[2])   // red stays red
+        val blue = night(31, 78, 180); assertTrue(blue[2] > blue[0] && blue[2] > blue[1])
+    }
 }

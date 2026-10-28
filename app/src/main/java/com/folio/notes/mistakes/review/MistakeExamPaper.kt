@@ -53,7 +53,6 @@ import coil.decode.ImageDecoderDecoder
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
-import com.folio.notes.editor.toolbar.ToolIcons
 import com.folio.notes.editor.toolbar.ToolOptions
 import com.folio.notes.ink.InkView
 import com.folio.notes.input.LocalStylusActivity
@@ -64,6 +63,31 @@ import com.folio.notes.mistakes.sync.ExamContext
 import com.folio.notes.mistakes.sync.MistakeAttachmentRepository
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Tool
+import com.folio.notes.model.ShapePickerTools
+import com.folio.notes.editor.EditorToolState
+import com.folio.notes.editor.toolbar.EditorQuickPrefs
+import com.folio.notes.editor.toolbar.FloatingInkToolbar
+import com.folio.notes.editor.toolbar.QuickColorsState
+import com.folio.notes.editor.toolbar.ToolPresetState
+import com.folio.notes.editor.toolbar.ExamTopBar
+import com.folio.notes.editor.toolbar.ToolbarOptions
+import com.folio.notes.editor.toolbar.ToolbarSlot
+import androidx.compose.ui.graphics.compositeOver
+import com.folio.notes.FolioApplication
+import com.folio.notes.editor.rememberEditorPreferences
+import com.folio.notes.input.StylusShortcut
+import com.folio.notes.input.StylusShortcutEffect
+import com.folio.notes.input.StylusShortcutManager
+import com.folio.notes.input.StylusShortcuts
+import com.folio.notes.input.guardUiTouches
+import com.folio.notes.ui.FolioShapes
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.Stroke
 import com.folio.notes.ink.InkRenderer
@@ -111,10 +135,28 @@ internal object ExamSheet {
     fun linesKey(mistakeId: String) = "mistake.exam.lines.$mistakeId"
     fun widthKey(storagePath: String) = "mistake.exam.imageWidth.$storagePath"
     fun aspectKey(storagePath: String) = "mistake.exam.imageAspect.$storagePath"
-    fun colorKey(tool: Tool) = "mistake.exam.${tool.name}.color"
-    val PEN_COLORS = listOf(0xFF1B1B1B.toInt(), 0xFF1F4EB4.toInt(), 0xFFC62828.toInt())
-    val HIGHLIGHT_COLORS = listOf(0xFFFFE135.toInt(), 0xFF7CE36F.toInt(), 0xFFFF8FC7.toInt())
-    val SHAPES = listOf(Tool.LINE, Tool.RECTANGLE, Tool.ELLIPSE, Tool.GRAPH)
+    /** The editor toolbar slots the sheet keeps; everything else is hidden from its strip and menu. */
+    val SLOTS = setOf(ToolbarSlot.PEN, ToolbarSlot.SHAPES, ToolbarSlot.HIGHLIGHTER, ToolbarSlot.ERASER)
+    val TOOLS = ShapePickerTools + setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER)
+
+    /**
+     * Dark paper: inverts lightness and turns hue half way round, which restores the original hue
+     * (a "smart invert"), then lifts black to a soft dark grey. White paper becomes #121212-ish, black
+     * ink near-white, and coloured ink and highlights keep their colour family. The hue matrix's rows
+     * sum to 1, so inverting before or after it is the same.
+     */
+    fun nightMatrix(): FloatArray {
+        val hue = floatArrayOf(-.574f, 1.430f, .144f, .426f, .430f, .144f, .426f, 1.430f, -.856f)
+        val k = .88f; val offset = 255 * k + 18
+        return FloatArray(20).also { m ->
+            for (r in 0..2) { for (c in 0..2) m[r * 5 + c] = -k * hue[r * 3 + c]; m[r * 5 + 4] = offset }
+            m[18] = 1f
+        }
+    }
+    /** The [nightMatrix] as a render effect for the sheet and its ink. */
+    @androidx.annotation.RequiresApi(31)
+    fun nightEffect() = android.graphics.RenderEffect.createColorFilterEffect(
+        android.graphics.ColorMatrixColorFilter(nightMatrix())).asComposeRenderEffect()
 
     /**
      * Keeps ink on the question when a centred picture is resized by [scale]. The picture's bottom
@@ -152,17 +194,28 @@ private val paperInk = Color(0xFF1B1B1B)
  */
 @Composable internal fun MistakeExamPaper(
     m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository,
-    page: NotePage?, folio: FolioViewModel, state: FolioState, finger: Boolean, shapes: Boolean,
-    busy: Boolean, revealed: Boolean, modifier: Modifier = Modifier,
+    page: NotePage?, folio: FolioViewModel, state: FolioState, finger: Boolean, shapes: Boolean, haptics: Boolean,
+    busy: Boolean, revealed: Boolean, onSettings: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val prefs = rememberPrefs()
+    val androidContext = LocalContext.current
+    // Widths, pressure and brushes are the editor's own saved tool options.
+    val inkPrefs = remember(androidContext) { androidContext.getSharedPreferences("ink-tools", 0) }
     val stylus = LocalStylusActivity.current
+    val editorPrefs by rememberEditorPreferences(prefs, shapes)
     val penSmoothing by rememberPref(prefs, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
     val shapeHoldMs by rememberPref(prefs, AppPrefs.SHAPE_HOLD_MS) { AppPrefs.shapeHoldMs(it.getLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.DEFAULT_SHAPE_HOLD_MS)) }
-    var tool by rememberSaveable { mutableStateOf(Tool.PEN) }
-    var shapeTool by rememberSaveable { mutableStateOf(Tool.LINE) }
-    var penColor by remember { mutableIntStateOf(prefs.getInt(ExamSheet.colorKey(Tool.PEN), ExamSheet.PEN_COLORS[0])) }
-    var highlightColor by remember { mutableIntStateOf(prefs.getInt(ExamSheet.colorKey(Tool.HIGHLIGHTER), ExamSheet.HIGHLIGHT_COLORS[0])) }
+    // The editor's own tool state over the editor's saved tool settings: the same widths, brushes,
+    // quick colours and presets, and the same single-stroke eraser return.
+    val tools = remember(inkPrefs) { EditorToolState(inkPrefs, Tool.PEN) }
+    DisposableEffect(tools) { onDispose { tools.flushSave() } }
+    var tool by tools.tool
+    val options by tools.options
+    val quick = remember(inkPrefs) { QuickColorsState(inkPrefs) }
+    val presets = remember(inkPrefs) { ToolPresetState(inkPrefs) }
+    var palette by remember { mutableStateOf(false) }
+    var toolbarHeight by remember { mutableIntStateOf(0) }
+    val toolbarOptions by rememberPref(prefs, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     var extraLines by remember(m.id) { mutableIntStateOf(prefs.getInt(ExamSheet.linesKey(m.id), 0)) }
     val lines = ExamSheet.lines(m.totalMarks, extraLines)
     var resizing by remember(m.id) { mutableStateOf(false) }
@@ -176,6 +229,55 @@ private val paperInk = Color(0xFF1B1B1B)
     var elapsed by remember(m.id) { mutableLongStateOf(0L) }
     LaunchedEffect(m.id, revealed) { while (!revealed) { delay(1000); elapsed++ } }
     val active = if (resizing) Tool.HAND else tool
+    fun selectTool(value: Tool) {
+        resizing = false
+        if (value !in ExamSheet.TOOLS) return
+        if (tools.select(value, editorPrefs.eraserSingleStroke) && StylusShortcuts.isDrawingTool(value)) tools.previousTool.value = value
+    }
+    fun optionsFor(t: Tool): ToolOptions = tools.optionsFor(t)
+    fun setPref(key: String, value: Boolean) = prefs.edit().putBoolean(key, value).apply()
+    // Pen haptics and writing feedback, as in the editor.
+    val app = androidContext.applicationContext as? FolioApplication
+    val penHaptics = app?.penHaptics
+    val penFeedback = app?.penFeedback
+    val writingFeedback by rememberPref(prefs, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
+    DisposableEffect(penHaptics, haptics) {
+        if (haptics) penHaptics?.start() else penHaptics?.stop()
+        onDispose { penHaptics?.stop() }
+    }
+    DisposableEffect(writingFeedback) {
+        if (writingFeedback) penFeedback?.start()
+        onDispose { penFeedback?.stop() }
+    }
+    // The pen's button / double-tap: the configured shortcut, limited to the sheet's tools.
+    fun applyShortcut(action: StylusShortcut) {
+        val effect = StylusShortcuts.effect(action, tool, tools.previousTool.value)
+        val handled = when (effect) {
+            is StylusShortcutEffect.SwitchTool -> (effect.tool in ExamSheet.TOOLS).also { ok ->
+                if (ok) {
+                    selectTool(effect.tool)
+                    // The double-tap is a broadcast, not input: hand the view its tool now, not on the next frame.
+                    inkView?.let { view ->
+                        val o = tools.options.value
+                        view.tool = effect.tool; view.inkColor = o.color; view.inkWidth = o.width; view.inkOpacity = o.opacity
+                        view.pressureEnabled = o.pressure; view.pressureSensitivity = o.pressureSensitivity
+                        view.pressureVariation = o.pressureVariation; view.pressureCurve = o.pressureCurve
+                    }
+                    androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                }
+            }
+            StylusShortcutEffect.OpenPalette -> true.also { palette = true }
+            StylusShortcutEffect.Undo -> true.also { folio.undo() }
+            StylusShortcutEffect.NextLine, StylusShortcutEffect.None -> false
+        }
+        if (handled && haptics && penFeedback?.pulse() != true) penHaptics?.pulse()
+    }
+    val shortcutHandler = rememberUpdatedState<(StylusShortcut) -> Unit> { applyShortcut(it) }
+    val shortcuts = remember(androidContext) { StylusShortcutManager(androidContext) }
+    DisposableEffect(shortcuts) {
+        shortcuts.start { shortcutHandler.value(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
+        onDispose { shortcuts.stop() }
+    }
     // Where a picture's resize started, so its release can carry the ink on the question with it.
     val resizeStart = remember { mutableMapOf<String, Triple<Rect, Float, Float>>() }
     fun endResize(key: String) {
@@ -188,14 +290,13 @@ private val paperInk = Color(0xFF1B1B1B)
     }
     val sheetLayer = rememberGraphicsLayer()
     var sheetScale by remember { mutableFloatStateOf(1f) }
-    val androidContext = LocalContext.current
     val shareScope = rememberCoroutineScope()
     fun share(questionOnly: Boolean) {
         val text = mistakeShareText(m, if (questionOnly) emptyList() else workingTexts(page))
         if (questionOnly) { shareText(androidContext, text); return }
         shareScope.launch {
             val png = runCatching {
-                // The whole sheet as laid out, with the page's ink drawn on in sheet pixels.
+                // The whole sheet as laid out (always the white paper), with the page's ink drawn on in sheet pixels.
                 val bitmap = sheetLayer.toImageBitmap().asAndroidBitmap().copy(android.graphics.Bitmap.Config.ARGB_8888, true)
                 inkView?.page?.takeIf { it.loaded }?.let { ink ->
                     val canvas = android.graphics.Canvas(bitmap)
@@ -215,46 +316,36 @@ private val paperInk = Color(0xFF1B1B1B)
             else { copyText(androidContext, text); shareText(androidContext, null, png) }
         }
     }
-    Column(modifier) {
-        ExamToolbar(
-            tool = tool, shapeTool = shapeTool, penColor = penColor, highlightColor = highlightColor,
-            onTool = { tool = it; resizing = false; if (it in ExamSheet.SHAPES) shapeTool = it },
-            onColor = { t, c ->
-                if (t == Tool.HIGHLIGHTER) highlightColor = c else penColor = c
-                prefs.edit().putInt(ExamSheet.colorKey(if (t == Tool.HIGHLIGHTER) t else Tool.PEN), c).apply()
-            },
-            canUndo = state.canUndo && !busy, canRedo = state.canRedo && !busy,
-            onUndo = folio::undo, onRedo = folio::redo,
-            onMoreLines = { extraLines += 4; prefs.edit().putInt(ExamSheet.linesKey(m.id), extraLines).apply() },
-            onFewerLines = if (lines > 2 && extraLines > -30) ({ extraLines -= 2; prefs.edit().putInt(ExamSheet.linesKey(m.id), extraLines).apply() }) else null,
-            resizing = resizing, onResize = if (m.attachments.isNotEmpty()) ({ resizing = !resizing }) else null,
-            onFit = { fitted = null },
-            elapsed = elapsed, pace = ExamSheet.paceSeconds(m.totalMarks), onShare = ::share,
-        )
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceContainer)) {
-            val viewW = constraints.maxWidth.toFloat()
-            val viewH = constraints.maxHeight.toFloat()
-            val screenDensity = LocalDensity.current.density
-            // Sheet px per unit when it fits the width; capped so a wide tablet shows a page, not a poster.
-            val sheetDensity = minOf(viewW / (ExamSheet.WIDTH + 2 * ExamSheet.GUTTER), screenDensity * 1.6f).coerceAtLeast(.5f)
-            SideEffect { sheetScale = sheetDensity }
-            fun fit() = WorkspaceViewport(canvasX = (viewW - ExamSheet.WIDTH * sheetDensity) / 2,
-                canvasY = (ExamSheet.GUTTER + questionHeight) * sheetDensity, canvasZoom = sheetDensity)
-            // Fit until the student moves the sheet: pictures loading above the lines grow the
-            // question upwards, so the camera follows them while nobody has panned yet.
-            LaunchedEffect(inkView, questionHeight, sheetDensity, page?.id, fitted) {
-                val view = inkView ?: return@LaunchedEffect
-                if (questionHeight <= 0f || !view.page.infinite) return@LaunchedEffect
-                val target = fit()
-                if (fitted == null || cam == fitted) { view.returnToCanvasView(target); cam = target; fitted = target }
-            }
-            // Revealing the answer scrolls the marking guide into view under the last lines.
-            LaunchedEffect(revealed) {
-                val view = inkView ?: return@LaunchedEffect
-                if (!revealed) return@LaunchedEffect
-                val guideTop = (lines * ExamSheet.LINE_GAP + ExamSheet.MARGIN) * cam.canvasZoom + cam.canvasY
-                if (guideTop > viewH * .7f) view.returnToCanvasView(cam.copy(canvasY = cam.canvasY - (guideTop - viewH * .45f)))
-            }
+    // A dark theme darkens the paper and its ink together, keeping hues, so what is shared stays the real sheet.
+    val night = MaterialTheme.colorScheme.surface.luminance() < .5f && android.os.Build.VERSION.SDK_INT >= 31
+    val nightEffect = remember(night) { if (night) ExamSheet.nightEffect() else null }
+    BoxWithConstraints(modifier.clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+        val viewW = constraints.maxWidth.toFloat()
+        val viewH = constraints.maxHeight.toFloat()
+        val screenDensity = LocalDensity.current.density
+        // The sheet first fits below the floating strip; the ink options bar floats over it.
+        val toolbarRoom = (if (toolbarHeight > 0) toolbarHeight.toFloat() else 56 * screenDensity) + 16 * screenDensity
+        // Sheet px per unit when it fits the width; capped so a wide tablet shows a page, not a poster.
+        val sheetDensity = minOf(viewW / (ExamSheet.WIDTH + 2 * ExamSheet.GUTTER), screenDensity * 1.6f).coerceAtLeast(.5f)
+        SideEffect { sheetScale = sheetDensity }
+        fun fit() = WorkspaceViewport(canvasX = (viewW - ExamSheet.WIDTH * sheetDensity) / 2,
+            canvasY = toolbarRoom + questionHeight * sheetDensity, canvasZoom = sheetDensity)
+        // Fit until the student moves the sheet: pictures loading above the lines grow the
+        // question upwards, so the camera follows them while nobody has panned yet.
+        LaunchedEffect(inkView, questionHeight, sheetDensity, page?.id, fitted) {
+            val view = inkView ?: return@LaunchedEffect
+            if (questionHeight <= 0f || !view.page.infinite) return@LaunchedEffect
+            val target = fit()
+            if (fitted == null || cam == fitted) { view.returnToCanvasView(target); cam = target; fitted = target }
+        }
+        // Revealing the answer scrolls the marking guide into view under the last lines.
+        LaunchedEffect(revealed) {
+            val view = inkView ?: return@LaunchedEffect
+            if (!revealed) return@LaunchedEffect
+            val guideTop = (lines * ExamSheet.LINE_GAP + ExamSheet.MARGIN) * cam.canvasZoom + cam.canvasY
+            if (guideTop > viewH * .7f) view.returnToCanvasView(cam.copy(canvasY = cam.canvasY - (guideTop - viewH * .45f)))
+        }
+        Box(Modifier.fillMaxSize().graphicsLayer { renderEffect = nightEffect }) {
             CompositionLocalProvider(LocalDensity provides Density(sheetDensity, 1f)) {
                 Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).graphicsLayer {
                     transformOrigin = TransformOrigin(0f, 0f)
@@ -272,10 +363,9 @@ private val paperInk = Color(0xFF1B1B1B)
                         onQuestionHeight = { questionHeight = it }, onImageRect = { key, rect -> imageRects[key] = rect })
                 }
             }
-            if (page == null || !page.loaded) LoadingIndicator(Modifier.align(Alignment.Center))
-            else AndroidView(
+            if (page != null && page.loaded) AndroidView(
                 factory = { c -> InkView(c).apply {
-                    paperless = true; multiTouchUndo = true; scribbleToErase = true
+                    paperless = true
                     contentDescription = "Answer space. Write on the lines with a pen; highlight the question with the highlighter. Use two fingers to scroll and zoom."
                 }.also { inkView = it } },
                 modifier = Modifier.fillMaxSize(),
@@ -284,20 +374,27 @@ private val paperInk = Color(0xFF1B1B1B)
                     view.inputStylusActivity = stylus
                     if (view.page !== page) { view.bind(page, null); view.restoreWorkspaceCamera(null) }
                     view.onWorkspaceCamera = { cam = it }
-                    val options = when (active) {
-                        Tool.HIGHLIGHTER -> ToolOptions.load(prefs, Tool.HIGHLIGHTER).copy(color = highlightColor)
-                        in ExamSheet.SHAPES -> ToolOptions.load(prefs, active).copy(color = penColor)
-                        else -> ToolOptions.load(prefs, if (active == Tool.ERASER) Tool.ERASER else Tool.PEN).copy(color = penColor)
-                    }
+                    view.frontBuffer = !night
+                    val options = if (resizing) ToolOptions.load(inkPrefs, Tool.HAND) else options
                     view.tool = active
                     view.inkColor = options.color; view.inkWidth = options.width; view.inkOpacity = options.opacity
                     view.inkStyle = options.style; view.pressureEnabled = options.pressure
                     view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
                     view.pressureCurve = options.pressureCurve
+                    view.penStartOptionsFor = ::optionsFor
                     view.penSmoothing = penSmoothing
                     view.fingerDrawing = finger
-                    view.shapeRecognition = shapes; view.shapeHoldMs = shapeHoldMs
+                    view.shapeRecognition = editorPrefs.shapeRecognition; view.shapeHoldMs = shapeHoldMs
+                    view.snapEnabled = editorPrefs.snapEnabled; view.graphStyle = editorPrefs.graphStyle
+                    view.shapeMeasurements = editorPrefs.shapeMeasurements
+                    view.eraserPressureEnabled = editorPrefs.eraserPressure; view.eraserWholeStroke = editorPrefs.eraserWholeStroke
+                    view.scribbleToErase = editorPrefs.scribbleToErase; view.scribbleSensitivity = editorPrefs.scribbleSensitivity
+                    view.scribbleHold = editorPrefs.scribbleHold
+                    view.multiTouchUndo = editorPrefs.multiTouchUndo
+                    view.palmRejectMs = editorPrefs.palmRejectMs; view.panMultiplier = editorPrefs.panMultiplier
+                    view.maxZoom = AppPrefs.maxZoom(prefs.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM))
                     view.inputBlocked = busy
+                    view.onEraserFinished = { tools.finishEraser(editorPrefs.eraserSingleStroke) }
                     val mutations = folio.pageMutations(page.id)
                     view.onStrokesChanged = mutations::strokes
                     view.onStrokeAppended = mutations::appendStroke
@@ -309,12 +406,49 @@ private val paperInk = Color(0xFF1B1B1B)
                     view.onUndoRequest = folio::undo; view.onRedoRequest = folio::redo
                 },
             )
-            if (resizing) imageRects.forEach { (key, rect) ->
-                ResizeHandle(key, rect, cam, questionHeight, imageWidths[key] ?: 1f,
-                    onStart = { resizeStart.getOrPut(key) { Triple(rect, imageWidths[key] ?: 1f, questionHeight) } },
-                    onWidth = { imageWidths[key] = it },
-                    onDone = { endResize(key) })
-            }
+        }
+        if (page == null || !page.loaded) LoadingIndicator(Modifier.align(Alignment.Center))
+        if (resizing) imageRects.forEach { (key, rect) ->
+            ResizeHandle(key, rect, cam, questionHeight, imageWidths[key] ?: 1f,
+                onStart = { resizeStart.getOrPut(key) { Triple(rect, imageWidths[key] ?: 1f, questionHeight) } },
+                onWidth = { imageWidths[key] = it },
+                onDone = { endResize(key) })
+        }
+        // The notebook screen's own bar and tool strip, cut down to the sheet's tools, with the
+        // exam's controls either side and the bar tinted so the paper reads apart from a notebook.
+        MaterialTheme(colorScheme = examToolbarColors(MaterialTheme.colorScheme)) {
+            FloatingInkToolbar(
+                modifier = Modifier.align(Alignment.TopCenter),
+                onMainHeight = { toolbarHeight = it },
+                tool = tool, onTool = ::selectTool, options = options, onOptions = tools::changeOptions, quick = quick,
+                canUndo = state.canUndo && !busy, canRedo = state.canRedo && !busy, undo = folio::undo, redo = folio::redo,
+                palette = palette, onPalette = { palette = it },
+                snapEnabled = editorPrefs.snapEnabled, onSnap = { setPref("mathSnap", it) },
+                eraserSingleStroke = editorPrefs.eraserSingleStroke, onEraserSingleStroke = { setPref(EditorQuickPrefs.ERASER_SINGLE_STROKE, it) },
+                scribbleToErase = editorPrefs.scribbleToErase, onScribbleToErase = { setPref(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it) },
+                eraserPressureEnabled = editorPrefs.eraserPressure, onEraserPressure = { setPref(EditorQuickPrefs.ERASER_PRESSURE, it) },
+                eraserWholeStroke = editorPrefs.eraserWholeStroke, onEraserWholeStroke = { setPref(EditorQuickPrefs.ERASER_WHOLE_STROKE, it) },
+                shapeMeasurements = editorPrefs.shapeMeasurements, onShapeMeasurements = { setPref(EditorQuickPrefs.SHAPE_MEASUREMENTS, it) },
+                multiTouchUndo = editorPrefs.multiTouchUndo, onMultiTouchUndo = { setPref(EditorQuickPrefs.MULTI_TOUCH_UNDO, it) },
+                presets = presets.presets.filter { it.tool in ExamSheet.TOOLS },
+                onApplyPreset = { preset -> if (preset.tool in ExamSheet.TOOLS) { selectTool(preset.tool); tools.apply(preset) } },
+                toolPresetsState = presets,
+                hiddenSlots = ToolbarSlot.entries.toSet() - ExamSheet.SLOTS,
+                toolbarOptions = toolbarOptions,
+                header = { mainTools ->
+                    ExamTopBar(
+                        mainTools = mainTools,
+                        timer = { ExamClock(elapsed, ExamSheet.paceSeconds(m.totalMarks)) },
+                        onMoreLines = { extraLines += 4; prefs.edit().putInt(ExamSheet.linesKey(m.id), extraLines).apply() },
+                        onFewerLines = if (lines > 2 && extraLines > -30) ({ extraLines -= 2; prefs.edit().putInt(ExamSheet.linesKey(m.id), extraLines).apply() }) else null,
+                        resizing = resizing,
+                        onResize = if (m.attachments.isNotEmpty()) ({ resizing = !resizing }) else null,
+                        onFit = { fitted = null },
+                        onShare = { share(false) }, onShareQuestion = { share(true) },
+                        onSettings = onSettings,
+                    )
+                },
+            )
         }
     }
 }
@@ -451,69 +585,29 @@ private val paperInk = Color(0xFF1B1B1B)
     }
 }
 
-/** A slim strip for answering on paper: pens, highlighter, eraser, shapes, undo, space and time. */
-@Composable private fun ExamToolbar(
-    tool: Tool, shapeTool: Tool, penColor: Int, highlightColor: Int,
-    onTool: (Tool) -> Unit, onColor: (Tool, Int) -> Unit,
-    canUndo: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit,
-    onMoreLines: () -> Unit, onFewerLines: (() -> Unit)?,
-    resizing: Boolean, onResize: (() -> Unit)?, onFit: () -> Unit,
-    elapsed: Long, pace: Long?, onShare: (questionOnly: Boolean) -> Unit,
-) {
+/** Time on this question against exam pace, as a chip on the bar. */
+@Composable private fun ExamClock(elapsed: Long, pace: Long?) {
     val colors = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-        @Composable fun ToolButton(value: Tool, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean = tool == value && !resizing, onClick: () -> Unit = { onTool(value) }) {
-            IconToggleButton(selected, { onClick() }, shapes = IconButtonDefaults.toggleableShapes(),
-                colors = IconButtonDefaults.iconToggleButtonColors(checkedContainerColor = colors.secondaryContainer, checkedContentColor = colors.onSecondaryContainer)) {
-                Icon(icon, label)
-            }
-        }
-        @Composable fun Swatches(of: Tool, options: List<Int>, chosen: Int) {
-            options.forEach { c ->
-                Box(Modifier.size(32.dp).padding(4.dp).clip(CircleShape).background(Color(c))
-                    .then(if (c == chosen) Modifier.border(2.dp, colors.primary, CircleShape) else Modifier.border(1.dp, colors.outlineVariant, CircleShape))
-                    .pointerInput(c) { detectTapGestures { onColor(of, c) } }
-                    .semantics { contentDescription = "Colour${if (c == chosen) ", selected" else ""}" })
-            }
-        }
-        ToolButton(Tool.PEN, Icons.Rounded.Edit, "Pen")
-        if (tool == Tool.PEN || tool in ExamSheet.SHAPES) Swatches(Tool.PEN, ExamSheet.PEN_COLORS, penColor)
-        ToolButton(Tool.HIGHLIGHTER, ToolIcons.Highlighter, "Highlighter · mark key words in the question")
-        if (tool == Tool.HIGHLIGHTER) Swatches(Tool.HIGHLIGHTER, ExamSheet.HIGHLIGHT_COLORS, highlightColor)
-        ToolButton(Tool.ERASER, ToolIcons.Eraser, "Eraser")
-        var shapeMenu by remember { mutableStateOf(false) }
-        Box {
-            // The first tap takes up the last shape; a tap while holding it picks another.
-            ToolButton(shapeTool, if (shapeTool == Tool.LINE) ToolIcons.Line else Icons.Rounded.Category, "Shapes", tool in ExamSheet.SHAPES && !resizing,
-                onClick = { if (tool in ExamSheet.SHAPES && !resizing) shapeMenu = true else onTool(shapeTool) })
-            DropdownMenu(shapeMenu, { shapeMenu = false }) {
-                listOf(Tool.LINE to "Straight line", Tool.RECTANGLE to "Rectangle", Tool.ELLIPSE to "Ellipse", Tool.GRAPH to "Axes").forEach { (t, label) ->
-                    DropdownMenuItem({ Text(label) }, { shapeMenu = false; onTool(t) },
-                        trailingIcon = { if (t == tool) Icon(Icons.Rounded.Check, null) })
-                }
-            }
-        }
-        VerticalDivider(Modifier.height(24.dp).padding(horizontal = FolioSpacing.dp4))
-        IconButton(onUndo, enabled = canUndo, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo") }
-        IconButton(onRedo, enabled = canRedo, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo") }
-        VerticalDivider(Modifier.height(24.dp).padding(horizontal = FolioSpacing.dp4))
-        IconButton(onMoreLines, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add answer lines") }
-        if (onFewerLines != null) IconButton(onFewerLines, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Remove, "Remove answer lines") }
-        if (onResize != null) IconToggleButton(resizing, { onResize() }, shapes = IconButtonDefaults.toggleableShapes(),
-            colors = IconButtonDefaults.iconToggleButtonColors(checkedContainerColor = colors.secondaryContainer, checkedContentColor = colors.onSecondaryContainer)) {
-            Icon(Icons.Rounded.PhotoSizeSelectLarge, if (resizing) "Done resizing pictures" else "Resize pictures")
-        }
-        IconButton(onFit, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.FitScreen, "Fit the page to the screen") }
-        ShareTextButton(typed = false, onShare = onShare)
-        VerticalDivider(Modifier.height(24.dp).padding(horizontal = FolioSpacing.dp4))
-        val over = pace != null && elapsed > pace
-        Row(Modifier.padding(horizontal = FolioSpacing.dp8).semantics(mergeDescendants = true) {
-            contentDescription = "Time on this question ${ExamSheet.clock(elapsed)}" + (pace?.let { ", about ${ExamSheet.clock(it)} at exam pace" } ?: "")
-        }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            Icon(Icons.Rounded.Timer, null, Modifier.size(18.dp), tint = if (over) colors.error else colors.onSurfaceVariant)
+    val over = pace != null && elapsed > pace
+    Surface(Modifier.semantics(mergeDescendants = true) {
+        contentDescription = "Time on this question ${ExamSheet.clock(elapsed)}" + (pace?.let { ", about ${ExamSheet.clock(it)} at exam pace" } ?: "")
+    }, shape = CircleShape, color = if (over) colors.errorContainer else colors.surfaceContainerHighest) {
+        Row(Modifier.padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp6),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Icon(Icons.Rounded.Timer, null, Modifier.size(16.dp), tint = if (over) colors.onErrorContainer else colors.primary)
             Text(ExamSheet.clock(elapsed) + (pace?.let { " / ${ExamSheet.clock(it)}" } ?: ""),
-                style = MaterialTheme.typography.labelLarge, color = if (over) colors.error else colors.onSurfaceVariant)
+                style = MaterialTheme.typography.labelLarge, color = if (over) colors.onErrorContainer else colors.onSurface)
         }
     }
+}
+
+/** The notebook bar in the exam's colours: the bar and its popovers take a tint of the accent's container. */
+private fun examToolbarColors(base: ColorScheme): ColorScheme {
+    fun tint(c: Color, amount: Float) = androidx.compose.ui.graphics.lerp(c, base.primaryContainer, amount)
+    return base.copy(
+        surfaceContainerHigh = tint(base.surfaceContainerHigh, .35f),
+        surfaceContainerHighest = tint(base.surfaceContainerHighest, .35f),
+        surfaceBright = tint(base.surfaceBright, .25f),
+        secondaryContainer = base.primary.copy(alpha = .22f).compositeOver(base.surfaceContainerHigh),
+    )
 }

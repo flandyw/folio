@@ -385,8 +385,8 @@ import kotlinx.coroutines.launch
     ) { padding ->
         if (responseMode == "exam") Box(Modifier.fillMaxSize().padding(padding)) {
             // The exam paper replaces the split: the question is printed on the sheet itself.
-            MistakeExamPaper(m, context, attempt.userId, model.attachments, practicePage, folio, state, finger, shapes,
-                busy, revealed, Modifier.fillMaxSize())
+            MistakeExamPaper(m, context, attempt.userId, model.attachments, practicePage, folio, state, finger, shapes, haptics,
+                busy, revealed, onSettings, Modifier.fillMaxSize())
             PracticeConfetti(celebration, reviewPreferences.practiceEffects, reviewPreferences.practiceFinish, Modifier.matchParentSize())
         } else BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             // The IME must not turn a portrait tablet into a landscape split mid-sentence.
