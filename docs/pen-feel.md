@@ -64,9 +64,11 @@ that brush's slots, else takes its middle slot. The quick bar has a brush button
 its brush, presets save the brush, and Restyle selection can change it (`InkGeometry.restyle(…, brush)`, which
 never puts a line pattern on freehand ink).
 
-*Soft stroke ends* and *Thinner when fast* belong to the Ballpoint only. The fountain pen always tapers (inside
-its AndroidX brush, from distance travelled and remaining) and always thins when fast (`InkView` bakes speed into
-its stored pressure like the Ballpoint setting). Pencil pressure mostly darkens; the marker ignores pressure.
+*Soft stroke ends* and *Thinner when fast* belong to the Ballpoint only. The fountain pen has no distance taper (it
+would shrink dots and taper tidied shapes and erased halves); it swings wider with pressure and always thins when fast (`InkView` bakes speed into
+its stored pressure like the Ballpoint setting). Pencil pressure darkens it; the marker ignores pressure.
+Every brush takes the Ballpoint's pressure width, so a normal press is the same width whichever brush is chosen.
+The low-latency overlay is Ballpoint-only; other brushes draw the predicted tip through their own mesh.
 
 ## Width
 

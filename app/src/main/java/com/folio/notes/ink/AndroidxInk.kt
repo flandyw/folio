@@ -39,25 +39,32 @@ internal object AndroidxInk {
 
     private fun behavior(target: TargetNode.Target, low: Float, high: Float, source: SourceNode.Source, from: Float, to: Float) =
         BrushBehavior(TargetNode(target, low, high, SourceNode(source, from, to)))
-    /** Brush pressure input is stored pressure / 2, so a normal press (stored 1) is .5 and lands on width 1. */
-    private fun pressureSize(low: Float, high: Float) =
-        behavior(TargetNode.Target.SIZE_MULTIPLIER, low, high, SourceNode.Source.NORMALIZED_PRESSURE, .125f, .9f)
-    private fun taper(source: SourceNode.Source) =
-        behavior(TargetNode.Target.SIZE_MULTIPLIER, .25f, 1f, source, 0f, 3f)
+    /**
+     * Every brush gets the ballpoint's own pressure width / 2 as its pressure ([inputPressure]), so a
+     * normal press is the same width on every brush; brushes only add their character on top.
+     */
+    private fun folioWidth() = behavior(TargetNode.Target.SIZE_MULTIPLIER, 0f, 2f, SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f)
+    /**
+     * Brush character over the usual pressure band: input .43 is stored pressure .25 (the floor, a light
+     * touch) and .5 is stored 1 (firm). `penPressureScale` squeezes that band hard, so a range wider than
+     * this would leave ordinary writing using a sliver of it. Firmer presses clamp to [firm].
+     */
+    private fun pressure(target: TargetNode.Target, light: Float, firm: Float) =
+        behavior(target, light, firm, SourceNode.Source.NORMALIZED_PRESSURE, .43f, .5f)
 
     private fun createFamily(brush: StrokeStyle, overlap: SelfOverlap): BrushFamily {
         val tip = when (brush) {
-            StrokeStyle.FOUNTAIN -> BrushTip(behaviors = listOf(pressureSize(.55f, 1.48f),
-                taper(SourceNode.Source.DISTANCE_TRAVELED_IN_MULTIPLES_OF_BRUSH_SIZE),
-                taper(SourceNode.Source.DISTANCE_REMAINING_IN_MULTIPLES_OF_BRUSH_SIZE)))
-            StrokeStyle.PENCIL -> BrushTip(behaviors = listOf(pressureSize(.8f, 1.15f),
-                behavior(TargetNode.Target.OPACITY_MULTIPLIER, .3f, 1f, SourceNode.Source.NORMALIZED_PRESSURE, .125f, .75f)))
+            // A wide pressure swing, neutral at an ordinary press (stored ≈ .4), and speed thinning baked
+            // into the stored pressure at input. No distance taper: it shrinks dots and full stops, tapers
+            // every tidied shape and both halves of an erased stroke, and an end taper would thin the ink
+            // under the moving tip. Fast flicks thin on their own, which is the real pen's taper.
+            StrokeStyle.FOUNTAIN -> BrushTip(behaviors = listOf(folioWidth(), pressure(TargetNode.Target.SIZE_MULTIPLIER, .9f, 1.3f)))
+            StrokeStyle.PENCIL -> BrushTip(behaviors = listOf(folioWidth(), pressure(TargetNode.Target.OPACITY_MULTIPLIER, .4f, 1f)))
             StrokeStyle.MARKER -> BrushTip(cornerRounding = .45f)
             StrokeStyle.CALLIGRAPHY -> BrushTip(scaleX = 1f, scaleY = .22f, cornerRounding = .3f, rotationDegrees = 45f,
-                behaviors = listOf(pressureSize(.55f, 1.48f)))
-            // The plain pen: Folio supplies pressure × taper as the size, input = scale / 2.
-            else -> BrushTip(behaviors = listOf(behavior(TargetNode.Target.SIZE_MULTIPLIER, 0f, 2f,
-                SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f)))
+                behaviors = listOf(folioWidth()))
+            // The ballpoint: Folio's pressure × taper width is the size.
+            else -> BrushTip(behaviors = listOf(folioWidth()))
         }
         val textures = if (brush == StrokeStyle.PENCIL) listOf(BrushPaint.TilingTexture.builder()
             .setClientTextureId(GRAIN).setSizeX(16f).setSizeY(16f)
@@ -66,17 +73,24 @@ internal object AndroidxInk {
             inputModel = BrushFamily.InputModel.PASSTHROUGH_MODEL)
     }
 
-    /** Paper grain for the pencil: white with noisy alpha, tiled in page units so it stays put under zoom. */
+    /**
+     * Paper grain for the pencil: white with noisy alpha, tiled in page units so it stays put under zoom.
+     * Smooth value noise (a 32-cell lattice, bilinear) rather than per-pixel static: the texture is drawn
+     * shrunk without mipmaps, and pixel noise would sparkle while panning.
+     */
     private val grain: Bitmap by lazy {
-        val size = 128
+        val size = 128; val cells = 32; val step = size / cells
         val random = java.util.Random(7)
-        val noise = FloatArray(size * size) { random.nextFloat() }
+        val lattice = FloatArray(cells * cells) { random.nextFloat() }
+        fun at(cx: Int, cy: Int) = lattice[(cy % cells) * cells + cx % cells]
         val pixels = IntArray(size * size) { i ->
             val x = i % size; val y = i / size
-            // A little horizontal smear reads as graphite on paper rather than TV static.
-            val n = (noise[i] * 2f + noise[y * size + (x + 1) % size] + noise[y * size + (x + size - 1) % size]) / 4f
-            val alpha = (95 + 160 * n).toInt().coerceIn(0, 255)
-            (alpha shl 24) or 0xFFFFFF
+            val cx = x / step; val cy = y / step
+            val fx = (x % step) / step.toFloat(); val fy = (y % step) / step.toFloat()
+            val top = at(cx, cy) + (at(cx + 1, cy) - at(cx, cy)) * fx
+            val bottom = at(cx, cy + 1) + (at(cx + 1, cy + 1) - at(cx, cy + 1)) * fx
+            val n = top + (bottom - top) * fy
+            (((110 + 145 * n).toInt().coerceIn(0, 255)) shl 24) or 0xFFFFFF
         }
         Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
     }
@@ -97,14 +111,15 @@ internal object AndroidxInk {
         else 1f
 
     /**
-     * The pressure handed to the brush. The plain pen gets Folio's own width (pressure × taper) / 2;
-     * a brush gets the stored pressure / 2 and shapes it itself. The highlighter has one width per stroke.
+     * The pressure handed to the brush: the ballpoint's width / 2. The ballpoint's includes its global
+     * soft ends; other brushes get the bare pressure width and shape it themselves. The highlighter has
+     * one width per stroke.
      */
     internal fun inputPressure(stroke: Stroke, geometry: InkRenderer.RenderedStroke, index: Int): Float {
         val value = when {
             !stroke.style.isBrush -> widthScale(stroke, geometry, index) / 2f
             stroke.tool == Tool.HIGHLIGHTER -> .5f
-            else -> geometry.centre[index].pressure / 2f
+            else -> InkRenderer.penPressureScale(geometry.centre[index].pressure) / 2f
         }
         return if (value.isFinite()) value.coerceIn(0f, 1f) else .5f
     }
@@ -121,10 +136,10 @@ internal object AndroidxInk {
 
         /** False when AndroidX Ink is unavailable, so the caller draws [stroke] the Canvas way. */
         @Synchronized
-        fun draw(canvas: Canvas, stroke: Stroke, geometry: InkRenderer.RenderedStroke): Boolean {
+        fun draw(canvas: Canvas, stroke: Stroke, geometry: InkRenderer.RenderedStroke, ahead: FloatArray? = null, aheadCount: Int = 0): Boolean {
             if (failed) return false
             return try {
-                drawMesh(canvas, stroke, geometry); true
+                drawMesh(canvas, stroke, geometry, ahead, aheadCount); true
             } catch (e: RuntimeException) { fail(e) } catch (e: LinkageError) { fail(e) }
         }
 
@@ -135,7 +150,14 @@ internal object AndroidxInk {
             return false
         }
 
-        private fun drawMesh(canvas: Canvas, stroke: Stroke, geometry: InkRenderer.RenderedStroke) {
+        /** True while the provisional input holds a predicted tip, which the next draw must replace. */
+        private var predicting = false
+
+        /**
+         * [ahead] is the predicted pen path as page-unit x/y pairs starting at the drawn tip ([aheadCount]
+         * points). It joins the provisional input, so the brush draws the prediction in its own shape.
+         */
+        private fun drawMesh(canvas: Canvas, stroke: Stroke, geometry: InkRenderer.RenderedStroke, ahead: FloatArray?, aheadCount: Int) {
             if (geometry.centre.isEmpty() || !stroke.width.isFinite() || stroke.width <= 0f) return
             val opacity = stroke.opacity.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
             val alpha = ((stroke.color ushr 24) * opacity).toInt()
@@ -153,7 +175,8 @@ internal object AndroidxInk {
                 real = MutableStrokeInputBatch(); predicted = MutableStrokeInputBatch()
                 consumed = 0; lastGeometry = null; finished = null
             }
-            if (lastGeometry !== geometry) {
+            val predicts = geometry.live && ahead != null && aheadCount >= 2
+            if (lastGeometry !== geometry || predicts || predicting) {
                 val ink = progress!!
                 val inputs = real!!.apply { clear() }
                 val tail = predicted!!.apply { clear() }
@@ -165,6 +188,16 @@ internal object AndroidxInk {
                         type = InputToolType.STYLUS, x = point.x, y = point.y,
                         elapsedTimeMillis = i * 4L, pressure = inputPressure(stroke, geometry, i),
                     )
+                }
+                predicting = predicts && geometry.centre.isNotEmpty()
+                if (predicting) {
+                    val tip = geometry.centre.size - 1
+                    val pressure = inputPressure(stroke, geometry, tip)
+                    for (k in 1 until aheadCount) {
+                        val x = ahead!![2 * k]; val y = ahead[2 * k + 1]
+                        if (!x.isFinite() || !y.isFinite()) continue
+                        tail.add(type = InputToolType.STYLUS, x = x, y = y, elapsedTimeMillis = (tip + k) * 4L, pressure = pressure)
+                    }
                 }
                 ink.enqueueInputs(inputs, tail)
                 consumed = geometry.stableCount

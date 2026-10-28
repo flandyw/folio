@@ -466,13 +466,13 @@ object InkRenderer {
      * Draws [stroke] from its precomputed [rendered] geometry. Identical output to
      * [stroke], but without repeating the spline, taper or bounds math per frame.
      */
-    fun drawRendered(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke) {
+    fun drawRendered(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke, ahead: FloatArray? = null, aheadCount: Int = 0) {
         if ((stroke.tool == Tool.PEN || stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) &&
             (stroke.style == StrokeStyle.SOLID || stroke.style.isBrush)) {
             val ink = synchronized(rendered) {
                 rendered.ink ?: AndroidxInk.Geometry().also { rendered.ink = it }
             }
-            if (ink.draw(canvas, stroke, rendered)) return
+            if (ink.draw(canvas, stroke, rendered, ahead, aheadCount)) return
         }
         val centre = rendered.centre
         if (centre.isEmpty()) return
@@ -498,13 +498,13 @@ object InkRenderer {
         paint.pathEffect = null
     }
 
-    /**
-     * Navigation preview for one pen stroke: a single uniform-width path instead of the
-     * AndroidX mesh. Pinch/pan previews last ~90ms and rasterize on a software canvas, where
-     * a mesh is redrawn as a path anyway, so one plain path per stroke keeps a dense page
-     * panning at display rate; full detail returns on settle.
-     */
+    /** Navigation previews share the cached AndroidX meshes, so ink never changes brush while panning or zooming. */
     fun drawPreview(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke) {
+        if ((stroke.tool == Tool.PEN || stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) &&
+            (stroke.style == StrokeStyle.SOLID || stroke.style.isBrush) && !AndroidxInk.failed) {
+            drawRendered(canvas, stroke, rendered)
+            return
+        }
         val centre = rendered.centre
         if (centre.isEmpty()) return
         val paint = strokePaintPool.get()!!.apply {

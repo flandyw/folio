@@ -30,7 +30,7 @@ class AndroidxInkTest {
         } finally { InkTaper.configure(0f) }
     }
 
-    @Test fun brushesTakeStoredPressureWhileTheBallpointTakesItsWidth() {
+    @Test fun brushesShareTheBallpointPressureWidth() {
         val points = (0..20).map { InkPoint(it * 3f, 0f, .4f + it * .05f) }
         val pen = Stroke(Tool.PEN, -1, 3f, points)
         val penGeometry = InkRenderer.rendered(pen)
@@ -38,7 +38,8 @@ class AndroidxInkTest {
         val fountainGeometry = InkRenderer.rendered(fountain)
         fountainGeometry.centre.indices.forEach { i ->
             assertEquals(AndroidxInk.widthScale(pen, penGeometry, i) / 2f, AndroidxInk.inputPressure(pen, penGeometry, i), 1e-6f)
-            assertEquals(fountainGeometry.centre[i].pressure / 2f, AndroidxInk.inputPressure(fountain, fountainGeometry, i), 1e-6f)
+            // Same pressure width as the ballpoint (without its global soft ends), so a normal press matches.
+            assertEquals(InkRenderer.penPressureScale(fountainGeometry.centre[i].pressure) / 2f, AndroidxInk.inputPressure(fountain, fountainGeometry, i), 1e-6f)
         }
         val chisel = Stroke(Tool.HIGHLIGHTER, -1, 12f, points, style = com.folio.notes.model.StrokeStyle.CALLIGRAPHY)
         val chiselGeometry = InkRenderer.rendered(chisel)

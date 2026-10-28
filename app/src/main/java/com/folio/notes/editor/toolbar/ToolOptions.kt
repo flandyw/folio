@@ -222,8 +222,8 @@ object EditorQuickPrefs {
             val thinner by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
             SwitchRow("Thinner when fast", thinner, { prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, it).apply() })
         } else Text(when (options.style) {
-            StrokeStyle.FOUNTAIN -> "The fountain pen always tapers its ends and thins when fast."
-            StrokeStyle.PENCIL -> "Pressure darkens the pencil more than it widens it."
+            StrokeStyle.FOUNTAIN -> "The fountain pen swells under a firm press and thins on fast strokes."
+            StrokeStyle.PENCIL -> "Pressure darkens the pencil."
             StrokeStyle.MARKER -> "The marker lays down one even width, whatever the pressure."
             else -> "The flat nib is thick across and thin along a 45° line; pressure widens it."
         }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -248,7 +248,7 @@ object EditorQuickPrefs {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             val lowLatency by rememberPref(prefs, AppPrefs.LOW_LATENCY_INK) { it.getBoolean(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK) }
             SwitchRow("Low-latency ink", lowLatency, { prefs.edit().putBoolean(AppPrefs.LOW_LATENCY_INK, it).apply() },
-                hint = "Ink follows the tip more closely. Turn off if it flickers on lift.")
+                hint = "Ballpoint ink follows the tip more closely; other brushes predict the tip in their own shape. Turn off if it flickers on lift.")
         }
     }
     if (tool == Tool.HIGHLIGHTER) {

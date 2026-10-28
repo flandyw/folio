@@ -10,15 +10,26 @@ they are not saved and do not drive speed or pressure behavior.
 
 Every brush is one `BrushFamily` in `AndroidxInk`, picked by the stroke's `StrokeStyle`:
 
-- **Ballpoint** (`SOLID`): Folio's pressure × taper width as the size (input = scale / 2), exactly as before.
-- **Fountain**: pressure size 0.55–1.48× plus start and end tapers over three brush widths.
-- **Pencil**: pressure size 0.8–1.15× and opacity 0.3–1×, with a procedural graphite grain tiled every
-  16 page units (`TextureBitmapStore`; the texture is generated, not an asset). Always discards self-overlap.
-- **Marker**: a rounded-square tip of one even width.
-- **Calligraphy / Chisel**: a flat tip (0.22 aspect, 45°) with pressure size; the highlighter has none.
+Every brush's pressure input is the ballpoint's pressure width / 2 (`penPressureScale`, 0.72–1.16, so input
+0.36–0.58), and every brush except the marker takes it as its size. A normal press is therefore the same width
+on every brush; brushes add their character on top. Stored pressure is the raw stylus reading (often 0.3–0.5),
+so it must never be fed to a brush directly: that drew the fountain pen at about two thirds of the ballpoint.
 
-Brushes other than the Ballpoint receive the stored pressure / 2 (a normal press is 0.5, which lands on width 1);
-the highlighter always sends 0.5. Textures and per-vertex opacity need the mesh renderer (API 34+, hardware or
+- **Ballpoint** (`SOLID`): the size includes the global soft ends (`InkTaper`), exactly as before.
+Brush character is mapped over input 0.43–0.50, which is stored pressure 0.25 (the floor) to 1 (firm):
+`penPressureScale` squeezes the usual band that hard, so a wider source range leaves ordinary writing
+using a sliver of the effect.
+
+- **Fountain**: an extra 0.9–1.3× pressure swing, neutral at an ordinary press, plus speed thinning baked
+  into stored pressure at input. No distance taper of any kind: a start taper shrinks dots and full stops
+  (no distance travelled) and tapers tidied shapes and both halves of an erased stroke; an end taper thins
+  and re-swells the ink under the moving tip, and the stroke visibly shrinks at lift.
+- **Pencil**: pressure opacity 0.4–1×, with a procedural graphite grain tiled every 16 page units
+  (`TextureBitmapStore`; generated, not an asset). The grain is smooth value noise, not per-pixel static,
+  because the texture is drawn shrunk without mipmaps and static sparkles while panning. Always discards
+  self-overlap.
+- **Marker**: a rounded-square tip of one even width.
+- **Calligraphy / Chisel**: a flat tip (0.22 aspect, 45°); the highlighter sends a constant 0.5. Textures and per-vertex opacity need the mesh renderer (API 34+, hardware or
 software canvas); older Android falls back to flat paths, so the pencil loses its grain and pressure shading there.
 
 ## Routing
@@ -34,6 +45,13 @@ Translucent strokes explicitly discard self-overlap so hardware and software out
 keep the same opacity at crossings; opaque strokes may use the faster mesh renderer.
 Cached thumbnail names include a renderer generation so old previews are regenerated.
 
+While writing, a brush stroke is only ever drawn by its own mesh. The front-buffer low-latency overlay and
+the Canvas prediction tail draw round ballpoint segments, so they serve the Ballpoint only; for other
+brushes the predicted pen path (`PenTipPrediction.ahead`: the motion predictor's tail, else the
+two-sample guess) is appended to the mesh's provisional input
+instead, so the prediction is drawn in the brush's own shape and replaced on the next frame. Navigation
+previews (`drawPreview`) also draw the cached meshes, so ink never changes look while panning or zooming.
+
 Live freehand builders expose their settled prefix. Only new settled points are
 appended to `InProgressStroke`; its predicted-input channel holds the replaceable
 spline tail (not additional predicted document ink). A change in the handwriting
@@ -47,7 +65,7 @@ the error is logged once, and every later draw uses the previous Canvas renderer
 (`InkOutline`) for the rest of the process. All persistence, hit tests, erasing, palm rejection, recognition and document
 transactions continue to use Folio's original samples and format.
 
-Patterned shapes, selection halos, laser effects, prediction tails, and the optional
+Patterned shapes, selection halos, laser effects, and the Ballpoint's prediction tail and
 front-buffer overlay retain their specialized Canvas drawing. Text, pictures, paper
 and ruler guides are not Ink strokes. AndroidX authoring does not own MotionEvents:
 Folio must still route cross-page ink, sticky targets and cancelled palms itself.

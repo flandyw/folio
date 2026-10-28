@@ -86,6 +86,17 @@ internal class PenTipPrediction {
         return true
     }
 
+    /**
+     * The tip and where the pen is heading as page-unit x/y pairs for a brush to draw in its own shape:
+     * the motion predictor's [tail], else the two-sample guess. Null when there is neither.
+     */
+    fun ahead(stroke: Stroke, scale: Float): Pair<FloatArray, Int>? {
+        if (count >= 2) return tail to count
+        if (!idle || !StrokePrediction.predict(stroke.points, scale, guess)) return null
+        val tip = stroke.points.last()
+        return floatArrayOf(tip.x, tip.y, guess[0], guess[1]) to 2
+    }
+
     private fun styleFor(stroke: Stroke): InkPoint {
         val tip = stroke.points.last()
         paint.color = stroke.color

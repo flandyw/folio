@@ -2188,7 +2188,11 @@ class InkView(context: Context) : View(context) {
         else if (draftStroke == null) resetDraftGeometry()
         else {
             val live = if (draftStroke.tool in FREEHAND_TOOLS) draftGeometry(draftStroke) else null
-            if (live != null) {
+            if (live != null && draftStroke.style.isBrush) {
+                // A brush draws the predicted tip itself, in its own shape (stylus only, as below).
+                val ahead = if (stylus && draftStroke.tool == Tool.PEN) prediction.ahead(draftStroke, scale) else null
+                InkRenderer.drawRendered(canvas, draftStroke, live, ahead?.first, ahead?.second ?: 0)
+            } else if (live != null) {
                 InkRenderer.drawRendered(canvas, draftStroke, live)
                 // Stylus only: a finger is slow and its tail would read as lag the other way.
                 if (stylus && draftStroke.tool == Tool.PEN && !prediction.drawTail(canvas, draftStroke) && prediction.idle)
@@ -3888,7 +3892,9 @@ class InkView(context: Context) : View(context) {
         if (!context.getSharedPreferences("preferences", 0).getBoolean(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK)) {
             LowLatencyInk.dispose(this); return
         }
-        if (tool != Tool.PEN || !stylus || !onPage || inkOpacity < .99f || rulerEdge != 0 || readOnly) return
+        // The front buffer draws round ballpoint segments, so other brushes show only their own mesh.
+        if (tool != Tool.PEN || !stylus || !onPage || inkOpacity < .99f || rulerEdge != 0 || readOnly ||
+            draft?.style?.isBrush == true) return
         val layer = LowLatencyInk.obtain(this)?.takeIf { it.ready } ?: return
         layer.begin()
         lowLatency = layer
