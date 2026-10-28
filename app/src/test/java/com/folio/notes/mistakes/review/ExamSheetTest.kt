@@ -3,6 +3,7 @@ package com.folio.notes.mistakes.review
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.Stroke
 import com.folio.notes.model.Tool
+import com.folio.notes.workspace.WorkspaceViewport
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -62,5 +63,18 @@ class ExamSheetTest {
         assertEquals(text, ExamSheet.questionBody(text, null))
         assertEquals("Explain (in words) why.", ExamSheet.questionBody("Explain (in words) why. ( 1 Mark )", 1.0))
         assertNull(ExamSheet.questionBody("(3 marks)", 3.0))
+    }
+
+    @Test fun sheetIsKeptOnScreen() {
+        // A 1000 x 1600 view, zoom 1: the 640-unit sheet is centred; question 200, sheet 1200 units.
+        fun clamp(x: Float, y: Float, z: Float = 1f) = ExamSheet.clamp(WorkspaceViewport(canvasX = x, canvasY = y, canvasZoom = z), 1000f, 1600f, 100f, 16f, 200f, 1200f)
+        val fit = WorkspaceViewport(canvasX = 180f, canvasY = 300f, canvasZoom = 1f)
+        assertEquals(fit, clamp(180f, 300f))                         // the fitted sheet is left alone
+        assertEquals(180f, clamp(-500f, 300f).canvasX)               // narrower than the view: centred
+        assertEquals(300f, clamp(180f, 900f).canvasY)                // pulled below the bar: back to the top
+        assertEquals(800f - 1200f + 200f, clamp(180f, -5000f).canvasY)        // end no higher than mid-view
+        val zoomed = clamp(400f, 300f, 3f)                           // 1920 px wide: edges within the gutter
+        assertEquals(16f, zoomed.canvasX)
+        assertEquals(1000f - 1920f - 16f, clamp(-5000f, 300f, 3f).canvasX)
     }
 }

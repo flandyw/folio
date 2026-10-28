@@ -99,6 +99,11 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.exponentialDecay
+import androidx.compose.animation.core.tween
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.ui.FolioSpacing
@@ -134,6 +139,20 @@ internal object ExamSheet {
     /** The question text without a trailing "(N marks)" when the header already shows the marks. */
     fun questionBody(text: String?, marks: Double?): String? =
         text?.let { if (marksLabel(marks) != null) it.replace(trailingMarks, "") else it }?.takeIf(String::isNotBlank)
+    /**
+     * Keeps the sheet on screen: centred when it is narrower than the view, otherwise never further
+     * than [gutter] past either edge; its top no lower than [top] and its end no higher than mid-view.
+     * Sizes are screen pixels; [question] and [height] are the sheet's question and full height in units.
+     */
+    fun clamp(cam: WorkspaceViewport, viewW: Float, viewH: Float, top: Float, gutter: Float, question: Float, height: Float): WorkspaceViewport {
+        val z = cam.canvasZoom
+        val w = WIDTH * z
+        val x = if (w + 2 * gutter <= viewW) (viewW - w) / 2 else cam.canvasX.coerceIn(viewW - w - gutter, gutter)
+        val sheetTop = cam.canvasY - question * z
+        val lowest = viewH / 2 - height * z
+        val y = (if (lowest >= top) top else sheetTop.coerceIn(lowest, top)) + question * z
+        return if (x == cam.canvasX && y == cam.canvasY) cam else cam.copy(canvasX = x, canvasY = y)
+    }
     fun imageWidth(raw: Float): Float = if (raw.isFinite()) raw.coerceIn(.2f, 1f) else 1f
     fun clock(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
     fun linesKey(mistakeId: String) = "mistake.exam.lines.$mistakeId"
@@ -226,9 +245,12 @@ private val paperInk = Color(0xFF1B1B1B)
     val imageWidths = remember(m.id) { mutableStateMapOf<String, Float>() }
     val imageRects = remember(m.id) { mutableStateMapOf<String, Rect>() }
     var questionHeight by remember(m.id) { mutableFloatStateOf(0f) }
+    var sheetHeight by remember(m.id) { mutableFloatStateOf(0f) }
     var cam by remember { mutableStateOf(WorkspaceViewport()) }
     var fitted by remember(m.id) { mutableStateOf<WorkspaceViewport?>(null) }
     var inkView by remember { mutableStateOf<InkView?>(null) }
+    val motionScope = rememberCoroutineScope()
+    val motion = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     // Exam pacing: the clock stops once the answer is revealed.
     var elapsed by remember(m.id) { mutableLongStateOf(0L) }
     LaunchedEffect(m.id, revealed) { while (!revealed) { delay(1000); elapsed++ } }
@@ -350,6 +372,31 @@ private val paperInk = Color(0xFF1B1B1B)
             val guideTop = (lines * ExamSheet.LINE_GAP + ExamSheet.MARGIN) * cam.canvasZoom + cam.canvasY
             if (guideTop > viewH * .7f) view.returnToCanvasView(cam.copy(canvasY = cam.canvasY - (guideTop - viewH * .45f)))
         }
+        // A lifted finger keeps the sheet moving and then eases it back onto the screen, so the page
+        // can be flicked through and never lost off an edge. Any new touch or pen stops it.
+        val gutterPx = ExamSheet.GUTTER * screenDensity
+        fun bounded(c: WorkspaceViewport) = if (sheetHeight <= 0f) c
+            else ExamSheet.clamp(c, viewW, viewH, toolbarRoom, gutterPx, questionHeight, sheetHeight)
+        fun settle(velocityY: Float) {
+            val view = inkView ?: return
+            motion[0]?.cancel()
+            motion[0] = motionScope.launch {
+                if (kotlin.math.abs(velocityY) > 50f) {
+                    var last = cam.canvasY
+                    AnimationState(cam.canvasY, velocityY).animateDecay(exponentialDecay()) {
+                        view.returnToCanvasView(cam.copy(canvasY = value))
+                        // Past the end there is nothing to see: stop and spring back instead.
+                        if (bounded(cam) != cam || value == last) cancelAnimation()
+                        last = value
+                    }
+                }
+                val from = cam; val to = bounded(from)
+                if (to != from) animate(0f, 1f, animationSpec = tween(240)) { t, _ ->
+                    view.returnToCanvasView(WorkspaceViewport(canvasX = from.canvasX + (to.canvasX - from.canvasX) * t,
+                        canvasY = from.canvasY + (to.canvasY - from.canvasY) * t, canvasZoom = from.canvasZoom))
+                }
+            }
+        }
         Box(Modifier.fillMaxSize().graphicsLayer { renderEffect = nightEffect }) {
             CompositionLocalProvider(LocalDensity provides Density(sheetDensity, 1f)) {
                 Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).graphicsLayer {
@@ -365,7 +412,8 @@ private val paperInk = Color(0xFF1B1B1B)
                     drawLayer(sheetLayer)
                 }) {
                     ExamSheetContent(m, context, user, attachments, prefs, lines, revealed, night, imageWidths,
-                        onQuestionHeight = { questionHeight = it }, onImageRect = { key, rect -> imageRects[key] = rect })
+                        onQuestionHeight = { questionHeight = it }, onSheetHeight = { sheetHeight = it },
+                        onImageRect = { key, rect -> imageRects[key] = rect })
                 }
             }
             if (page != null && page.loaded) AndroidView(
@@ -379,6 +427,8 @@ private val paperInk = Color(0xFF1B1B1B)
                     view.inputStylusActivity = stylus
                     if (view.page !== page) { view.bind(page, null); view.restoreWorkspaceCamera(null) }
                     view.onWorkspaceCamera = { cam = it }
+                    view.onNavigating = { moving -> if (moving) motion[0]?.cancel() else settle(0f) }
+                    view.onDocumentPanEnd = { velocity -> settle(velocity) }
                     view.frontBuffer = !night
                     val options = if (resizing) ToolOptions.load(inkPrefs, Tool.HAND) else options
                     view.tool = active
@@ -404,7 +454,7 @@ private val paperInk = Color(0xFF1B1B1B)
                     view.onStrokesChanged = mutations::strokes
                     view.onStrokeAppended = mutations::appendStroke
                     view.onStrokeWithdrawn = mutations::withdrawStroke
-                    view.onPenInput = mutations::penActivity
+                    view.onPenInput = { begins -> motion[0]?.cancel(); mutations.penActivity(begins) }
                     view.onContentChanged = mutations::content
                     view.onTextsChanged = mutations::texts
                     view.onImagesChanged = mutations::images
@@ -412,7 +462,20 @@ private val paperInk = Color(0xFF1B1B1B)
                 },
             )
         }
-        if (page == null || !page.loaded) LoadingIndicator(Modifier.align(Alignment.Center))
+        if (page == null || !page.loaded || fitted == null) LoadingIndicator(Modifier.align(Alignment.Center))
+        // Resizing takes the pen off the page, so say how to use it and how to leave.
+        androidx.compose.animation.AnimatedVisibility(resizing, Modifier.align(Alignment.BottomCenter).padding(FolioSpacing.dp16),
+            enter = fadeIn() + androidx.compose.animation.slideInVertically { it / 2 }, exit = fadeOut()) {
+            Surface(Modifier.guardUiTouches(), shape = CircleShape, color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inverseOnSurface, shadowElevation = 6.dp) {
+                Row(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    Icon(Icons.Rounded.PhotoSizeSelectLarge, null, Modifier.size(18.dp))
+                    Text("Drag a picture's corner to resize · double-tap for full width", style = MaterialTheme.typography.bodyMedium)
+                    TextButton({ resizing = false }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.inversePrimary)) { Text("Done") }
+                }
+            }
+        }
         if (resizing) imageRects.forEach { (key, rect) ->
             ResizeHandle(key, rect, cam, questionHeight, imageWidths[key] ?: 1f,
                 onStart = { resizeStart.getOrPut(key) { Triple(rect, imageWidths[key] ?: 1f, questionHeight) } },
@@ -462,7 +525,7 @@ private val paperInk = Color(0xFF1B1B1B)
 @Composable private fun ExamSheetContent(
     m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository,
     prefs: SharedPreferences, lines: Int, revealed: Boolean, night: Boolean, imageWidths: MutableMap<String, Float>,
-    onQuestionHeight: (Float) -> Unit, onImageRect: (String, Rect) -> Unit,
+    onQuestionHeight: (Float) -> Unit, onSheetHeight: (Float) -> Unit, onImageRect: (String, Rect) -> Unit,
 ) {
     val unit = LocalDensity.current.density
     val root = remember { arrayOfNulls<LayoutCoordinates>(1) }
@@ -471,7 +534,7 @@ private val paperInk = Color(0xFF1B1B1B)
     MaterialTheme(colorScheme = lightColorScheme(onSurface = paperInk, onSurfaceVariant = Color(0xFF55575A))) {
         // Inverted, a shadow would glow around dark paper, so the dark sheet stands on the desk's contrast alone.
         Column(Modifier.requiredWidth(ExamSheet.WIDTH.dp).then(if (night) Modifier else Modifier.shadow(3.dp)).background(Color.White)
-            .onGloballyPositioned { root[0] = it }) {
+            .onGloballyPositioned { root[0] = it }.onSizeChanged { onSheetHeight(it.height / unit) }) {
             Column(Modifier.fillMaxWidth().padding(start = ExamSheet.MARGIN.dp, end = ExamSheet.MARGIN.dp, top = ExamSheet.MARGIN.dp, bottom = 6.dp)
                 .onSizeChanged { onQuestionHeight(it.height / unit) }) {
                 context?.let { c ->
@@ -499,6 +562,9 @@ private val paperInk = Color(0xFF1B1B1B)
                     drawLine(Color(0xFFA7A9AC), Offset(left, y), Offset(right, y), 1.dp.toPx())
                 }
             }
+            Text("END OF QUESTION", Modifier.fillMaxWidth().padding(bottom = ExamSheet.MARGIN.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = Color(0xFF8A8C8F))
             if (revealed) Column(Modifier.fillMaxWidth().padding(start = ExamSheet.MARGIN.dp, end = ExamSheet.MARGIN.dp, bottom = ExamSheet.MARGIN.dp)
                 .background(Color(0xFFEEF6EC)).border(BorderStroke(1.dp, Color(0xFFB9D7B2))).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
