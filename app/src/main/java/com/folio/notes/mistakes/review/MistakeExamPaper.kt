@@ -32,7 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -528,13 +528,20 @@ private val paperInk = Color(0xFF1B1B1B)
     onQuestionHeight: (Float) -> Unit, onSheetHeight: (Float) -> Unit, onImageRect: (String, Rect) -> Unit,
 ) {
     val unit = LocalDensity.current.density
+    val androidContext = LocalContext.current.applicationContext
+    val imageLoader = remember(androidContext) {
+        ImageLoader.Builder(androidContext).components {
+            if (android.os.Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory())
+        }.build()
+    }
+    DisposableEffect(imageLoader) { onDispose { imageLoader.shutdown() } }
     val root = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val body = TextStyle(fontFamily = FontFamily.Serif, fontSize = 17.sp, lineHeight = 25.sp, color = paperInk)
     // Paper is white in a dark theme too; rich text and maths read their colours from the theme.
     MaterialTheme(colorScheme = lightColorScheme(onSurface = paperInk, onSurfaceVariant = Color(0xFF55575A))) {
         // Inverted, a shadow would glow around dark paper, so the dark sheet stands on the desk's contrast alone.
         Column(Modifier.requiredWidth(ExamSheet.WIDTH.dp).then(if (night) Modifier else Modifier.shadow(3.dp)).background(Color.White)
-            .onGloballyPositioned { root[0] = it }.onSizeChanged { onSheetHeight(it.height / unit) }) {
+            .onPlaced { root[0] = it }.onSizeChanged { onSheetHeight(it.height / unit) }) {
             Column(Modifier.fillMaxWidth().padding(start = ExamSheet.MARGIN.dp, end = ExamSheet.MARGIN.dp, top = ExamSheet.MARGIN.dp, bottom = 6.dp)
                 .onSizeChanged { onQuestionHeight(it.height / unit) }) {
                 context?.let { c ->
@@ -547,8 +554,9 @@ private val paperInk = Color(0xFF1B1B1B)
                 }
                 ExamSheet.questionBody(m.questionText, m.totalMarks)?.let { RichText(it, Modifier.padding(top = 12.dp), style = body) }
                 m.attachments.forEach { attachment ->
-                    ExamImage(attachment, user, attachments, prefs, imageWidths) { coords ->
+                    ExamImage(attachment, user, attachments, imageLoader, prefs, imageWidths) { coords ->
                         root[0]?.takeIf { it.isAttached && coords.isAttached }?.let { r ->
+                            // Sheet-local bounds change on layout, not on every camera transform.
                             val box = r.localBoundingBoxOf(coords)
                             onImageRect(attachment.storagePath, Rect(box.left / unit, box.top / unit, box.right / unit, box.bottom / unit))
                         }
@@ -582,16 +590,10 @@ private val paperInk = Color(0xFF1B1B1B)
  * is known before the file loads and highlights over the question do not jump while it does.
  */
 @Composable private fun ExamImage(
-    attachment: MistakeAttachment, user: String, attachments: MistakeAttachmentRepository,
+    attachment: MistakeAttachment, user: String, attachments: MistakeAttachmentRepository, imageLoader: ImageLoader,
     prefs: SharedPreferences, widths: MutableMap<String, Float>, onPlaced: (LayoutCoordinates) -> Unit,
 ) {
     val key = attachment.storagePath
-    val context = LocalContext.current
-    val loader = remember {
-        ImageLoader.Builder(context).components {
-            if (android.os.Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory())
-        }.build()
-    }
     var file by remember(user, key) { mutableStateOf<File?>(null) }
     var failed by remember(user, key) { mutableStateOf(false) }
     var aspect by remember(key) { mutableFloatStateOf(prefs.getFloat(ExamSheet.aspectKey(key), 0f)) }
@@ -603,9 +605,9 @@ private val paperInk = Color(0xFF1B1B1B)
     LaunchedEffect(key) { if (key !in widths) widths[key] = ExamSheet.imageWidth(prefs.getFloat(ExamSheet.widthKey(key), 1f)) }
     val fraction = widths[key] ?: 1f
     Box(Modifier.fillMaxWidth().padding(top = 14.dp), contentAlignment = Alignment.TopCenter) {
-        val sized = Modifier.fillMaxWidth(fraction).aspectRatio(if (aspect > 0f) aspect else 1.6f).onGloballyPositioned(onPlaced)
+        val sized = Modifier.fillMaxWidth(fraction).aspectRatio(if (aspect > 0f) aspect else 1.6f).onPlaced(onPlaced)
         when {
-            file != null -> AsyncImage(file, attachment.name, imageLoader = loader, modifier = sized, contentScale = ContentScale.Fit,
+            file != null -> AsyncImage(file, attachment.name, imageLoader = imageLoader, modifier = sized, contentScale = ContentScale.Fit,
                 onSuccess = { result ->
                     val size = result.painter.intrinsicSize
                     if (size.width > 0f && size.height > 0f) {
