@@ -254,9 +254,20 @@ private fun HandwritingNotebookRow(
     onShowMessage: (String) -> Unit,
 ) {
     var size by remember(note.id, note.updated) { mutableStateOf<Long?>(null) }
-    var confirmDelete by remember { mutableStateOf(false) }
     var rowMenu by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
+    // Trash is restorable, so the page goes at once.
+    fun moveToTrash() {
+        working = true
+        scope.launch {
+            try {
+                folio.deleteNotebooks(setOf(note.id))
+                onShowMessage("Moved practice page to Trash.")
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { onShowMessage("Could not delete this page. Please try again.") }
+            finally { working = false }
+        }
+    }
     LaunchedEffect(note.id, note.updated, note.pages.size) {
         size = try { folio.repository.notebookSize(note.id) } catch (_: Exception) { null }
     }
@@ -286,7 +297,7 @@ private fun HandwritingNotebookRow(
                     if (question != null) Text(question, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else if (attempt != null) Text("Question removed from Focal · response kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                IconButton(hold.click { confirmDelete = true }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
+                IconButton(hold.click { moveToTrash() }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.DeleteOutline, "Delete ${note.title}")
                 }
             }
@@ -313,33 +324,7 @@ private fun HandwritingNotebookRow(
     }
     FolioMenuPopover(rowMenu, { rowMenu = false }, modifier = Modifier.guardUiTouches(), title = "Practice page") {
         FolioMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
-        FolioMenuItem({ Text("Move to Trash") }, { rowMenu = false; confirmDelete = true }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+        FolioMenuItem({ Text("Move to Trash") }, { rowMenu = false; moveToTrash() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
     }
-    }
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { if (!working) confirmDelete = false },
-            icon = { Icon(Icons.Rounded.DeleteOutline, null) },
-            title = { Text("Move this practice page to Trash?") },
-            text = { Text("“${note.title}”${size?.let { " (${formatPracticeBytes(it)})" } ?: ""} will move to Trash. You can restore it from Library › Trash.") },
-            dismissButton = { TextButton({ confirmDelete = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        working = true
-                        scope.launch {
-                            try {
-                                folio.deleteNotebooks(setOf(note.id))
-                                onShowMessage("Moved practice page to Trash.")
-                            } catch (e: CancellationException) { throw e }
-                            catch (_: Exception) { onShowMessage("Could not delete this page. Please try again.") }
-                            finally { working = false; confirmDelete = false }
-                        }
-                    },
-                    enabled = !working,
-                    shapes = ButtonDefaults.shapes(),
-                ) { Text(if (working) "Moving…" else "Move to Trash") }
-            },
-        )
     }
 }

@@ -77,7 +77,7 @@ import com.folio.notes.ui.SwipeAction
 /** Study and insert/find actions shared by the floating and stacked editor chrome. */
 @Composable internal fun NotebookOptionsContent(
     dismiss: () -> Unit, hasPdf: Boolean, saveFailed: Boolean, onRetry: () -> Unit,
-    onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit, onSearchPdf: () -> Unit,
+    onExam: () -> Unit, onRecordMark: () -> Unit, onTimer: () -> Unit, onInsertImage: () -> Unit,
     onContents: () -> Unit, onSearchNotes: () -> Unit,
 ) {
     val run: (() -> Unit) -> Unit = { dismiss(); it() }
@@ -88,9 +88,11 @@ import com.folio.notes.ui.SwipeAction
     }
     PopoverGroup("Insert & find") {
         PopoverRow(Icons.Rounded.AddPhotoAlternate, "Insert picture") { run(onInsertImage) }
-        PopoverRow(Icons.Rounded.FindInPage, "Find in notes") { run(onSearchNotes) }
-        PopoverRow(Icons.Rounded.Search, "Search PDF text", enabled = hasPdf) { run(onSearchPdf) }
-        PopoverRow(Icons.AutoMirrored.Rounded.FormatListBulleted, "Contents", enabled = hasPdf) { run(onContents) }
+        // On a PDF page the bar's search looks through the PDF, so typed notes need their own row.
+        if (hasPdf) {
+            PopoverRow(Icons.Rounded.FindInPage, "Find in notes") { run(onSearchNotes) }
+            PopoverRow(Icons.AutoMirrored.Rounded.FormatListBulleted, "Contents") { run(onContents) }
+        }
     }
     if (saveFailed) PopoverRow(Icons.Rounded.Save, "Retry save") { run(onRetry) }
 }

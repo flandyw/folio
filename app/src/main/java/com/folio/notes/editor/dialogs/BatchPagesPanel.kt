@@ -16,7 +16,6 @@ import com.folio.notes.ui.FolioPanel
 @Composable internal fun BatchPagesPanel(note: Notebook, model: FolioViewModel, onExport: () -> Unit, onDismiss: () -> Unit) {
     var selected by remember(note.id) { mutableStateOf<Set<String>>(emptySet()) }
     var target by remember { mutableStateOf("1") }
-    var confirmDelete by remember { mutableStateOf(false) }
     val ids = note.pages.map { it.id }.filter { it in selected }
     FolioPanel("Select pages", onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().weight(1f, false)) {
@@ -29,7 +28,7 @@ import com.folio.notes.ui.FolioPanel
                     onDismiss()
                 }, enabled = ids.isNotEmpty()) { Text("Duplicate") }
                 TextButton({ model.exportSelection = note.pages.indices.filter { note.pages[it].id in selected }.toSet(); onDismiss(); onExport() }, enabled = ids.isNotEmpty()) { Text("Export") }
-                TextButton({ confirmDelete = true }, enabled = ids.isNotEmpty() && ids.size < note.pages.size) { Text("Delete") }
+                TextButton({ ids.asReversed().forEach { id -> model.state.value.active?.pages?.indexOfFirst { it.id == id }?.takeIf { it >= 0 }?.let(model::deletePage) }; model.reportError("${ids.size} pages deleted · Undo brings them back"); onDismiss() }, enabled = ids.isNotEmpty() && ids.size < note.pages.size) { Text("Delete") }
             }
             Row {
                 OutlinedTextField(target, { target = it.filter(Char::isDigit).take(8) }, Modifier.weight(1f), label = { Text("Move block to position") }, singleLine = true)
@@ -46,7 +45,4 @@ import com.folio.notes.ui.FolioPanel
             }
         }
     }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Delete ${ids.size} pages?") }, text = { Text("You can restore them with Undo while this notebook is open.") },
-        confirmButton = { TextButton({ ids.asReversed().forEach { id -> model.state.value.active?.pages?.indexOfFirst { it.id == id }?.takeIf { it >= 0 }?.let(model::deletePage) }; confirmDelete = false; onDismiss() }) { Text("Delete pages") } },
-        dismissButton = { TextButton({ confirmDelete = false }) { Text("Keep") } })
 }

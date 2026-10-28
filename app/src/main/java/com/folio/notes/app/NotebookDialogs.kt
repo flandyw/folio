@@ -41,7 +41,7 @@ import com.folio.notes.ui.FolioSpacing
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-            Text(subtitle)
+            if (subtitle.isNotBlank()) Text(subtitle)
             OutlinedTextField(text, { if (it.text.length <= 120) text = it },
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                 singleLine = true, label = { Text("Name") },
@@ -78,8 +78,10 @@ import com.folio.notes.ui.FolioSpacing
     FolioPanel(title = "New notebook", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, top = FolioSpacing.dp8, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-            Text("Choose a starting page and begin writing. You can change the cover and paper later.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(),
+                label = { Text("Name (optional)") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { createNotebook() }))
             Text("Start from", style = MaterialTheme.typography.labelLarge)
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                 FilterChip(template == null && !infinite, { template = null; pageCount = 1; infinite = false }, { Text("Blank") })
@@ -99,10 +101,6 @@ import com.folio.notes.ui.FolioSpacing
             }
             if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(),
-                label = { Text("Name (optional)") }, placeholder = { Text("Name it now or rename it later") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { createNotebook() }))
             TextButton({ appearanceExpanded = !appearanceExpanded }, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Palette, null); Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(if (appearanceExpanded) "Hide cover options" else "Cover options")

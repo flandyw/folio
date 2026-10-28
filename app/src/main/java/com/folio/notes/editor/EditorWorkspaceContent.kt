@@ -38,7 +38,6 @@ import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.document.DocumentToolEdits
-import com.folio.notes.editor.dialogs.EditorClearDialog
 import com.folio.notes.editor.dialogs.EditorPageDialogs
 import com.folio.notes.editor.dialogs.EditorPaperDialog
 import com.folio.notes.editor.dialogs.EditorRenameDialog
@@ -1469,7 +1468,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                                     onRetry = model::retrySave,
                                     onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
                                     onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
-                                    onSearchPdf = { pdfSearchOpen = true },
                                     onContents = { pdfContentsOpen = true; loadOutline() },
                                     onSearchNotes = { noteSearchOpen = true })
                             }
@@ -1571,7 +1569,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     EditorRenameDialog(note, model, editor.overlays)
 
     EditorPaperDialog(note, page, model, editor.paper)
-    EditorClearDialog(model, editor.overlays, editor.interaction)
     EditorStudyDialogs(state, model, editor.overlays,
         marking.presentation, onAssist = marking::changeAssist, onColor = marking::changeColor)
     tidyPicked?.let { (pageId, picked) ->

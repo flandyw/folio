@@ -110,7 +110,6 @@ internal class EditorOverlayState {
     val palette = mutableStateOf(false)
     val noteSearch = mutableStateOf(false)
     val keyboardShortcuts = mutableStateOf(false)
-    val clear = mutableStateOf(false)
     val markDialog = mutableStateOf(false)
     val focalReview = mutableStateOf<Pair<Notebook, ExamAttempt>?>(null)
     val pageBrowser = mutableStateOf(false)

@@ -214,7 +214,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
     }
-    SettingsGroup("Hold at stroke start", footer = "With the pen selected, hold the stylus still for half a second before drawing to use this tool for one stroke. It uses that tool's saved settings; lift to return to the pen. With Tidy up shapes and Straighten highlighter enabled, hold again at the end to straighten the highlight.") {
+    SettingsGroup("Hold at stroke start", footer = "With the pen selected, rest the tip still for half a second before drawing to use this tool for one stroke. Lift to return to the pen.") {
         SettingsSegmentedRow("Switch to", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
             { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } })
     }
@@ -628,7 +628,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         SettingsChipRow("Long-press action", ShareShortcut.entries.map { it to it.label }, shareShortcut,
             { p.write { putString(AppPrefs.SHARE_LONG_PRESS, it.name) } })
     }
-    SettingsGroup("Split view", footer = "Open split view with the split button in the editor's toolbar, or long-press a tab. Write or tap in either pane to work there. Drag the divider to resize, or all the way to an edge to close a pane; the last position is remembered.") {
+    SettingsGroup("Split view", footer = "Open it with the split button in the editor's toolbar. Drag the divider to resize, or to an edge to close a pane.") {
         SettingsSliderRow(
             "Editor share", "${(split * 100).roundToInt()}%", split, SplitPanes.MIN_FRACTION..SplitPanes.MAX_FRACTION,
             { p.write { putFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.splitFraction(it)) } },
@@ -645,15 +645,12 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val p = rememberPrefs()
     val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
     val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
-    SettingsGroup("Practice pages", footer = "Every question you practise opens on its own infinite canvas, already at the starting zoom with the guide printed behind it. These apply to the next question; pages you have already written keep their own paper and view.") {
+    SettingsGroup("Practice pages", footer = "Applies to the next question you practise. Pages you have already written keep theirs.") {
         SettingsChipRow("Paper guide", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.MISTAKE_PAPER, it.name) } })
         SettingsSliderRow("Starting zoom", "${(zoom * 100).roundToInt()}%", zoom, .5f..3f,
             { p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.mistakeZoom(it)) } }, steps = 24,
             onReset = if (zoom != AppPrefs.DEFAULT_MISTAKE_ZOOM) ({ p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM) } }) else null,
             lowLabel = "50%", highLabel = "300%")
-    }
-    SettingsGroup("Split layout") {
-        SettingsBlock { SettingsBlockHint("The question sits beside your writing. Drag the divider to give one more room, or double-tap it for the default split; the last position is remembered.") }
     }
 }
 
@@ -689,7 +686,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
 @Composable private fun SidebarGroup() {
     val p = rememberPrefs()
     val hidden by rememberPref(p, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
-    SettingsGroup("Sidebar", footer = "Library and Settings are always shown. A hidden destination is still reachable from the Create menu, and the one you are looking at stays visible until you leave it.") {
+    SettingsGroup("Sidebar", footer = "Library and Settings are always shown. Turn a destination back on here to bring it back.") {
         SidebarItem.entries.forEachIndexed { index, item ->
             if (index > 0) SettingsDivider()
             SettingsSwitchRow(item.label, item.summary, item !in hidden, { on ->

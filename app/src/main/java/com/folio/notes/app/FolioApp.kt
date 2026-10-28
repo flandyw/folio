@@ -670,24 +670,25 @@ import java.io.File
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Text("Take your ideas with you", style = MaterialTheme.typography.headlineMedium)
-                Text("Export a notebook or just this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(FolioSpacing.dp12))
                 val activeNote = state.active
                 if (activeNote != null && shouldShowPdfQuality(activeNote)) {
                     PdfQualitySection(selected = pdfExportMode, onSelect = ::rememberPdfMode)
                     Spacer(Modifier.height(FolioSpacing.dp4))
                 }
+                ExportOption(Icons.Rounded.Share, "Share notebook", "Send a PDF to another app") {
+                    exportMenu = false
+                    state.active?.let(::shareWholeNotebook)
+                }
                 ExportOption(Icons.Rounded.PictureAsPdf, "Save as PDF", "All pages, including your annotations") {
                     state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF, pdfExportMode)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.Image, "Save page as image", "A crisp PNG of the current page, saved to your gallery") {
+                ExportOption(Icons.Rounded.Image, "Save page as image", "A PNG of this page, saved to your gallery") {
                     state.active?.let { launchExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.Share, "Share page as image", "Send a PNG of the current page to another app") {
+                ExportOption(Icons.Rounded.Share, "Share page as image", "Send a PNG of this page to another app") {
                     state.active?.let { shareExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.ContentCopy, "Copy page as image", "Copy a PNG of the current page to the clipboard") {
+                ExportOption(Icons.Rounded.ContentCopy, "Copy page as image", "Paste this page into another app") {
                     state.active?.let { copyPage(it, state.pageIndex) }; exportMenu = false
                 }
                 ExportOption(Icons.Rounded.AutoStories, "Export specific pages", "Choose pages for a PDF or PNG images") {
@@ -695,10 +696,6 @@ import java.io.File
                 }
                 ExportOption(Icons.Rounded.FolderZip, "Save as Folio backup", "A compact file with every page, image, PDF and undo history") {
                     state.active?.let { saveArchive.launch("${exporter.filename(it)}.folio") }; exportMenu = false
-                }
-                ExportOption(Icons.Rounded.Share, "Share notebook", "Send a PDF to another app") {
-                    exportMenu = false
-                    state.active?.let(::shareWholeNotebook)
                 }
             }
         }

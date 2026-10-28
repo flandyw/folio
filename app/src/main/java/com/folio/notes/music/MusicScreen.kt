@@ -404,17 +404,17 @@ import com.folio.notes.ui.FolioSpacing
 
     state.reviews.firstOrNull()?.let { review -> key(review.source.id) { MusicImportPanel(review, model, state.busy, state.message) } }
     newSetWith?.let { scores ->
-        NameDialog("New set list", "Name it after the concert, service or gig.", "", "Create set list", { newSetWith = null }) {
+        NameDialog("New set list", "", "", "Create set list", { newSetWith = null }) {
             model.newSet(it, scores); newSetWith = null
         }
     }
     newFolderWith?.let { scores ->
-        NameDialog("New folder", "Group scores by ensemble, term or composer.", "", "Create folder", { newFolderWith = null }) {
+        NameDialog("New folder", "", "", "Create folder", { newFolderWith = null }) {
             model.newFolder(it, scores); newFolderWith = null
         }
     }
     library.folders.find { it.id == renameFolder }?.let { folder ->
-        NameDialog("Rename folder", "Scores inside keep their place.", folder.name, "Save", { renameFolder = null }) { name ->
+        NameDialog("Rename folder", "", folder.name, "Save", { renameFolder = null }) { name ->
             model.renameFolder(folder.id, name); renameFolder = null
         }
     }
@@ -427,7 +427,7 @@ import com.folio.notes.ui.FolioSpacing
         FolderPickerPanel(score, library.folders, model, onNewFolder = { moveFor = null; newFolderWith = listOf(score.id) }) { moveFor = null }
     }
     library.sets.find { it.id == renameSet }?.let { set ->
-        NameDialog("Rename set list", "Keep your concerts easy to find.", set.name, "Save", { renameSet = null }) { name ->
+        NameDialog("Rename set list", "", set.name, "Save", { renameSet = null }) { name ->
             model.set(set.id) { it.copy(name = name) }; renameSet = null
         }
     }

@@ -51,7 +51,7 @@ import java.util.UUID
             }
         }
         if (hints) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text(if (quickShare == ShareShortcut.OFF) "Ctrl+K finds actions. Configure quick sharing and pencil double-tap in Settings." else "Ctrl+K finds actions. Hold Share: ${quickShare.label}. Configure pencil double-tap in Settings.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(if (quickShare == ShareShortcut.OFF) "Tip: Ctrl+K finds any action." else "Tip: Ctrl+K finds any action. Hold Share to ${quickShare.label.replaceFirstChar(Char::lowercase)}.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onGuide) { Text("Guide") }
             TextButton({ prefs.write { putBoolean(AppPrefs.UX_EDITOR_HINT_DISMISSED, true) } }) { Text("Dismiss") }
         }

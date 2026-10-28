@@ -33,7 +33,7 @@ import com.folio.notes.ui.PopoverRow
 import com.folio.notes.ui.PopoverTile
 import com.folio.notes.ui.folioSelected
 
-@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+@Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: (() -> Unit)? = null, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
             NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
@@ -71,7 +71,7 @@ import com.folio.notes.ui.folioSelected
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", folder, libraryLastEditedLabel(note.updated)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, pageCover, onCoverToggle, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = pinned, pin = pin, createLike = createLike)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = pinned, pin = pin, createLike = createLike)
         }
         if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -79,7 +79,7 @@ import com.folio.notes.ui.folioSelected
     }
 }
 
-@Composable internal fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: () -> Unit = {}, pageCover: Boolean = true, onCoverToggle: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null) {
+@Composable internal fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: (() -> Unit)? = null, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
@@ -96,10 +96,8 @@ import com.folio.notes.ui.folioSelected
             }
             PopoverRow(Icons.Rounded.Sell, "Tags") { run(onTags) }
             PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(examDetails) }
-            PopoverRow(Icons.AutoMirrored.Rounded.Grading, "Record a mark") { run(recordMark) }
+            recordMark?.let { action -> PopoverRow(Icons.AutoMirrored.Rounded.Grading, "Record a mark") { run(action) } }
             PopoverRow(Icons.Rounded.Palette, "Change cover") { run(onChangeCover) }
-            PopoverRow(if (pageCover) Icons.AutoMirrored.Rounded.MenuBook else Icons.Rounded.Image,
-                if (pageCover) "Use default cover" else "Use first page as cover") { run(onCoverToggle) }
             PopoverRow(if (backupExcluded) Icons.Rounded.Backup else Icons.Rounded.CloudOff,
                 if (backupExcluded) "Include in library backups" else "Exclude from library backups") { run(onBackupToggle) }
             HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))

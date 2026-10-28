@@ -36,7 +36,7 @@ import java.util.Date
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = FolioDestinationInset,
             end = FolioDestinationInset, bottom = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             item {
-                Text("Deleted notebooks stay here until you restore them or delete them forever. Trash is kept on this device and is not included in backups.",
+                Text("Notebooks stay here until you restore or delete them. Trash is not backed up.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state.trash.isNotEmpty()) item {

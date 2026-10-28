@@ -152,20 +152,13 @@ internal val DockGap = FolioSpacing.dp4
                     PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onRename) }
                     PopoverTile(if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                         "Favourite", Modifier.weight(1f), active = starred) { run(onStar) }
-                    PopoverTile(Icons.Rounded.Dashboard, "Pages", Modifier.weight(1f)) { run(onPages) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    PopoverGroup("Page") {
-                        PopoverRow(Icons.Rounded.Add, "Add page at end") { run(onAdd) }
-                        PopoverRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Insert after this page") { run(onInsertPage) }
-                        PopoverRow(Icons.Rounded.ContentCopy, "Duplicate this page") { run(onDuplicatePage) }
-                        // The bar only shows the bookmark when it is wide; it must still be reachable here.
-                        if (pageExtrasInMenu) PopoverRow(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                            if (bookmarked) "Remove bookmark" else "Bookmark this page") { run(onBookmark) }
-                    }
-                    HorizontalDivider()
                     if (onFitAll != null || pageExtrasInMenu) {
-                        PopoverGroup("View") {
+                        PopoverGroup("Page") {
+                            // The bar only shows the bookmark when it is wide; it must still be reachable here.
+                            if (pageExtrasInMenu) PopoverRow(if (bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                if (bookmarked) "Remove bookmark" else "Bookmark this page") { run(onBookmark) }
                             if (pageExtrasInMenu) PopoverRow(Icons.Rounded.FitScreen,
                                 (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%") { run(onFit) }
                             if (onFitAll != null) PopoverRow(Icons.Rounded.CenterFocusStrong, "Fit all content") { run(onFitAll) }

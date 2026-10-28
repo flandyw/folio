@@ -40,7 +40,7 @@ import com.folio.notes.ui.FolioShapes
             }) {
                 OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
                     placeholder = { Text("e.g. Quadratics homework") },
-                    supportingText = { Text("${pageTitle.length}/120 · Leave blank to use the page number.") }, singleLine = true,
+                    supportingText = { Text("Leave blank to use the page number") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { savePageName() }),
                     shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(nameFocus))
@@ -67,15 +67,16 @@ import com.folio.notes.ui.FolioShapes
                 LaunchedEffect(pageId) { moveFocus.requestFocus() }
             }
         }
-        deletingPage?.let { pageId ->
+        // Deleting is undoable, so it happens at once instead of asking first.
+        LaunchedEffect(deletingPage) {
+            val pageId = deletingPage ?: return@LaunchedEffect
             val index = note.pages.indexOfFirst { it.id == pageId }
-            FolioPopover("Delete ${note.pages.getOrNull(index)?.displayTitle(index) ?: "page"}?", Icons.Rounded.DeleteOutline,
-                onDismiss = { deletingPage = null }, actions = {
-                    TextButton({ deletingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                    Button({ if (index >= 0 && note.pages.size > 1) model.deletePage(index); deletingPage = null },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                        shapes = ButtonDefaults.shapes()) { Text("Delete") }
-                }) { Text("This removes the page and its content. Use Undo to restore it during this session.", style = MaterialTheme.typography.bodyMedium) }
+            if (index >= 0 && note.pages.size > 1) {
+                val name = note.pages[index].displayTitle(index)
+                model.deletePage(index)
+                model.reportError("$name deleted · Undo brings it back")
+            }
+            deletingPage = null
         }
 
 }
