@@ -94,7 +94,7 @@ import kotlinx.coroutines.launch
     if (tidying) ShapeCleanupPanel(note, model, selection, { tidying = false }, input::clearSelection)
     if (tidyingWriting) HandwritingTidyPanel(note, model, selection, { tidyingWriting = false }, input::clearSelection)
     if (restyling) RestyleSelectionPanel(ink, quickColors,
-        onDismiss = { restyling = false }, onApply = { color, width, opacity, style -> input.restyleSelection(color, width, opacity, style); restyling = false })
+        onDismiss = { restyling = false }, onApply = { color, width, opacity, style, brush -> input.restyleSelection(color, width, opacity, style, brush); restyling = false })
     if (resizing) FolioPanel("Resize document selection", { resizing = false }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${(resizeFactor * 100).toInt()}%")

@@ -288,23 +288,25 @@ object InkGeometry {
      * A null argument leaves that property exactly as it was, so one control can be changed on its
      * own. [widthScale] is relative rather than absolute, which keeps the thickness differences
      * inside a selection intact — a 1x scale is therefore "leave the thickness alone".
-     * [style] only applies to shape tools (line, rectangle, ellipse); freehand ink keeps its
-     * solid look so pressure-varying strokes never break into uneven dashes.
+     * [style] is a line pattern and only applies to shape tools (line, rectangle, ellipse), so
+     * pressure-varying ink never breaks into uneven dashes; [brush] only applies to freehand
+     * pen and highlighter ink that offers it ([StrokeStyle.brushes]).
      */
     fun restyle(
         strokes: List<Stroke>,
         color: Int? = null,
         widthScale: Float? = null,
         opacity: Float? = null,
-        style: StrokeStyle? = null
+        style: StrokeStyle? = null,
+        brush: StrokeStyle? = null
     ): List<Stroke> = strokes.map { stroke ->
         stroke.copy(
             color = color ?: stroke.color,
             width = widthScale?.let { (stroke.width * it).coerceIn(MIN_STROKE_WIDTH, MAX_STROKE_WIDTH) } ?: stroke.width,
             opacity = opacity?.coerceIn(MIN_OPACITY, MAX_OPACITY) ?: stroke.opacity,
-            style = style?.takeIf {
-                stroke.tool in ShapeTools
-            } ?: stroke.style
+            style = style?.takeIf { !it.isBrush && stroke.tool in ShapeTools }
+                ?: brush?.takeIf { it in StrokeStyle.brushes(stroke.tool) }
+                ?: stroke.style
         )
     }
 

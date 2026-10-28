@@ -150,7 +150,7 @@ class InkView(context: Context) : View(context) {
     var activeLayer = 0
     /** Told when a stroke is refused because the active layer is hidden or locked. */
     var onLayerBlocked: () -> Unit = {}
-    /** Line pattern for new shape strokes; freehand ink always draws solid. */
+    /** Line pattern for new shape strokes, or the brush for new pen/highlighter ink ([StrokeStyle.brushes]). */
     var inkStyle: StrokeStyle = StrokeStyle.SOLID
     var pressureEnabled = true
     var pressureSensitivity = 1f
@@ -2938,14 +2938,17 @@ class InkView(context: Context) : View(context) {
         val changed = strokes != null && (appendedStroke != null || strokes != beforeStrokes)
         if (changed) {
             if (drawn != null && stored === drawn && drawn.tool in FREEHAND_TOOLS && tidied == null &&
-                (drawn.tool != Tool.PEN || InkTaper.amount == 0f)) {
+                (drawn.tool != Tool.PEN || drawn.style.isBrush || InkTaper.amount == 0f)) {
                 // Hand the final live geometry to the retained layer; pen-up need not smooth it again.
-                // Not when the ends are tapered: the live pass can't know where the stroke ends.
+                // Not when the ballpoint's ends are tapered: the live pass can't know where the stroke ends.
+                // Brushes taper inside AndroidX Ink, which finishes the end itself.
                 val geometry = draftGeometry(draft!!)
                 renderCache.getOrPut(drawn) {
                     // Detach from the live builder so cached ink does not retain its scratch buffers.
                     geometry.copy(centre = geometry.centre.toList(),
                         widths = geometry.widths?.copyOf(geometry.centre.size))
+                        // Same prefix, so the live mesh only appends its tail and finishes instead of retessellating.
+                        .also { it.ink = geometry.ink }
                 }
             }
             page = page.copy(strokes = strokes!!)
@@ -3814,14 +3817,16 @@ class InkView(context: Context) : View(context) {
                 penFilter = PenSmoothing(penSmoothing, scale).also { it.sample(start, event.eventTime) }
             }
             val feel = context.getSharedPreferences("preferences", 0)
-            speedWidth = if (tool == Tool.PEN && feel.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH))
+            val style = if (tool in ShapePickerTools || inkStyle in StrokeStyle.brushes(tool)) inkStyle else StrokeStyle.SOLID
+            // The fountain pen always thins when fast; the setting is the ballpoint's.
+            speedWidth = if (tool == Tool.PEN && (style == StrokeStyle.FOUNTAIN ||
+                    style == StrokeStyle.SOLID && feel.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH)))
                 PenPressure.SpeedWidth(scale).also { it.factor(start.x, start.y, event.eventTime) } else null
             // A highlighter has one width per stroke, so a tilted pen lays its broad edge down once, at contact.
             val strokeWidth = if (tool == Tool.HIGHLIGHTER && isStylus(event, index) &&
                 feel.getBoolean(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT))
                 inkWidth * PenPressure.tiltScale(event.getAxisValue(MotionEvent.AXIS_TILT, index)) else inkWidth
-            draft = Stroke(tool, inkColor, strokeWidth, arrayListOf(start), inkOpacity,
-                style = if (tool in ShapePickerTools) inkStyle else StrokeStyle.SOLID, layer = activeLayer)
+            draft = Stroke(tool, inkColor, strokeWidth, arrayListOf(start), inkOpacity, style = style, layer = activeLayer)
             startLowLatency(note == null)
             clearShapeHold()
             trackShapeHold(event, index)

@@ -171,13 +171,18 @@ object EditorQuickPrefs {
     tool: Tool, options: ToolOptions, onChange: (ToolOptions) -> Unit, quick: QuickColorsState,
     presets: ToolPresetState?, onApplyPreset: ((ToolPreset) -> Unit)?, prefs: SharedPreferences
 ) {
-    val range = WidthPresets.range(WidthPresets.group(tool))
-    val ink = Color(options.color).copy(alpha = options.opacity)
+    val group = WidthPresets.group(tool, options.style)
+    val range = WidthPresets.range(group)
     if (tool == Tool.ERASER) StrokeSample(options.width.coerceAtMost(24f), MaterialTheme.colorScheme.outline)
-    else StrokeSample(options.width, ink)
-    if (tool == Tool.PEN) PenNibRow(options, onChange, prefs)
+    else InkSample(tool, options.color, options.width, options.opacity, options.style)
+    if (StrokeStyle.brushes(tool).isNotEmpty()) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val widths = remember(context) { WidthPresetState(context.getSharedPreferences("ink-tools", 0)) }
+        Text("Brush", style = MaterialTheme.typography.labelLarge)
+        BrushPicker(tool, options) { onChange(options.withBrush(tool, it, widths)) }
+    }
     PopoverSlider(if (tool == Tool.ERASER) "Eraser diameter" else "Width", String.format(Locale.ROOT, "%.1f pt", options.width), options.width, range,
-        { onChange(options.copy(width = WidthPresets.clamp(WidthPresets.group(tool), it))) })
+        { onChange(options.copy(width = WidthPresets.clamp(group, it))) })
     if (tool != Tool.ERASER) {
         PopoverSlider("Opacity", "${(options.opacity * 100).roundToInt()}%", options.opacity, 0.05f..1f, { onChange(options.copy(opacity = it)) })
         InkColorsSection(options, onChange, quick, InkColors.groupOf(tool))
@@ -185,30 +190,11 @@ object EditorQuickPrefs {
     if (tool in ShapePickerTools) {
         Text("Line style", style = MaterialTheme.typography.labelLarge)
         // M3e button group: these are one choice, so they read as connected toggles.
-        StrokeStyle.entries.chunked(3).forEach { row ->
+        StrokeStyle.PATTERNS.chunked(3).forEach { row ->
             FolioButtonGroup { row.forEach { style -> toggleableItem(options.style == style, style.label, { onChange(options.copy(style = style)) }) } }
         }
     }
     if (presets != null && tool in DrawingTools) PopoverSection("Presets") { ToolPresetSection(tool, options, presets, onApplyPreset) }
-}
-
-/** Fineliner … Brush: each fills the pressure response and the pen-feel switches in one tap. */
-@Composable private fun PenNibRow(options: ToolOptions, onChange: (ToolOptions) -> Unit, prefs: SharedPreferences) {
-    val speed by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
-    val taper by rememberPref(prefs, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
-    val current = PenNib.matching(options, speed, taper)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Nib", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-        Text(current?.label ?: "Custom", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    FolioButtonGroup(Modifier.fillMaxWidth()) {
-        PenNib.entries.forEach { nib ->
-            toggleableItem(current == nib, nib.label, {
-                prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, nib.speedWidth).putFloat(AppPrefs.INK_TAPER, nib.taper).apply()
-                onChange(nib.applyTo(options))
-            }, weight = 1f)
-        }
-    }
 }
 
 /** A preference slider that only writes when the finger lifts, for settings that are costly to apply per frame. */
@@ -226,15 +212,23 @@ object EditorQuickPrefs {
         CommitSlider("Smoothing", smoothing, 0f..1f, { if (it == 0f) "Off" else "${(it * 100).roundToInt()}%" }) {
             prefs.edit().putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)).apply()
         }
-        // Soft ends restyle every pen stroke, so the costly re-render happens once, on release.
-        val taper by rememberPref(prefs, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
-        CommitSlider("Soft stroke ends", taper, 0f..1f, { if (it == 0f) "Off" else "${(it * 100).roundToInt()}%" }) {
-            prefs.edit().putFloat(AppPrefs.INK_TAPER, AppPrefs.inkTaper(it)).apply()
-        }
-        val thinner by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
-        SwitchRow("Thinner when fast", thinner, { prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, it).apply() })
-        SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })
-        if (options.pressure) {
+        // Soft ends and speed thinning are the ballpoint's; the other brushes carry their own feel.
+        if (options.style == StrokeStyle.SOLID) {
+            // Soft ends restyle every ballpoint stroke, so the costly re-render happens once, on release.
+            val taper by rememberPref(prefs, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
+            CommitSlider("Soft stroke ends", taper, 0f..1f, { if (it == 0f) "Off" else "${(it * 100).roundToInt()}%" }) {
+                prefs.edit().putFloat(AppPrefs.INK_TAPER, AppPrefs.inkTaper(it)).apply()
+            }
+            val thinner by rememberPref(prefs, AppPrefs.PEN_SPEED_WIDTH) { it.getBoolean(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH) }
+            SwitchRow("Thinner when fast", thinner, { prefs.edit().putBoolean(AppPrefs.PEN_SPEED_WIDTH, it).apply() })
+        } else Text(when (options.style) {
+            StrokeStyle.FOUNTAIN -> "The fountain pen always tapers its ends and thins when fast."
+            StrokeStyle.PENCIL -> "Pressure darkens the pencil more than it widens it."
+            StrokeStyle.MARKER -> "The marker lays down one even width, whatever the pressure."
+            else -> "The flat nib is thick across and thin along a 45° line; pressure widens it."
+        }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (options.style != StrokeStyle.MARKER) SwitchRow("Pressure-sensitive width", options.pressure, { onChange(options.copy(pressure = it)) })
+        if (options.pressure && options.style != StrokeStyle.MARKER) {
             FolioButtonGroup(Modifier.fillMaxWidth()) {
                 PenPressure.Feel.entries.forEach { feel ->
                     toggleableItem(PenPressure.Feel.matching(options.pressureCurve, options.pressureSensitivity) == feel, feel.label,
@@ -562,7 +556,7 @@ object EditorQuickPrefs {
 }
 
 /**
- * Favorite tool setups: saves the current tool's colour, width, opacity and line style under a
+ * Favorite tool setups: saves the current tool's colour, width, opacity and line style or brush under a
  * name, like GoodNotes' pen slots, so a revision black fine-liner and a diagram blue dashed
  * line are each one tap away in any notebook.
  */
@@ -579,10 +573,10 @@ object EditorQuickPrefs {
     if (saved.isEmpty()) Text("Save this tool setup as a preset to bring it back in one tap.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     else Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         saved.forEach { preset ->
-            val styleSuffix = if (preset.style != StrokeStyle.SOLID) " · ${preset.style.name.lowercase()}" else ""
+            val styleSuffix = if (preset.style != StrokeStyle.SOLID) " · ${preset.style.brushLabel(preset.tool).lowercase()}" else ""
             val hold = rememberLongPressGuard()
             InputChip(
-                selected = preset.tool == tool && preset.color == options.color && preset.width == options.width,
+                selected = preset.tool == tool && preset.color == options.color && preset.width == options.width && preset.style == options.style,
                 onClick = hold.click { onApply?.invoke(preset) },
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
                                 trailingIcon = { Row {
@@ -600,7 +594,7 @@ object EditorQuickPrefs {
         title = { Text("Save tool preset") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Text("Saves colour, width, opacity and line style for the ${tool.name.lowercase()} tool.", style = MaterialTheme.typography.bodySmall)
+                Text("Saves colour, width, opacity and ${if (StrokeStyle.brushes(tool).isEmpty()) "line style" else "brush"} for the ${tool.name.lowercase()} tool.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(presetName, { presetName = it.take(ToolPresets.MAX_NAME) }, label = { Text("Preset name") }, singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {

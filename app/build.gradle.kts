@@ -216,6 +216,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    // Custom width-preserving brushes and incremental Canvas meshes (no storage migration).
+    implementation("androidx.ink:ink-brush:1.1.0-alpha10")
+    implementation("androidx.ink:ink-geometry:1.1.0-alpha10")
+    implementation("androidx.ink:ink-rendering:1.1.0-alpha10")
+    implementation("androidx.ink:ink-strokes:1.1.0-alpha10")
     // Predicts where the stylus is about to be (platform model on Android 13+, a Kalman filter before) to hide ink latency.
     implementation("androidx.input:input-motionprediction:1.0.0")
     // Front-buffered canvas rendering for the optional low-latency ink overlay (API 29+, guarded at the call sites).

@@ -1588,11 +1588,11 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         RestyleSelectionPanel(
             originals = originals, quickColors = quick.colors(InkColors.INK_GROUP),
             onDismiss = { restyleSelection = null },
-            onApply = { color, scale, opacity, style ->
+            onApply = { color, scale, opacity, style, brush ->
                 val picked = restylePicked
                 val source = note.pages.firstOrNull { it.id == picked?.first }
                 if (source != null && picked != null && source.strokes.containsAll(picked.second.strokes) && source.texts.containsAll(picked.second.texts)) {
-                    val after = DocumentToolEdits.restyle(source, picked.second, color, scale, opacity, style)
+                    val after = DocumentToolEdits.restyle(source, picked.second, color, scale, opacity, style, brush)
                     val edit = PageJournal.diff(source.content(), after)
                     if (edit != null && !model.commitDocumentEdits(note.id, mapOf(source.id to edit), mapOf(source.id to source.revision)))
                         model.reportError("The page changed while restyling; select the ink again")

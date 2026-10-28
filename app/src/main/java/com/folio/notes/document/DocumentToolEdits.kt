@@ -29,12 +29,12 @@ internal object DocumentToolEdits {
         }
         return listOf(after)
     }
-    fun restyle(page: NotePage, selection: CanvasSelection, color: Int?, width: Float?, opacity: Float?, style: StrokeStyle?): PageContent {
+    fun restyle(page: NotePage, selection: CanvasSelection, color: Int?, width: Float?, opacity: Float?, style: StrokeStyle?, brush: StrokeStyle? = null): PageContent {
         val replacements = java.util.IdentityHashMap<Stroke, Stroke>()
-        selection.strokes.zip(InkGeometry.restyle(selection.strokes, color, width, opacity, style)).forEach { (before, after) -> replacements[before] = after }
+        selection.strokes.zip(InkGeometry.restyle(selection.strokes, color, width, opacity, style, brush)).forEach { (before, after) -> replacements[before] = after }
         val notes = selection.texts.filter { it.isSticky }.map { it.id }.toSet()
         return page.content().copy(strokes = page.strokes.map { replacements[it] ?: it },
-            texts = page.texts.map { box -> if (box.id in notes) box.copy(stickyInk = InkGeometry.restyle(box.stickyInk, color, width, opacity, style)) else box })
+            texts = page.texts.map { box -> if (box.id in notes) box.copy(stickyInk = InkGeometry.restyle(box.stickyInk, color, width, opacity, style, brush)) else box })
     }
     /** Consume each live path's new samples once; long eraser gestures stay linear in input. */
     class EraserSession {

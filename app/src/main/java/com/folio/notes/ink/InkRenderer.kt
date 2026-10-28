@@ -97,6 +97,7 @@ object InkRenderer {
     internal class IncrementalHighlighterStroke {
         private val smoother = InkGeometry.IncrementalSmooth()
         private var consumed = 0
+        private val ink = AndroidxInk.Geometry()
         private var minX = Float.MAX_VALUE; private var minY = Float.MAX_VALUE
         private var maxX = -Float.MAX_VALUE; private var maxY = -Float.MAX_VALUE
         fun update(points: List<InkPoint>): RenderedStroke {
@@ -107,7 +108,11 @@ object InkRenderer {
             }
             return RenderedStroke(smoother.update(points), null,
                 if (points.isEmpty()) 0f else minX, if (points.isEmpty()) 0f else minY,
-                if (points.isEmpty()) 0f else maxX, if (points.isEmpty()) 0f else maxY)
+                if (points.isEmpty()) 0f else maxX, if (points.isEmpty()) 0f else maxY).also {
+                    it.live = true
+                    it.stableCount = smoother.stablePointCount
+                    it.ink = ink
+                }
         }
     }
 
@@ -217,6 +222,7 @@ object InkRenderer {
         private var cleanMinX = Float.MAX_VALUE; private var cleanMinY = Float.MAX_VALUE
         private var cleanMaxX = -Float.MAX_VALUE; private var cleanMaxY = -Float.MAX_VALUE
         private var cached: RenderedStroke? = null
+        private var ink = AndroidxInk.Geometry()
         private var widthBuffer = FloatArray(16)
         /** Distance along the centreline to each point, kept only while the start of the stroke is tapered. */
         private var along = FloatArray(16)
@@ -282,6 +288,9 @@ object InkRenderer {
             // Bounds stay on the stored samples, exactly as `rendered` measures them.
             val rendered = if (points.isEmpty()) RenderedStroke(centreline, null, 0f, 0f, 0f, 0f, widths)
             else RenderedStroke(centreline, null, rawMinX, rawMinY, rawMaxX, rawMaxY, widths)
+            rendered.live = true
+            rendered.stableCount = stableWidthCount.coerceAtMost(centreline.size)
+            rendered.ink = ink
             cached = rendered
             return rendered
         }
@@ -327,6 +336,7 @@ object InkRenderer {
         }
 
         private fun retakeSplits() {
+            ink = AndroidxInk.Geometry()
             sectionSmoother.reset()
             committed.clear(); liveTail = emptyList(); sectionStart = 0; nextCandidate = 1; cached = null
             stableWidthCount = 0
@@ -378,7 +388,11 @@ object InkRenderer {
          * equality is referential, like [taper].
          */
         val widths: FloatArray? = null
-    )
+    ) {
+        internal var live = false
+        internal var stableCount: Int = centre.size
+        internal var ink: AndroidxInk.Geometry? = null
+    }
 
     /** Structural equality for cached width multipliers; FloatArray `==` is referential. */
     internal fun widthsEqual(a: FloatArray?, b: FloatArray?): Boolean {
@@ -453,6 +467,13 @@ object InkRenderer {
      * [stroke], but without repeating the spline, taper or bounds math per frame.
      */
     fun drawRendered(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke) {
+        if ((stroke.tool == Tool.PEN || stroke.tool == Tool.HIGHLIGHTER || stroke.tool in SHAPE_SET) &&
+            (stroke.style == StrokeStyle.SOLID || stroke.style.isBrush)) {
+            val ink = synchronized(rendered) {
+                rendered.ink ?: AndroidxInk.Geometry().also { rendered.ink = it }
+            }
+            if (ink.draw(canvas, stroke, rendered)) return
+        }
         val centre = rendered.centre
         if (centre.isEmpty()) return
         val paint = strokePaintPool.get()!!.apply {
@@ -479,9 +500,9 @@ object InkRenderer {
 
     /**
      * Navigation preview for one pen stroke: a single uniform-width path instead of the
-     * width-bucketed runs. Pinch/pan previews last ~90ms, so trading taper detail for one
-     * draw call per stroke keeps a dense page panning at display rate; full detail returns
-     * on settle. Highlighter/shapes already draw as one path, so they share it.
+     * AndroidX mesh. Pinch/pan previews last ~90ms and rasterize on a software canvas, where
+     * a mesh is redrawn as a path anyway, so one plain path per stroke keeps a dense page
+     * panning at display rate; full detail returns on settle.
      */
     fun drawPreview(canvas: Canvas, stroke: Stroke, rendered: RenderedStroke) {
         val centre = rendered.centre
@@ -1192,7 +1213,7 @@ object InkRenderer {
      * Effects are cached by style + width bucket; PathEffect is immutable so sharing is safe.
      */
     internal fun dashEffect(style: StrokeStyle, width: Float): android.graphics.PathEffect? {
-        if (style == StrokeStyle.SOLID) return null
+        if (style == StrokeStyle.SOLID || style.isBrush) return null
         val bucket = (width * 2).roundToInt()
         val key = style to bucket
         synchronized(dashCache) { dashCache[key]?.let { return it } }
@@ -1205,7 +1226,7 @@ object InkRenderer {
                 android.graphics.DashPathEffect(floatArrayOf(20f.coerceAtLeast(width * 4f), gap, 0.5f, gap), 0f)
             }
             StrokeStyle.DENSE_DOTS -> android.graphics.DashPathEffect(floatArrayOf(0.5f, (width * 1.8f).coerceAtLeast(5f)), 0f)
-            StrokeStyle.SOLID -> null
+            else -> null
         }
         synchronized(dashCache) {
             if (dashCache.size > 64) dashCache.clear()

@@ -46,17 +46,27 @@ notes and across pages. The highlighter keeps its colour, opacity, width and opt
 with **Tidy up shapes** and **Straighten highlighter** enabled, a separate end hold straightens it
 and supports the usual adjustment and undo. Lift, cancellation and tool changes clear the borrowed tool.
 
-## Tool popover and nibs
+## Tool popover and brushes
 
-The tool popover has two pages: **Style** (sample, nib, width, opacity, colours, line style, presets) and
+The tool popover has two pages: **Style** (sample, brush, width, opacity, colours, line style, presets) and
 **Behaviour** (smoothing, soft ends, speed, pressure, low-latency ink, shape assist, scribble to erase).
 Only the open page is composed. Option changes reach the page at once, but `EditorToolState.changeOptions`
 writes the preference 250 ms after the last change (flushed on tool change and when the editor leaves), and
 the smoothing and soft-ends sliders commit on release, since a taper change restyles every pen stroke.
 
-**Nib** (pen only) is pure `PenNib`: Fineliner / Ballpoint / Fountain / Brush each fill the pen's pressure
-response plus the global *Thinner when fast* and *Soft stroke ends* preferences. Nothing new is stored; the
-row shows *Custom* once any of those is changed by hand.
+**Brush** is per stroke: the pen offers Ballpoint / Fountain / Pencil / Marker / Calligraphy and the
+highlighter Round / Chisel (`StrokeStyle.brushes`). The brush is stored in the stroke's existing `style` name
+(appended `StrokeStyle` entries, so no format change; an older build reads an unknown name as `SOLID` and draws
+its plain pen), so a page can mix brushes and changing brush never restyles old ink. Each brush card, the
+popover sample and the width-slot sample are drawn by the real renderer (`InkSample`). Each pen brush keeps
+its own three width slots (`WidthPresets.group(tool, style)`); picking a brush keeps the width if it is one of
+that brush's slots, else takes its middle slot. The quick bar has a brush button, the pen's toolbar icon shows
+its brush, presets save the brush, and Restyle selection can change it (`InkGeometry.restyle(…, brush)`, which
+never puts a line pattern on freehand ink).
+
+*Soft stroke ends* and *Thinner when fast* belong to the Ballpoint only. The fountain pen always tapers (inside
+its AndroidX brush, from distance travelled and remaining) and always thins when fast (`InkView` bakes speed into
+its stored pressure like the Ballpoint setting). Pencil pressure mostly darkens; the marker ignores pressure.
 
 ## Width
 
@@ -67,25 +77,19 @@ row shows *Custom* once any of those is changed by hand.
   pressure width. It is baked into each sample's stored pressure.
 - **Tilt widens the highlighter** (`input.highlighterTilt`). A highlighter has one width per stroke, so the
   tilt (`AXIS_TILT`) at pen-down sets the stroke width (`PenPressure.tiltScale`). There is no pencil tool yet.
-- **Soft stroke ends** (`input.inkTaper`, 0 = off). `InkTaper` thins the first and last 3–14 page units down to a quarter of the width. The renderer normally groups widths into half-unit runs; with taper on `drawTaperedLines` uses tenth-unit runs so the end narrows smoothly (coarse runs drew blunt, stepped nubs, and an old 0.68 floor clamp hid most of the taper). It is
+- **Soft stroke ends** (`input.inkTaper`, 0 = off). `InkTaper` thins the first and last 3–14 page units down to a quarter of the width. AndroidX Ink consumes the per-point pressure × taper width through a custom brush. It is
   render-only, so it restyles old ink too; `InkTaper.version` makes every `InkView` drop geometry and rasters
   built under the old look. The live stroke only thins its start (the end is unknown until pen-up), and the
   live-geometry hand-off to the cache is skipped when taper is on.
 
 ## Drawing the stroke
 
-Pen ink of varying width is one filled outline (`InkOutline`, pure): exactly the shape a round nib of changing
-size sweeps (the union of a disc at every centreline point and the tangent hulls between neighbours), traced as
-**one closed contour per stroke** — down the right edge, round the end cap, back up the left edge, round the
-start cap. Outer edges of turns follow an arc of the nib; inner edges are trimmed where the two sides cross,
-taking at most half of either side. Where that is not enough (a turn tighter than the nib, a hairpin, a sample
-one disc swallows) the contour ends in a round cap and the next one starts, so no piece ever folds back on
-itself. Collinear vertices are dropped, so an even run is a handful of vertices rather than a disc and a hull
-per sample (the previous renderer), which rasterizes faster and anti-aliases without internal edges. Every
-contour winds the same way, so a non-zero fill paints the union once: loops and crossings fill solidly,
-translucent ink never darkens, and the hole of an "o" stays open. An even-width stroke is still drawn as one
-round-capped line, which is the same shape. `node tools/handwriting-smoke.cjs` probes coverage against the
-swept nib on waves, hairpins, zigzags, reversals, curls, spirals and random walks with wild widths.
+Pen, highlighter and solid shapes render through AndroidX Ink, including live strokes, sticky ink,
+rasters, thumbnails and exports. Folio still supplies the smoothed centreline and pressure × taper
+width; a passthrough input model avoids applying a second smoothing or pressure response. Live
+strokes append their settled prefix and replace their provisional tail. Completed geometries cache
+an immutable native mesh. Patterned shapes, selection halos and the navigation preview keep their
+Canvas paths, and `InkOutline` remains the fallback if AndroidX Ink fails. See [AndroidX Ink rendering](androidx-ink.md) for scope and device checks.
 
 `StrokeEnds.settle` runs when a pen stroke is stored: the pen-down and lift samples take their neighbours'
 pressure (Android often reports a full reading there, which drew a blob, a neck, then the stroke). Positions

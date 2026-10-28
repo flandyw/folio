@@ -310,12 +310,12 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
         val note = note ?: return
         model?.duplicateDocumentSelection(note.id, interaction.documentSelection.value) { clearSelection() }
     }
-    fun restyleSelection(color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle?) {
+    fun restyleSelection(color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle?, brush: StrokeStyle? = null) {
         val note = note ?: return; val model = model ?: return
         val selected = interaction.documentSelection.value
         val edits = selected.mapNotNull { (id, value) ->
             val page = pageById[id] ?: return@mapNotNull null
-            val after = DocumentToolEdits.restyle(page, value, color, widthScale, opacity, style)
+            val after = DocumentToolEdits.restyle(page, value, color, widthScale, opacity, style, brush)
             PageJournal.diff(page.content(), after)?.let { id to it }
         }.toMap()
         if (model.commitDocumentEdits(note.id, edits, selected.keys.associateWith { pageById.getValue(it).revision })) clearSelection()

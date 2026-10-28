@@ -18,14 +18,15 @@ import com.folio.notes.ink.InkGeometry
 import com.folio.notes.model.ShapeTools
 import com.folio.notes.model.Stroke
 import com.folio.notes.model.StrokeStyle
+import com.folio.notes.model.Tool
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
 import kotlin.math.roundToInt
 
-/** Changes colour, thickness, opacity and line style of lasso-selected strokes; untouched controls keep each stroke as it was. */
+/** Changes colour, thickness, opacity, line style and brush of lasso-selected strokes; untouched controls keep each stroke as it was. */
 @Composable internal fun RestyleSelectionPanel(
     originals: List<Stroke>, quickColors: List<Int>,
-    onDismiss: () -> Unit, onApply: (Int?, Float?, Float?, StrokeStyle?) -> Unit
+    onDismiss: () -> Unit, onApply: (Int?, Float?, Float?, StrokeStyle?, StrokeStyle?) -> Unit
 ) {
     val style = remember(originals) { InkGeometry.styleOf(originals) }
     var color by remember { mutableStateOf<Int?>(null) }
@@ -34,6 +35,9 @@ import kotlin.math.roundToInt
     var opacity by remember { mutableFloatStateOf(style?.opacity ?: 1f) }
     var lineStyle by remember { mutableStateOf<StrokeStyle?>(null) }
     val hasShape = remember(originals) { originals.any { it.tool in ShapeTools } }
+    var brush by remember { mutableStateOf<StrokeStyle?>(null) }
+    // Pen brushes when there is pen ink; otherwise the highlighter's own (round / chisel).
+    val brushTool = remember(originals) { listOf(Tool.PEN, Tool.HIGHLIGHTER).firstOrNull { tool -> originals.any { it.tool == tool } } }
     FolioPanel(title = "Restyle selection", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp32), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
 
@@ -63,6 +67,15 @@ import kotlin.math.roundToInt
                     }
                 }
             }
+            if (brushTool != null) {
+                Text("Brush", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    FilterChip(brush == null, { brush = null }, { Text("Keep") })
+                    StrokeStyle.brushes(brushTool).forEach { option ->
+                        FilterChip(brush == option, { brush = option }, { Text(option.brushLabel(brushTool)) })
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Opacity", style = MaterialTheme.typography.labelMedium)
@@ -76,7 +89,7 @@ import kotlin.math.roundToInt
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle) }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
+                Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle, brush) }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
             }
         }
     }

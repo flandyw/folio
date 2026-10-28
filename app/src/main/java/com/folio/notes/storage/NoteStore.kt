@@ -312,7 +312,7 @@ object NotePageCodec {
  * misses the cache, and only copies of the same page at the same size can be pruned.
  */
 object ThumbnailKeys {
-    fun name(pageId: String, revision: Int, widthPx: Int): String = "$pageId-$widthPx-$revision.jpg"
+    fun name(pageId: String, revision: Int, widthPx: Int): String = "$pageId-$widthPx-$revision-ink1.jpg"
 
     /** True when [fileName] is a preview of [pageId] at [widthPx] left over from an earlier revision. */
     fun isStale(fileName: String, pageId: String, revision: Int, widthPx: Int): Boolean {

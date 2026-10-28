@@ -35,6 +35,7 @@ import com.folio.notes.input.rememberLongPressGuard
 import com.folio.notes.library.semanticsLabel
 import com.folio.notes.model.DrawingTools
 import com.folio.notes.model.ShapePickerTools
+import com.folio.notes.model.StrokeStyle
 import com.folio.notes.model.Tool
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
@@ -140,7 +141,9 @@ import kotlin.math.roundToInt
     // inactive button still reads correctly. Reads are in-memory SharedPreferences lookups.
     val penDot = if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt())
     val highlighterDot = if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt())
-    val widthRange = WidthPresets.range(WidthPresets.group(tool))
+    // The pen button wears its brush even while another tool is active.
+    val penBrush = if (tool == Tool.PEN) options.style else StrokeStyle.safeValueOf(toolPrefs.getString("PEN.style", null) ?: "SOLID")
+    val widthRange = WidthPresets.range(WidthPresets.group(tool, options.style))
     val widthPresetState = remember(toolPrefs) { WidthPresetState(toolPrefs) }
     var colorSlotEditing by remember { mutableStateOf<Int?>(null) }
     var widthSlotEditing by remember { mutableStateOf<Int?>(null) }
@@ -189,7 +192,7 @@ import kotlin.math.roundToInt
         }
     }
     @Composable fun WidthDots() {
-        val presets = widthPresetState.widths(tool)
+        val presets = widthPresetState.widths(tool, options.style)
         val selectedIndex = WidthPresets.selectedIndex(presets, options.width)
         presets.forEachIndexed { index, w ->
             val selected = index == selectedIndex
@@ -214,14 +217,29 @@ import kotlin.math.roundToInt
                     if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = FolioSpacing.dp4).size(4.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
                 }
                 if (widthSlotEditing == index) WidthSlotPopover(
-                    tool = tool, slot = index, width = if (selected) options.width else w, color = Color(options.color).copy(alpha = options.opacity),
-                    onPick = { picked -> widthPresetState.set(tool, index, picked); onOptions(options.copy(width = picked)) },
+                    tool = tool, slot = index, width = if (selected) options.width else w, options = options,
+                    onPick = { picked -> widthPresetState.set(tool, index, picked, options.style); onOptions(options.copy(width = picked)) },
                     onReset = {
-                        widthPresetState.reset(tool, index)
-                        onOptions(options.copy(width = WidthPresets.defaults(WidthPresets.group(tool))[index]))
+                        widthPresetState.reset(tool, index, options.style)
+                        onOptions(options.copy(width = WidthPresets.defaults(WidthPresets.group(tool, options.style))[index]))
                     },
                     onDismiss = { widthSlotEditing = null }
                 )
+            }
+        }
+    }
+    var brushPicker by remember { mutableStateOf(false) }
+    /** The brush in use; tapping opens the brush cards, each drawn in the brush's own ink. */
+    @Composable fun BrushSwitch() {
+        Box {
+            IconButton({ brushPicker = !brushPicker }, modifier = Modifier.size(ToolbarButton).semanticsLabel("Brush, ${options.style.brushLabel(tool).lowercase()}")) {
+                Icon(brushIcon(tool, options.style), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (brushPicker) FolioPopover(onDismiss = { brushPicker = false }, width = 344.dp) {
+                BrushPicker(tool, options) { brush ->
+                    feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onOptions(options.withBrush(tool, brush, widthPresetState)); brushPicker = false
+                }
             }
         }
     }
@@ -255,7 +273,7 @@ import kotlin.math.roundToInt
       Box {
         if (tool in slot.tools) ToolSettingsPopover()
         when (slot) {
-            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, Icons.Rounded.Edit, "Pen", indicatorColor = Color(penDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
+            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, brushIcon(Tool.PEN, penBrush), "Pen, ${penBrush.brushLabel(Tool.PEN).lowercase()}", indicatorColor = Color(penDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.SHAPES -> ShapesSlot()
             ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, ToolIcons.Highlighter, "Highlighter", indicatorColor = Color(highlighterDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
             ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, ToolIcons.Eraser, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
@@ -468,6 +486,7 @@ import kotlin.math.roundToInt
                                     Box(Modifier.width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
                                     Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                 } else {
+                                    if (StrokeStyle.brushes(tool).isNotEmpty()) BrushSwitch()
                                     if (isShape) RecentShapes() else WidthDots()
                                     if (tool != Tool.ERASER && !splitQuickGroups) {
                                         Box(Modifier.width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
