@@ -50,9 +50,9 @@ class ExamSheetTest {
         return (0..2).map { row -> (m[row * 5] * r + m[row * 5 + 1] * g + m[row * 5 + 2] * b + m[row * 5 + 4]).toInt().coerceIn(0, 255) }
     }
 
-    @Test fun darkPaperInvertsLightnessKeepingHue() {
+    @Test fun printedSheetInvertsLightnessKeepingHue() {
         night(255, 255, 255).forEach { assertTrue(it in 32..40) }           // paper → dark grey
-        night(27, 27, 27).forEach { assertTrue(it in 215..230) }             // pen ink → near white
+        night(27, 27, 27).forEach { assertTrue(it in 215..230) }             // printed text → near white
         val red = night(198, 40, 40); assertTrue(red[0] > red[1] && red[0] > red[2])   // red stays red
         val blue = night(31, 78, 180); assertTrue(blue[2] > blue[0] && blue[2] > blue[1])
     }

@@ -165,7 +165,7 @@ internal object ExamSheet {
     /**
      * Dark paper: inverts lightness and turns hue half way round, which restores the original hue
      * (a "smart invert"), then lifts black to a dark grey. White paper becomes #242424-ish, a step above the desk, black
-     * ink near-white, and coloured ink and highlights keep their colour family. The hue matrix's rows
+     * printed text near-white, and pictures keep their colour family. The hue matrix's rows
      * sum to 1, so inverting before or after it is the same.
      */
     fun nightMatrix(): FloatArray {
@@ -176,7 +176,7 @@ internal object ExamSheet {
             m[18] = 1f
         }
     }
-    /** The [nightMatrix] as a render effect for the sheet and its ink. */
+    /** The [nightMatrix] as a render effect for printed content only; handwriting keeps its selected colour. */
     @androidx.annotation.RequiresApi(31)
     fun nightEffect() = android.graphics.RenderEffect.createColorFilterEffect(
         android.graphics.ColorMatrixColorFilter(nightMatrix())).asComposeRenderEffect()
@@ -342,7 +342,7 @@ private val paperInk = Color(0xFF1B1B1B)
             else { copyText(androidContext, text); shareText(androidContext, null, png) }
         }
     }
-    // A dark theme darkens the paper and its ink together, keeping hues, so what is shared stays the real sheet.
+    // Filter only the printed sheet; live and committed ink keep their selected colours.
     val night = MaterialTheme.colorScheme.surface.luminance() < .5f && android.os.Build.VERSION.SDK_INT >= 31
     val nightEffect = remember(night) { if (night) ExamSheet.nightEffect() else null }
     // The desk sits a step below the review's surface so the sheet reads as paper in either theme.
@@ -397,7 +397,7 @@ private val paperInk = Color(0xFF1B1B1B)
                 }
             }
         }
-        Box(Modifier.fillMaxSize().graphicsLayer { renderEffect = nightEffect }) {
+        Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(LocalDensity provides Density(sheetDensity, 1f)) {
                 Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).graphicsLayer {
                     transformOrigin = TransformOrigin(0f, 0f)
@@ -406,12 +406,15 @@ private val paperInk = Color(0xFF1B1B1B)
                     translationX = cam.canvasX
                     translationY = cam.canvasY - questionHeight * cam.canvasZoom
                     alpha = if (fitted == null) 0f else 1f
+                }.shadow(3.dp, clip = false).graphicsLayer {
+                    // Keep the shadow outside the filter so it never becomes a light halo.
+                    renderEffect = nightEffect
                 }.drawWithContent {
-                    // Recorded for sharing; the record holds the whole sheet, not just what is on screen.
+                    // Share the white sheet without the display filter or shadow.
                     sheetLayer.record { this@drawWithContent.drawContent() }
                     drawLayer(sheetLayer)
                 }) {
-                    ExamSheetContent(m, context, user, attachments, prefs, lines, revealed, night, imageWidths,
+                    ExamSheetContent(m, context, user, attachments, prefs, lines, revealed, imageWidths,
                         onQuestionHeight = { questionHeight = it }, onSheetHeight = { sheetHeight = it },
                         onImageRect = { key, rect -> imageRects[key] = rect })
                 }
@@ -429,7 +432,6 @@ private val paperInk = Color(0xFF1B1B1B)
                     view.onWorkspaceCamera = { cam = it }
                     view.onNavigating = { moving -> if (moving) motion[0]?.cancel() else settle(0f) }
                     view.onDocumentPanEnd = { velocity -> settle(velocity) }
-                    view.frontBuffer = !night
                     val options = if (resizing) ToolOptions.load(inkPrefs, Tool.HAND) else options
                     view.tool = active
                     view.inkColor = options.color; view.inkWidth = options.width; view.inkOpacity = options.opacity
@@ -524,7 +526,7 @@ private val paperInk = Color(0xFF1B1B1B)
 /** The printed page: header, question, pictures, ruled answer space and, once revealed, the guide. */
 @Composable private fun ExamSheetContent(
     m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository,
-    prefs: SharedPreferences, lines: Int, revealed: Boolean, night: Boolean, imageWidths: MutableMap<String, Float>,
+    prefs: SharedPreferences, lines: Int, revealed: Boolean, imageWidths: MutableMap<String, Float>,
     onQuestionHeight: (Float) -> Unit, onSheetHeight: (Float) -> Unit, onImageRect: (String, Rect) -> Unit,
 ) {
     val unit = LocalDensity.current.density
@@ -539,8 +541,7 @@ private val paperInk = Color(0xFF1B1B1B)
     val body = TextStyle(fontFamily = FontFamily.Serif, fontSize = 17.sp, lineHeight = 25.sp, color = paperInk)
     // Paper is white in a dark theme too; rich text and maths read their colours from the theme.
     MaterialTheme(colorScheme = lightColorScheme(onSurface = paperInk, onSurfaceVariant = Color(0xFF55575A))) {
-        // Inverted, a shadow would glow around dark paper, so the dark sheet stands on the desk's contrast alone.
-        Column(Modifier.requiredWidth(ExamSheet.WIDTH.dp).then(if (night) Modifier else Modifier.shadow(3.dp)).background(Color.White)
+        Column(Modifier.requiredWidth(ExamSheet.WIDTH.dp).background(Color.White)
             .onPlaced { root[0] = it }.onSizeChanged { onSheetHeight(it.height / unit) }) {
             Column(Modifier.fillMaxWidth().padding(start = ExamSheet.MARGIN.dp, end = ExamSheet.MARGIN.dp, top = ExamSheet.MARGIN.dp, bottom = 6.dp)
                 .onSizeChanged { onQuestionHeight(it.height / unit) }) {
