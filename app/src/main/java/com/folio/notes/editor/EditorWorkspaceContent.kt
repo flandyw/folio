@@ -1425,6 +1425,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                                 else -> { finishTextEditing(); model.open(id) }
                             } },
                             onCloseTab = { id -> finishTextEditing(); model.closeTab(id) },
+                            onCloseTabs = { ids -> finishTextEditing(); model.closeTabs(ids) },
                             onNewTab = onOpenDocument?.let { open -> { finishTextEditing(); open() } },
                             timer = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {

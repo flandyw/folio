@@ -1,8 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.editor.toolbar
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector2D
 import androidx.compose.animation.core.MutableTransitionState
@@ -27,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -105,9 +104,10 @@ internal val BarRowHeight = 40.dp
 /** Side inset of both rows. */
 internal val BarInset = FolioSpacing.dp4
 private val TabStripHeight = 40.dp
-private val TabHeight = 30.dp
-private val TabSlotHeight = TabHeight + 6.dp
-private val TabShape = RoundedCornerShape(10.dp)
+private val TabHeight = 34.dp
+// Fixed like Chrome's, so switching tabs never resizes one and shoves its neighbours about.
+private val TabWidth = 184.dp
+private val TabShape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)
 
 /** What a tab's trailing button does: nothing, close the document, or end the split it is part of. */
 private enum class TabClose { NONE, TAB, SPLIT }
@@ -124,6 +124,8 @@ private enum class TabClose { NONE, TAB, SPLIT }
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onNewTab: (() -> Unit)?,
+    /** Bulk close for the strip's tab menu; null hides the menu. */
+    onCloseTabs: ((List<String>) -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val reportHeight = LocalEditorBarHeight.current
@@ -135,7 +137,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
         shadowElevation = 1.dp,
     ) {
         Column(Modifier.fillMaxWidth()) {
-            if (tabs != null) TabStrip(tabs, activeId, onHome, onSelectTab, onCloseTab, onNewTab)
+            if (tabs != null) TabStrip(tabs, activeId, onHome, onSelectTab, onCloseTab, onNewTab, onCloseTabs)
             content()
             HorizontalDivider(color = BarTones.divider)
         }
@@ -165,8 +167,8 @@ private enum class TabClose { NONE, TAB, SPLIT }
 }
 
 /**
- * The strip of open documents. Tabs are floating pills: the active one is raised in the bar's colour
- * and is the only one that offers close, so a tap on a background tab always switches rather than
+ * The strip of open documents, drawn like Chrome's: the active tab is cut from the bar's colour and
+ * runs into the tool row below, and it is the only one that offers close, so a tap on a background tab always switches rather than
  * risking a close. Two documents in split view share one capsule with a single close that ends the
  * split (both stay open as tabs); after that each tab closes on its own again.
  * Press and drag sideways to reorder; pull a tab down onto the page to carry it, and it opens on the
@@ -179,6 +181,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
     onSelect: (String) -> Unit,
     onClose: (String) -> Unit,
     onNew: (() -> Unit)?,
+    onCloseTabs: ((List<String>) -> Unit)?,
 ) {
     val split = LocalSplitView.current
     val reorder = LocalTabOrder.current
@@ -275,8 +278,8 @@ private enum class TabClose { NONE, TAB, SPLIT }
                     first, second, visible = pairTogether && dragged != firstSplit && dragged != secondSplit,
                     modifier = Modifier.matchParentSize(), rightToLeft = rightToLeft,
                 )
-                Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                    shown.forEach { entry -> key(entry.chip.id) {
+                Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.Bottom) {
+                    shown.forEachIndexed { index, entry -> key(entry.chip.id) {
                         val tab = entry.chip
                         val live = tab.id in ids
                         val held = dragged == tab.id
@@ -306,6 +309,11 @@ private enum class TabClose { NONE, TAB, SPLIT }
                         // The pair's capsule leads with the split glyph and ends with its one close.
                         val leading by animateDpAsState(if (tab.id == firstSplit && pairTogether) 26.dp else 0.dp, folioSpring(), label = "splitTabInset")
                         val inPair = pairTogether && (tab.id == firstSplit || tab.id == secondSplit)
+                        val raised = tab.id == activeId || inPair
+                        // Chrome's separators: hidden beside a raised tab, where its edge already shows.
+                        val following = shown.getOrNull(index + 1)?.chip?.id
+                        val divider = !raised && following != null && following != activeId &&
+                            !(pairTogether && (following == firstSplit || following == secondSplit))
                         val close = when {
                             !live -> TabClose.NONE
                             inPair && split != null -> if (tab.id == secondSplit) TabClose.SPLIT else TabClose.NONE
@@ -323,7 +331,6 @@ private enum class TabClose { NONE, TAB, SPLIT }
                                     translationY = shownAt.y
                                     scaleX = 1f + .035f * lift.value
                                     scaleY = scaleX
-                                    shadowElevation = 6.dp.toPx() * lift.value.coerceAtLeast(0f)
                                     alpha = opacity.value
                                 }
                                 .onGloballyPositioned { inputCoordinates = it }
@@ -404,11 +411,11 @@ private enum class TabClose { NONE, TAB, SPLIT }
                                 exit = fadeOut(tween(110)) + shrinkHorizontally(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 500f), shrinkTowards = Alignment.Start, clip = false),
                             ) {
                                 Row(
-                                    Modifier.height(TabSlotHeight).padding(start = leading.coerceAtLeast(0.dp), end = if (tab.id == firstSplit && inPair) 0.dp else FolioSpacing.dp4),
+                                    Modifier.height(TabHeight).padding(start = leading.coerceAtLeast(0.dp)),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     // Both halves of an open split look alike: neither document is the background one.
-                                    Tab(tab, tab.id == activeId || inPair, held, pressed, close, onClose, { split?.toggle?.invoke() },
+                                    Tab(tab, raised, held, pressed, divider, close, onClose, { split?.toggle?.invoke() },
                                         modifier = Modifier.semantics {
                                             role = Role.Tab
                                             selected = tab.id == activeId
@@ -432,6 +439,20 @@ private enum class TabClose { NONE, TAB, SPLIT }
                 }
             }
             if (onNew != null) TabAction(Icons.Rounded.Add, "Open another document", onNew)
+            if (onCloseTabs != null) Box {
+                var menu by remember { mutableStateOf(false) }
+                TabAction(Icons.Rounded.KeyboardArrowDown, "Tab actions") { menu = true }
+                DropdownMenu(menu, { menu = false }) {
+                    val at = ids.indexOf(activeId)
+                    @Composable fun item(label: String, targets: List<String>) =
+                        DropdownMenuItem({ Text(label) }, { menu = false; onCloseTabs(targets) }, enabled = targets.isNotEmpty())
+                    item("Close tab", listOfNotNull(activeId?.takeIf { at >= 0 }))
+                    item("Close other tabs", if (at < 0) emptyList() else ids - ids[at])
+                    // "Right" is what the reader sees, so it runs the other way in a right-to-left layout.
+                    item("Close tabs to the right", when { at < 0 -> emptyList(); rightToLeft -> ids.take(at); else -> ids.drop(at + 1) })
+                    item("Close all tabs", ids)
+                }
+            }
         }
     }
     // The workspace may normalize split partners back together when it acknowledges a reorder.
@@ -456,21 +477,26 @@ private enum class TabClose { NONE, TAB, SPLIT }
         val firstX = first.placement.displayed(false, Offset.Zero).x
         val secondX = second.placement.displayed(false, Offset.Zero).x
         val left = minOf(firstX, secondX) - 2.dp.toPx()
-        val right = maxOf(firstX + (first.placement.bounds?.width ?: 0f), secondX + (second.placement.bounds?.width ?: 0f)) -
-            FolioSpacing.dp4.toPx() + 2.dp.toPx()
-        val height = TabHeight.toPx() + 6.dp.toPx()
-        val top = (size.height - height) / 2f
+        val right = maxOf(firstX + (first.placement.bounds?.width ?: 0f), secondX + (second.placement.bounds?.width ?: 0f)) + 2.dp.toPx()
+        val top = size.height - TabHeight.toPx() - 2.dp.toPx()
         val radius = CornerRadius(12.dp.toPx())
-        val frame = Path().apply { addRoundRect(RoundRect(left, top, right.coerceAtLeast(left), top + height, radius)) }
-        drawPath(frame, colors.primary.copy(alpha = .12f * opacity.value))
-        drawPath(frame, colors.primary.copy(alpha = .55f * opacity.value), style = Stroke(1.dp.toPx()))
+        val fill = Path().apply { addRoundRect(RoundRect(left, top, right.coerceAtLeast(left), size.height,
+            topLeftCornerRadius = radius, topRightCornerRadius = radius)) }
+        drawPath(fill, colors.primary.copy(alpha = .12f * opacity.value))
+        // Outline the top and sides only; the pair runs into the tool row like any raised tab.
+        val r = radius.x
+        val edge = Path().apply {
+            moveTo(left, size.height); lineTo(left, top + r); quadraticTo(left, top, left + r, top)
+            lineTo(right - r, top); quadraticTo(right, top, right, top + r); lineTo(right, size.height)
+        }
+        drawPath(edge, colors.primary.copy(alpha = .55f * opacity.value), style = Stroke(1.dp.toPx()))
     }) {
         Icon(Icons.Rounded.VerticalSplit, null,
-            Modifier.align(Alignment.CenterStart).offset {
+            Modifier.align(Alignment.BottomStart).offset {
                 val x = first.placement.displayed(false, Offset.Zero).x
                 // offset is relative in RTL; the placement coordinates above are physical.
                 IntOffset((if (rightToLeft) frameWidth - x - (first.placement.bounds?.width ?: 0f) else x).roundToInt(), 0)
-            }.padding(start = FolioSpacing.dp6).size(16.dp).graphicsLayer { alpha = opacity.value },
+            }.padding(start = FolioSpacing.dp6, bottom = (TabHeight - 16.dp) / 2).size(16.dp).graphicsLayer { alpha = opacity.value },
             tint = colors.primary,
         )
     }
@@ -481,6 +507,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
     active: Boolean,
     held: Boolean,
     pressed: Boolean,
+    divider: Boolean,
     close: TabClose,
     onClose: (String) -> Unit,
     onCloseSplit: () -> Unit,
@@ -489,58 +516,60 @@ private enum class TabClose { NONE, TAB, SPLIT }
 ) {
     val title = tab.title.ifBlank { "Untitled" }
     val accent = MaterialTheme.colorScheme.primary
-    val containerColor by animateColorAsState(
-        when {
-            active || held -> BarTones.container
-            pressed -> BarTones.container.copy(alpha = .55f)
-            tab.split -> BarTones.container.copy(alpha = .35f)
-            else -> BarTones.container.copy(alpha = 0f)
-        },
-        tween(if (pressed) 60 else 160), label = "tabContainer",
-    )
-    val contentColor by animateColorAsState(
-        when {
-            active || held -> BarTones.content
-            tab.split -> BarTones.content.copy(alpha = .8f)
-            else -> BarTones.stripContent
-        },
-        tween(160), label = "tabContent",
-    )
-    val elevation by animateDpAsState(if (active || held) 1.dp else 0.dp, tween(160), label = "tabElevation")
-    val indicator = animateFloatAsState(if (active) 1f else 0f, tween(180), label = "tabIndicator")
+    val raised = BarTones.container
+    // No colour animation: a switch changes both tabs in the same frame, as in Chrome, instead of
+    // cross-fading two half-lit tabs.
+    val containerColor = when {
+        active || held -> raised
+        pressed -> raised.copy(alpha = .55f)
+        tab.split -> raised.copy(alpha = .35f)
+        else -> raised.copy(alpha = 0f)
+    }
+    val contentColor = when {
+        active || held -> BarTones.content
+        tab.split -> BarTones.content.copy(alpha = .8f)
+        else -> BarTones.stripContent
+    }
+    val separator = BarTones.stripContent.copy(alpha = .3f)
     Surface(
         shape = TabShape,
         color = containerColor,
         contentColor = contentColor,
-        shadowElevation = elevation,
-        modifier = modifier.height(TabHeight).widthIn(min = 72.dp, max = 220.dp)
-            .drawWithContent {
-                drawContent()
-                // A short accent dash under the title marks the document the tools act on.
-                if (indicator.value > 0f) {
-                    val w = 16.dp.toPx() * indicator.value
-                    val h = 2.5.dp.toPx()
-                    drawRoundRect(accent.copy(alpha = indicator.value), topLeft = Offset((size.width - w) / 2f, size.height - h - 2.dp.toPx()),
-                        size = androidx.compose.ui.geometry.Size(w, h), cornerRadius = CornerRadius(h / 2f))
+        modifier = modifier.fillMaxHeight().width(TabWidth)
+            .drawBehind {
+                val h = size.height
+                val w = size.width
+                if (active || held) {
+                    // Chrome's flared feet, curving the raised tab into the tool row.
+                    val r = 8.dp.toPx()
+                    val feet = Path().apply {
+                        moveTo(-r, h); lineTo(0f, h); lineTo(0f, h - r); quadraticTo(0f, h, -r, h); close()
+                        moveTo(w + r, h); lineTo(w, h); lineTo(w, h - r); quadraticTo(w, h, w + r, h); close()
+                    }
+                    drawPath(feet, raised)
+                } else if (divider) {
+                    drawLine(separator, Offset(w, h * .28f), Offset(w, h * .78f), 1.dp.toPx())
                 }
             },
     ) {
         Row(
-            Modifier.fillMaxHeight().padding(start = FolioSpacing.dp10, end = if (close == TabClose.NONE) FolioSpacing.dp10 else FolioSpacing.dp2)
-                .animateContentSize(folioSpring()),
+            Modifier.fillMaxHeight().padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelLarge,
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (close != TabClose.NONE) {
-                val split = close == TabClose.SPLIT
-                val label = if (split) "Close split view" else "Close $title"
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-                    tooltip = { PlainTooltip { Text(if (split) "Close split view (both stay open)" else "Close") } }, state = rememberTooltipState()) {
-                    IconButton({ if (split) onCloseSplit() else onClose(tab.id) }, enabled = enabled,
-                        modifier = Modifier.padding(start = FolioSpacing.dp2).size(TabHeight - 4.dp), shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Close, label, Modifier.size(15.dp),
-                            tint = if (split) accent else LocalContentColor.current)
+            // The close slot is always reserved, so the title never shifts when the button appears.
+            Box(Modifier.padding(start = FolioSpacing.dp2).size(TabHeight - 10.dp), contentAlignment = Alignment.Center) {
+                if (close != TabClose.NONE) {
+                    val split = close == TabClose.SPLIT
+                    val label = if (split) "Close split view" else "Close $title"
+                    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+                        tooltip = { PlainTooltip { Text(if (split) "Close split view (both stay open)" else "Close") } }, state = rememberTooltipState()) {
+                        IconButton({ if (split) onCloseSplit() else onClose(tab.id) }, enabled = enabled,
+                            modifier = Modifier.fillMaxSize(), shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Close, label, Modifier.size(15.dp),
+                                tint = if (split) accent else LocalContentColor.current)
+                        }
                     }
                 }
             }

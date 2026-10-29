@@ -253,7 +253,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun closeTab(id: String): Unit = workspaceManager.closeTab(id)
     fun reorderTabs(order: List<String>): Unit = workspaceManager.reorderTabs(order)
 
-    fun closeOtherTabs(keepId: String): Unit = workspaceManager.closeOtherTabs(keepId)
+    fun closeTabs(ids: Collection<String>): Unit = workspaceManager.closeTabs(ids)
 
     fun showCompanion(id: String, pageId: String? = null): Unit = workspaceManager.showCompanion(id, pageId)
 

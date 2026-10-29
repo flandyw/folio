@@ -153,31 +153,40 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
      * worked on leaves the other document as the editor, closing the other half just closes its pane,
      * and a split parked behind a closed tab is forgotten with it.
      */
-    fun closeTab(id: String) {
+    fun closeTab(id: String) = closeTabs(listOf(id))
+
+    /** Closes several tabs at once (close others / to the right / all); the nearest survivor takes over. */
+    fun closeTabs(ids: Collection<String>) {
         with(runtime) {
+            val closing = ids.toSet()
+            if (closing.isEmpty()) return
             val before = _state.value
             val pane = before.companion
             when {
                 pane == null -> Unit
                 // The other half (or both halves, when both panes show this notebook): the split goes.
-                pane.notebookId == id -> dismissCompanion()
-                before.activeId == id -> closeEditorPane()
+                pane.notebookId in closing -> dismissCompanion()
+                before.activeId in closing -> closeEditorPane()
             }
-            parked?.let { if (it.hostId == id || it.pane.notebookId == id) parked = null }
+            parked?.let { if (it.hostId in closing || it.pane.notebookId in closing) parked = null }
             captureTab()
-            // A barrier in the existing writer drains every pending save before removing the tab.
+            // A barrier in the existing writer drains every pending save before removing the tabs.
             enqueue {
                 withContext(Dispatchers.Main.immediate) {
                     if (_state.value.saveFailed) {
-                        reportError("Couldn't close the document. Retry save first.")
+                        reportError(if (closing.size == 1) "Couldn't close the document. Retry save first." else "Couldn't close the documents. Retry save first.")
                     } else {
                         val state = _state.value
-                        val adjacent = state.tabs.adjacentAfterClosing(id) { tab -> state.notes.notebook(tab.notebookId)?.mistakePractice == false }
-                        val remaining = state.tabs.filterNot { it.id == id }
-                        _state.update { it.copy(tabs = remaining) }
-                        if (state.activeId == id) {
+                        val active = state.activeId
+                        val adjacent = active?.takeIf { it in closing }?.let { id ->
+                            state.tabs.adjacentAfterClosing(id) { tab -> tab.id !in closing && state.notes.notebook(tab.notebookId)?.mistakePractice == false }
+                        }
+                        // Clearing the active id first stops open()'s captureTab re-adding the closed tab;
+                        // all of this runs in one main-thread turn, so no frame sees nothing open.
+                        _state.update { it.copy(tabs = it.tabs.filterNot { tab -> tab.id in closing },
+                            activeId = if (active in closing) null else it.activeId) }
+                        if (active in closing) {
                             selectNotebookTimer(null)
-                            _state.update { it.copy(activeId = null) }
                             adjacent?.let { open(it.notebookId) }
                         }
                     }
@@ -195,25 +204,6 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
                 if (moving.size != state.tabs.count { it.notebookId in named }) return@update state
                 val next = state.tabs.map { if (it.notebookId in named) moving.removeFirst() else it }
                 if (next == state.tabs) state else state.copy(tabs = next)
-            }
-        }
-    }
-
-    fun closeOtherTabs(keepId: String) {
-        with(runtime) {
-            captureTab()
-            enqueue {
-                withContext(Dispatchers.Main.immediate) {
-                    if (_state.value.saveFailed) {
-                        reportError("Couldn't close the documents. Retry save first.")
-                    } else {
-                        _state.update { state ->
-                            state.copy(
-                                tabs = state.tabs.filter { it.id == keepId || it.notebookId == keepId }
-                            )
-                        }
-                    }
-                }
             }
         }
     }

@@ -121,6 +121,7 @@ internal val DockGap = FolioSpacing.dp4
     activeTabId: String? = null,
     onSelectTab: (String) -> Unit = {},
     onCloseTab: (String) -> Unit = {},
+    onCloseTabs: ((List<String>) -> Unit)? = null,
     /** Null hides the strip's "+" (nowhere to pick another document from). */
     onNewTab: (() -> Unit)? = null
 ) {
@@ -248,7 +249,7 @@ internal val DockGap = FolioSpacing.dp4
             }
             EditorBar(
                 tabs = if (showTabs) tabs else null, activeId = activeTabId,
-                onHome = onClose, onSelectTab = onSelectTab, onCloseTab = onCloseTab, onNewTab = onNewTab
+                onHome = onClose, onSelectTab = onSelectTab, onCloseTab = onCloseTab, onNewTab = onNewTab, onCloseTabs = onCloseTabs
             ) {
                 val row = Modifier.fillMaxWidth().height(BarRowHeight).padding(horizontal = BarInset)
                 if (stacked) {

@@ -106,7 +106,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun close(): Unit = runtime.close()
     fun closeTab(id: String): Unit = runtime.closeTab(id)
     fun reorderTabs(order: List<String>): Unit = runtime.reorderTabs(order)
-    fun closeOtherTabs(keepId: String): Unit = runtime.closeOtherTabs(keepId)
+    fun closeTabs(ids: Collection<String>): Unit = runtime.closeTabs(ids)
     fun showCompanion(id: String, pageId: String? = null): Unit = runtime.showCompanion(id, pageId)
     fun dismissCompanion(): Unit = runtime.dismissCompanion()
     fun closeEditorPane(): Unit = runtime.closeEditorPane()
