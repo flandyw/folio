@@ -1790,7 +1790,7 @@ class InkView(context: Context) : View(context) {
                     updateStableInkBounds(content)
                     committedInk.draw(inkCanvas, content.strokes, scale, ::boundsOf, ::renderedOf,
                         rasterViewport = stableInkBounds, deferred = !content.infinite || navigating, visible = visibleInkBounds,
-                        placeholder = { drawNavigationInk(it, content) })
+                        placeholder = { drawNavigationInk(it, content) }, moving = navigatingReported)
                 }
             })
     }

@@ -91,7 +91,7 @@ internal class CommittedInkCache(
      * rasterized inside the frame that asked for it, which is what a dense page entering the screen
      * paid for in one go.
      */
-    private fun obtainDeferred(current: List<Stroke>, pixelsPerUnit: Float, required: Rect): Boolean {
+    private fun obtainDeferred(current: List<Stroke>, pixelsPerUnit: Float, required: Rect, submit: Boolean = true): Boolean {
         val running = job
         if (running != null) {
             if (running.failed) { job = null; deferBroken = true; return true }
@@ -110,6 +110,7 @@ internal class CommittedInkCache(
             install(kept.bitmap, kept.strokes, kept.viewport, pixelsPerUnit)
             return true
         }
+        if (!submit) return false
         val width = ceil(clip.width() * pixelsPerUnit.toDouble()).toInt()
         val height = ceil(clip.height() * pixelsPerUnit.toDouble()).toInt()
         val next = Job(current, Rect(clip), pixelsPerUnit)
@@ -170,7 +171,9 @@ internal class CommittedInkCache(
          */
         visible: Rect? = null,
         /** Draws a cheap stand-in while a deferred raster is built, so revealed ink never pops in from blank. */
-        placeholder: ((Canvas) -> Unit)? = null
+        placeholder: ((Canvas) -> Unit)? = null,
+        /** A pan or pinch is in progress: a raster with no overscan would be stale by the next frame. */
+        moving: Boolean = false
     ) {
         if (rasterViewport != null) clip.set(rasterViewport) else canvas.getClipBounds(clip)
         if (clip.isEmpty || current.isEmpty()) {
@@ -191,7 +194,9 @@ internal class CommittedInkCache(
         }
         val holdsThisView = held != null && viewport == clip && scale == pixelsPerUnit
         if (!holdsThisView && deferred && !fastPreview && !deferBroken && current.size >= DEFER_MIN_STROKES &&
-            !obtainDeferred(current, pixelsPerUnit, required)) {
+            // Zoomed to the raster budget there is no overscan, so a build started mid-pan never lands and only
+            // churns full-screen bitmaps; keep the stale raster and build once the motion ends.
+            !obtainDeferred(current, pixelsPerUnit, required, submit = !(moving && held != null && clip == required))) {
             // Until the new raster lands, what the cache last held is still the closest picture;
             // the stand-in fills only what it does not cover, so translucent ink is not doubled.
             val stale = held != null && scale > 0f
