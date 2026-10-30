@@ -86,8 +86,11 @@ class MistakeStudySessionTest {
         session.resume(attempt("b"), card("b"), ExamContext("Legal Studies", "SAC", ""), subjects, now + 40_000)
         session.pause(now + 60_000)
         val done = session.entry(now + 60_000, true)!!
-        assertNull(done.subjectId)
-        assertEquals("Mistake practice · Mixed subjects", done.title)
+        assertEquals("custom-law", done.subjectId)
+        assertEquals("Mistake practice · Mathematical Methods & Legal Studies", done.title)
+        val spans = focalSubjectSpans(done, done.intervals, now + 60_000)
+        assertEquals(listOf("mm", "custom-law"), spans.map { it.second })
+        assertEquals(listOf(30_000L, 20_000L), spans.map { requireNotNull(it.first.endAt) - it.first.startAt })
         val questions = JSONObject(done.metadata!!).getJSONObject("examtrack").getJSONArray("questions")
         assertEquals("mm", questions.getJSONObject(0).getString("subjectId"))
         assertEquals("custom-law", questions.getJSONObject(1).getString("subjectId"))

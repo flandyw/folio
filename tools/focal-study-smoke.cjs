@@ -12,7 +12,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-study-'));
 try {
   const source = path.join(root, 'app/src/main/java/com/folio/notes');
   // The session models, recovery rules and command helpers live apart from the Android manager.
-  const pure = ['study/FocalStudySessions.kt', 'study/FocalStudySync.kt'].map(file => path.join(source, file));
+  const pure = ['study/FocalStudySessions.kt', 'study/FocalSubjects.kt', 'study/FocalStudyEdits.kt',
+    'study/FocalFocus.kt', 'study/FocalStudySync.kt'].map(file => path.join(source, file));
   const classes = path.join(temp, 'classes');
   run(['-cp', [compiler, ...dependencies, annotations].join(path.delimiter),
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
