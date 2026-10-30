@@ -36,8 +36,8 @@ import com.folio.notes.ui.FolioSpacing
         mutableStateOf(TextFieldValue(initial, selection = TextRange(0, initial.length)))
     }
     val focusRequester = remember { FocusRequester() }
-    val changed = text.text.isNotBlank() && text.text.trim() != initial.trim()
-    fun save() { if (changed) submit(text.text.trim()) }
+    // Keeping the name is an answer too: Done closes the dialog rather than doing nothing.
+    fun save() { if (text.text.isNotBlank()) { if (text.text.trim() == initial.trim()) dismiss() else submit(text.text.trim()) } }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
@@ -50,7 +50,7 @@ import com.folio.notes.ui.FolioSpacing
                 trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue(""); focusRequester.requestFocus() }) { Icon(Icons.Rounded.Close, "Clear name") } },
                 supportingText = { if (text.text.length >= 90) Text("${text.text.length}/120") })
         }
-    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = changed, shapes = ButtonDefaults.shapes()) { Text(action) } })
+    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = text.text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
 @Composable internal fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {

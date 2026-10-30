@@ -204,12 +204,11 @@ internal class BackupService(private val runtime: FolioRuntime) {
                             examFilter = ExamFilter(), pdfSearch = PdfSearchState()) }
                     }
                     captureTab()
-                    reportError(buildString {
-                        append("Imported ${imported.size} of ${items.size + initialFailures.size} PDFs.")
-                        if (imported.any { it.exam.isTagged })
-                            append("\nExam details and smart notebook names were applied.")
-                        if (failures.isNotEmpty()) append("\n" + failures.joinToString("\n"))
-                    })
+                    // One PDF that opens straight away needs no count; a batch or a failure does.
+                    val total = items.size + initialFailures.size
+                    val lines = listOfNotNull("Imported ${imported.size} of $total PDFs.".takeUnless { total == 1 && imported.size == 1 },
+                        "Exam details and smart notebook names were applied.".takeIf { imported.any { it.exam.isTagged } }) + failures
+                    if (lines.isNotEmpty()) reportError(lines.joinToString("\n"))
                 } finally { _state.update { it.copy(busy = false, importProgress = null) }; cleanup() }
             }
         }

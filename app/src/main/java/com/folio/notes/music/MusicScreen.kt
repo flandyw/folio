@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.music
 
+import com.folio.notes.model.countOf
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -246,7 +247,7 @@ import com.folio.notes.ui.FolioSpacing
                                 keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
                             // Set lists sit where folders do on the notebook shelf, menu and all.
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                FilterChip(selectedSet == null && !favorites && selectedFolder == null, { setId = null; favorites = false; folderId = null }, { Text("All scores") },
+                                FilterChip(selectedSet == null && !favorites && selectedFolder == null && !filter.active, { setId = null; favorites = false; folderId = null; annotatedOnly = false; unfinishedOnly = false; composer = null }, { Text("All scores") },
                                     leadingIcon = { Icon(Icons.Rounded.LibraryMusic, null, Modifier.size(16.dp)) })
                                 FilterChip(selectedSet == null && favorites, { setId = null; folderId = null; favorites = !favorites },
                                     { Text(if (starredCount > 0) "Favorites · $starredCount" else "Favorites") },
@@ -306,7 +307,7 @@ import com.folio.notes.ui.FolioSpacing
                                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier.semanticsLabel("${shown.size} scores, $shelfPages pages, $shelfMarks pencil marks")) {
+                                    modifier = Modifier.semanticsLabel("${countOf(shown.size, "score")}, ${countOf(shelfPages, "page")}, ${countOf(shelfMarks, "pencil mark")}")) {
                                     Text("${shown.size}", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
                                         style = MaterialTheme.typography.labelSmall)
                                 }
@@ -464,7 +465,7 @@ import com.folio.notes.ui.FolioSpacing
                 Column(Modifier.weight(1f)) {
                     Text("Set list", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(set.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(listOf("${scores.size} ${if (scores.size == 1) "score" else "scores"}", "${scores.sumOf { it.pages }} pages",
+                    Text(listOf("${scores.size} ${if (scores.size == 1) "score" else "scores"}", countOf(scores.sumOf { it.pages }, "page"),
                         if (scores.isEmpty()) null else "≈${set.estimatedMinutes(library)} min").filterNotNull().joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

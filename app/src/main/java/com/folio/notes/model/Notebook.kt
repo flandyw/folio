@@ -72,6 +72,9 @@ data class Notebook(
     val bestScore: Float? get() = attempts.mapNotNull { it.share }.maxOrNull()
 }
 /** [color] is an index into `FolderPalette`; 0 is the default look, so older libraries need no migration. */
+/** "1 page", "2 pages": counts shown to people always agree with their noun. */
+fun countOf(count: Int, noun: String, plural: String = noun + "s"): String = "$count ${if (count == 1) noun else plural}"
+
 data class Folder(val id: String = UUID.randomUUID().toString(), val name: String, val parentId: String? = null, val color: Int = 0)
 
 /** Appends an attempt, or replaces one with the same id where it sits, keeping the history in order. */

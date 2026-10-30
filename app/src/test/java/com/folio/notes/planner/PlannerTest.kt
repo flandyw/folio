@@ -25,6 +25,13 @@ class PlannerTest {
         assertEquals(2, Planner.items(again).size)
     }
 
+    @Test fun clearingARatingReturnsTheItemToUnrated() {
+        val first = Planner.merge(Planner.learning(null), "Methods", Planner.parseImport(reply)).first
+        val id = Planner.items(first)[0].getString("id")
+        val cleared = Planner.items(Planner.clearRating(Planner.setRating(first, id, "red"), id))[0]
+        assertFalse(cleared.has("rating") || cleared.has("ratedAt"))
+    }
+
     @Test fun planWeekSkipsItemsThatAlreadyHaveATask() {
         val (l, _) = Planner.merge(Planner.learning(null), "Methods", Planner.parseImport(reply))
         val red = Planner.setRating(l, Planner.items(l)[0].getString("id"), "red")

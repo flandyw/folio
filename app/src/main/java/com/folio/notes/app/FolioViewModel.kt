@@ -74,6 +74,9 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun loadLibrary(): Unit = runtime.loadLibrary()
     fun clearError(): Unit = runtime.clearError()
     fun reportError(message: String): Unit = runtime.reportError(message)
+    fun reportNotice(message: String): Unit = runtime.reportNotice(message)
+    /** The shelf's tag or Favorites view, so a notebook made there shows up there. */
+    fun setShelfScope(tag: String?, favorites: Boolean) { runtime.notebookWorkflowService.shelfTag = tag; runtime.notebookWorkflowService.shelfFavorites = favorites }
     fun export(block: suspend () -> Unit): Unit = runtime.export(block)
     fun folder(id: String?): Unit = runtime.folder(id)
     fun createFolder(name: String, parentId: String? = runtime._state.value.folderId): Boolean = runtime.createFolder(name, parentId)

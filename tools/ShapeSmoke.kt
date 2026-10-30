@@ -181,8 +181,11 @@ fun main() {
     startHold.begin(100f, 200f, 100)
     check(!startHold.attempt(599))
     startHold.sample(103f, 202f, 8f)
-    check(startHold.attempt(600)) // Fires without a MOVE, despite harmless settling samples.
+    check(startHold.attempt(600)) // Arms without a MOVE, despite harmless settling samples.
     check(!startHold.attempt(900)) // One switch per contact.
+    check(!startHold.sample(104f, 203f, 8f)) // Still inside: a long press stays a pen dot.
+    check(startHold.sample(120f, 200f, 8f)) // Moving off an armed hold is what borrows the tool.
+    check(startHold.remaining(1000) == null && !startHold.sample(300f, 200f, 8f))
     startHold.begin(100f, 200f, 1000)
     startHold.sample(109f, 200f, 8f)
     startHold.sample(100f, 200f, 8f) // Returning to the start cannot re-arm it.

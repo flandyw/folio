@@ -540,21 +540,18 @@ class InkView(context: Context) : View(context) {
         "eraser" -> Tool.ERASER
         else -> null
     }
+    private fun penStartAllowed(target: Tool) = isAttachedToWindow && !readOnly && !inputBlocked && !navigationOnly && !navigating && !ignored && stylus &&
+        tool == Tool.PEN && draft?.tool == Tool.PEN && !offPage && penStartPreference() == target &&
+        editableLayer(noteTarget?.let { id -> page.texts.find { it.id == id }?.layer } ?: activeLayer)
     private val penStartHoldRunnable: Runnable = Runnable {
         val target = penStartTarget ?: return@Runnable
-        if (!isAttachedToWindow || readOnly || inputBlocked || navigationOnly || navigating || ignored || !stylus ||
-            tool != Tool.PEN || draft?.tool != Tool.PEN || offPage || penStartPreference() != target ||
-            !editableLayer(noteTarget?.let { id -> page.texts.find { it.id == id }?.layer } ?: activeLayer)) {
+        if (!penStartAllowed(target)) {
             clearPenStartHold()
             return@Runnable
         }
         val now = SystemClock.uptimeMillis()
-        if (!penStartHold.attempt(now)) {
-            penStartHold.remaining(now)?.let { postDelayed(penStartHoldRunnable, it) }
-            return@Runnable
-        }
-        clearPenStartHold()
-        convertPenStart(target)
+        if (penStartHold.attempt(now)) performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        else penStartHold.remaining(now)?.let { postDelayed(penStartHoldRunnable, it) }
     }
     private fun clearPenStartHold() {
         removeCallbacks(penStartHoldRunnable)
@@ -562,12 +559,20 @@ class InkView(context: Context) : View(context) {
         penStartTarget = null
     }
     private fun trackPenStartHold(event: MotionEvent, index: Int) {
-        if (penStartTarget == null) return
+        val target = penStartTarget ?: return
         val slop = PenStartHold.SLOP_DP * resources.displayMetrics.density
+        var moved = false
         for (h in 0 until event.historySize) {
-            penStartHold.sample(event.getHistoricalX(index, h), event.getHistoricalY(index, h), slop)
+            moved = penStartHold.sample(event.getHistoricalX(index, h), event.getHistoricalY(index, h), slop) || moved
         }
-        penStartHold.sample(event.getX(index), event.getY(index), slop)
+        moved = penStartHold.sample(event.getX(index), event.getY(index), slop) || moved
+        if (moved) {
+            // The caller feeds this event's samples to the borrowed tool, from the last still contact.
+            val allowed = penStartAllowed(target)
+            clearPenStartHold()
+            if (allowed) convertPenStart(target)
+            return
+        }
         if (penStartHold.remaining(event.eventTime) == null) { clearPenStartHold(); return }
         penStartContact = point(event, index)
         penStartPressure = event.getPressure(index)
@@ -607,7 +612,6 @@ class InkView(context: Context) : View(context) {
                 SystemClock.uptimeMillis(), ShapeHold.SLOP_DP * resources.displayMetrics.density)
             if (holdRecognition) postDelayed(shapeHoldRunnable, shapeHoldMs)
         }
-        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         if (target != Tool.ERASER) onPenInput(false)
         onLiveInk(draft, isWritingGesture)
         invalidate()
@@ -869,6 +873,8 @@ class InkView(context: Context) : View(context) {
     // Text gestures: a box being dragged, or a tap waiting to become a new box.
     private var movingText: TextBox? = null
     private var pendingTextBox: InkPoint? = null
+    /** This press left a text box, so like a sticky note's it only dismisses; it can still pick up another box. */
+    private var textExitPress = false
     private var textDx = 0f; private var textDy = 0f
     private var textDragged = false
     private var textFromX = 0f; private var textFromY = 0f
@@ -2339,7 +2345,10 @@ class InkView(context: Context) : View(context) {
         val touchNavigation = inputRouter.stylus.isNavigation(event.deviceId, event.downTime)
         // Fingers on the straightedge move it before anything else sees them, notes included.
         if (handleRuler(event, touchNavigation)) return true
-        if (!touchNavigation && event.actionMasked == MotionEvent.ACTION_DOWN && editingText != null) onTextEditingExit()
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            textExitPress = !touchNavigation && editingText != null
+            if (textExitPress) onTextEditingExit()
+        }
         if (!touchNavigation && !readOnly && !navigationOnly && !selectingWritingRegion) {
             val pen = isStylus(event, 0)
             // A finger that will navigate rather than draw (and the hand tool) can tap a note for its menu.
@@ -3165,7 +3174,7 @@ class InkView(context: Context) : View(context) {
         val at = clampToPage(raw)
         val hit = boxAt(at)
         if (hit != null) { movingText = hit; textDragged = false; textDx = 0f; textDy = 0f; textFromX = at.x; textFromY = at.y }
-        else pendingTextBox = at
+        else if (!textExitPress) pendingTextBox = at
     }
     /** A drag commits the box's new place; a tap edits the box, or creates one on empty page. */
     private fun finishText() {

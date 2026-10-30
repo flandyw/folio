@@ -104,6 +104,9 @@ object Planner {
     fun setRating(l: JSONObject, id: String, rating: String, now: String = isoTime()) =
         edit(l, "curriculumAreas", id, now) { it.put("rating", rating).put("ratedAt", now) }
 
+    fun clearRating(l: JSONObject, id: String, now: String = isoTime()) =
+        edit(l, "curriculumAreas", id, now) { it.remove("rating"); it.remove("ratedAt") }
+
     fun group(item: JSONObject) = item.optString("group").trim().ifEmpty { UNGROUPED }
 
     /** Greens fade after three weeks, ambers after two. */

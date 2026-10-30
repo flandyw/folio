@@ -27,7 +27,7 @@ internal val editorShortcutHelp = listOf(
     "Hold Space" to "Temporarily use the hand", "Ctrl + C / X / V" to "Copy / cut / paste selection",
     "Ctrl + A / D" to "Select all / duplicate selection", "Delete" to "Delete selection",
     "Ctrl + Tab / Ctrl + Shift + Tab" to "Next / previous notebook", "Ctrl + \\" to "Open or close split view", "Page Up / Page Down" to "Previous / next page",
-    "Ctrl + Home / End" to "First / last page", "Ctrl + N" to "New notebook",
+    "Ctrl + Home / End" to "First / last page", "Ctrl + N" to "New notebook", "Ctrl + W" to "Close this notebook",
     "Ctrl + Enter" to "Insert a page, or apply a text draft", "Ctrl + Shift + D" to "Duplicate page",
     "Ctrl + F" to "Find in document", "Ctrl + G" to "Go to a page", "Ctrl + 0" to "Reset zoom",
     "Ctrl + Z" to "Undo", "Ctrl + Shift + Z / Ctrl + Y" to "Redo",
@@ -39,7 +39,8 @@ internal val editorShortcutHelp = listOf(
 @Composable internal fun EditorCommandPanel(commands: List<EditorCommand>, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var highlighted by remember(query) { mutableIntStateOf(0) }
-    val matches = commands.filter { it.title.contains(query.trim(), true) }
+    val words = query.trim().split(Regex("\\s+"))
+    val matches = commands.filter { command -> words.all { command.title.contains(it, true) } }
     val available = matches.filter { it.enabled }
     val active = available.getOrNull(highlighted.coerceIn(0, (available.size - 1).coerceAtLeast(0)))
     fun run(command: EditorCommand?) { if (command != null && command.enabled) { onDismiss(); command.run() } }

@@ -9,20 +9,21 @@ import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.folio.notes.ink.InkGeometry
+import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.PageImage
 
 /** A picture picked for a page, re-encoded as JPEG with its longest side capped at [MAX_SIDE] pixels. */
 internal class PickedImage(val bytes: ByteArray, val width: Int, val height: Int) {
-    /** Where the picture lands on [target]: centred, and on a finite page inside the paper. */
-    fun placement(target: NotePage): PageImage {
+    /** Where the picture lands on [target]: centred on [at] (else the page), and on a finite page inside the paper. */
+    fun placement(target: NotePage, at: InkPoint? = null): PageImage {
         val maxWidth = if (target.infinite) 560f else (target.width - 96f).coerceIn(200f, 640f)
         val (w, h) = InkGeometry.fitImage(width.toFloat(), height.toFloat(), maxWidth)
-        val x = if (target.infinite) -w / 2f else (target.width - w) / 2f
-        val y = if (target.infinite) -h / 2f else (target.height - h) / 2f
+        val x = (at?.x ?: if (target.infinite) 0f else target.width / 2f) - w / 2f
+        val y = (at?.y ?: if (target.infinite) 0f else target.height / 2f) - h / 2f
         return PageImage(
-            x = if (target.infinite) x else x.coerceAtLeast(0f),
-            y = if (target.infinite) y else y.coerceAtLeast(0f),
+            x = if (target.infinite) x else x.coerceIn(0f, (target.width - w).coerceAtLeast(0f)),
+            y = if (target.infinite) y else y.coerceIn(0f, (target.height - h).coerceAtLeast(0f)),
             width = w, height = h
         )
     }

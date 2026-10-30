@@ -34,10 +34,12 @@ smoothing when the pen braked; that let pen-lift jitter through as a hook at str
 
 Settings › Writing › **Hold at stroke start** chooses Highlighter (default), Eraser or Off
 (`AppPrefs.PEN_START_HOLD`). With the pen selected, keep the stylus within 8 dp of its landing point
-for 500 ms to borrow that tool until lift; a haptic tick confirms the switch. Finger ink, the
-hardware eraser and the stylus eraser button retain their usual behavior. Moving beyond the radius,
-including a historical sample, disarms switching for the whole contact, so an ordinary end hold
-still recognises pen shapes. `PenStartHold` keeps this rule independent of Android.
+for 500 ms to arm that tool (a haptic tick confirms), then move off the radius to borrow it until
+lift. Lifting while still inside the radius keeps the ordinary pen dot, however long the press, so a
+slow dot never highlights or erases. Finger ink, the hardware eraser and the stylus eraser button
+retain their usual behavior. Moving beyond the radius before the 500 ms, including a historical
+sample, disarms switching for the whole contact, so an ordinary end hold still recognises pen shapes.
+`PenStartHold` keeps this rule independent of Android.
 
 The borrowed tool uses its saved options, including notebook-local options. Conversion replaces the
 uncommitted pen draft and restarts document capture with the new tool; no pen dot or extra undo step

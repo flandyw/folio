@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.app.NameDialog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -107,7 +108,6 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
     val prefs = rememberPrefs()
     val raw by rememberPref(prefs, AppPrefs.UX_SAVED_VIEWS) { it.getString(AppPrefs.UX_SAVED_VIEWS, "[]") }
     val entries = remember(raw) { runCatching { JSONArray(raw) }.getOrDefault(JSONArray()) }
-    var name by remember { mutableStateOf("") }
     fun save(values: List<JSONObject>) { prefs.write { putString(AppPrefs.UX_SAVED_VIEWS, JSONArray(values).toString()) } }
     val values = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
     // Saved views are niche: saving lives in the sort menu; only existing views take a row.
@@ -118,10 +118,10 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
             })
         }
     }
-    if (naming) AlertDialog(onDismissRequest = { onNaming(false) }, title = { Text("Save library view") },
-        text = { OutlinedTextField(name, { name = it.take(60) }, label = { Text("Name") }, singleLine = true) },
-        confirmButton = { TextButton({ save((values.filterNot { it.optString("name").equals(name.trim(), true) } + JSONObject(current.toString()).put("name", name.trim())).takeLast(20)); onNaming(false); name = "" }, enabled = name.isNotBlank()) { Text("Save") } },
-        dismissButton = { TextButton({ onNaming(false) }) { Text("Cancel") } })
+    if (naming) NameDialog("Save library view", "", "", "Save", { onNaming(false) }) { name ->
+        save((values.filterNot { it.optString("name").equals(name, true) } + JSONObject(current.toString()).put("name", name.take(60))).takeLast(20))
+        onNaming(false)
+    }
 }
 
 internal fun ExamFilter.toUxJson() = JSONObject().apply {

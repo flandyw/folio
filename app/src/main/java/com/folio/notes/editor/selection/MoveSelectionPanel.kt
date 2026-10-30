@@ -56,6 +56,7 @@ import com.folio.notes.ui.FolioSpacing
             items(destinations, key = { it.value.id }) { (index, destination) ->
                 Surface(onClick = {
                     model.moveSelectionToPage(sourceId, destination.id, picked)
+                    model.reportNotice("Moved to ${destination.displayTitle(index)}")
                     onMoved()
                 }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,

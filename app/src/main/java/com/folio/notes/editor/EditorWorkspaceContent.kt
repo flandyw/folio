@@ -303,10 +303,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         editor.documentInput.clearSelection()
         activeInkView?.takeIf { it.page.id == page.id }?.select(placed)
     }
-    fun pasteInView() {
-        val visible = activeInkView?.currentPeekAnchor()?.takeIf { it.pageId == page.id }
-        model.pasteClipboard(visible?.let { InkPoint(it.left + 24f, it.top + 48f) }, ::selectPlaced)
-    }
     val followView = activeInkView
     fun setWritingFollow(enabled: Boolean) {
         if (followView?.isWritingGesture == true) return
@@ -487,6 +483,12 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     LaunchedEffect(page.id) { cropActive = false }
     var pageMenu by remember { mutableStateOf<Triple<Float, Float, InkPoint>?>(null) }
     LaunchedEffect(page.id) { pageMenu = null }
+    // A text box or picture added from a menu borrows its tool; finishing with it hands the last tool back.
+    var borrowedTool by remember(note.id) { mutableStateOf<Pair<Tool, Tool>?>(null) }
+    fun borrowTool(value: Tool) { if (tool != value) { borrowedTool = value to tool; selectTool(value) } }
+    val placingObject = textEditor != null || selectedImage != null
+    LaunchedEffect(tool) { if (borrowedTool?.first != tool) borrowedTool = null }
+    LaunchedEffect(placingObject) { if (!placingObject) { borrowedTool?.let { selectTool(it.second) }; borrowedTool = null } }
     fun rememberTextLook(box: TextBox) {
         textSize = box.size; textColor = box.color; textBold = box.bold; textItalic = box.italic
         textAlign = box.align; textUnderline = box.underline
@@ -518,9 +520,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         textEditor = InlineTextSession(target.id, box)
         rememberTextLook(box)
     }
-    /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. */
+    /** A tap on bare page drops a fresh text box where the finger landed, clear of the right edge. A tap while typing only finishes. */
     fun placeTextBox(target: NotePage, at: InkPoint) {
-        finishTextEditing(hideKeyboard = false)
+        if (textEditor != null) { finishTextEditing(); return }
         val layer = model.activeLayerOf(target)
         if (!PageLayers.editable(target.layers, layer)) { mainInkView?.onLayerBlocked?.invoke(); return }
         val x = if (target.infinite) at.x else at.x.coerceIn(0f, (target.width - TextBox.MIN_WIDTH - 16f).coerceAtLeast(0f))
@@ -560,7 +562,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     var destinationPage by editor.overlays.destinationPage
     var deletingPage by editor.overlays.deletingPage
     var rename by editor.overlays.rename
-    var renameTitle by editor.overlays.renameTitle
     var scrubbing by editor.interaction.scrubbing
     var paperMenu by editor.paper.open
     var nextPaperMenu by editor.paper.next
@@ -808,26 +809,43 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
             }
         }
     }
-    /** Decodes a picked picture, stores it beside the notebook and places it centred on the page. */
-    fun insertImage(uri: android.net.Uri) {
+    fun visibleCentre(): InkPoint? = activeInkView?.currentPeekAnchor()?.takeIf { it.pageId == page.id }
+        ?.let { InkPoint((it.left + it.right) / 2f, (it.top + it.bottom) / 2f) }
+    /** Decodes a picked picture, stores it beside the notebook and places it at [at], in view unless asked otherwise. */
+    fun insertImage(uri: android.net.Uri, at: InkPoint? = visibleCentre()) {
         val target = state.page ?: return
         scope.launch {
             try {
                 val picked = PickedImage.read(context, uri)
-                val image = picked.placement(target)
+                val image = picked.placement(target, at)
                 model.addImage(image, picked.bytes, target.id)
                 selectedImage = target.id to image
-                if (tool != Tool.HAND) selectTool(Tool.HAND)
+                borrowTool(Tool.HAND)
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (e: Exception) {
                 model.reportError("Couldn't add this picture: ${e.message.orEmpty()}")
             }
         }
     }
+    /** Pictures on the clipboard (from any app, or Copy page as image) arrive as a URI, not text. */
+    fun clipboardImage(): android.net.Uri? {
+        val clip = context.getSystemService(android.content.ClipboardManager::class.java)?.primaryClip
+        val uri = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri ?: return null
+        return uri.takeIf { runCatching { context.contentResolver.getType(it) }.getOrNull()?.startsWith("image/") == true }
+    }
+    fun paste(at: InkPoint?) {
+        val image = clipboardImage()
+        if (image != null) insertImage(image, at) else model.pasteClipboard(at, ::selectPlaced)
+    }
+    fun pasteInView() = paste(visibleCentre())
+    // Asked for at a spot on the page (the long-press menu), the picture lands there.
+    var pictureAt by remember { mutableStateOf<InkPoint?>(null) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val at = pictureAt ?: visibleCentre()
+        pictureAt = null
         uri?.let {
             try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
-            insertImage(it)
+            insertImage(it, at)
         }
     }
     // Link rectangles arrive once per notebook; a native notebook simply has none.
@@ -872,6 +890,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
             note.pages.getOrNull(state.pageIndex + offset)?.let { model.loadPage(it.id) }
         }
     }
+    BackHandler(enabled = editor.overlays.searchMatches.value.isNotEmpty()) { editor.overlays.searchMatches.value = emptyList() }
     BackHandler(enabled = (selected.isNotEmpty() || documentSelection.isNotEmpty()) && restyleSelection == null) {
         if (documentSelection.isNotEmpty()) editor.documentInput.clearSelection() else activeInkView?.clearSelection()
         selection = null
@@ -945,6 +964,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
             Key.D -> { if (event.isShiftPressed) model.duplicatePage()?.let(::revealNewPage) else duplicatePicked(); true }
             Key.Tab -> { switchNotebook(event.isShiftPressed); true }
             Key.N -> { newNotebook(); true }
+            Key.W -> if (music == null && !note.mistakePractice) { finishTextEditing(); model.closeTab(note.id); true } else false
             Key.Enter -> { revealNewPage(model.insertPage(state.pageIndex + 1)); true }
             Key.MoveHome -> { jumpToEnd(false); true }
             Key.MoveEnd -> { jumpToEnd(true); true }
@@ -1412,7 +1432,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                             saving = state.saving,
                             starred = note.starred,
                             onStar = { model.star(note) },
-                            onRename = { renameTitle = note.title; rename = true },
+                            onRename = { rename = true },
                             onRetrySave = model::retrySave,
                             onClose = { finishTextEditing(); model.close() },
                             showBack = showBack,
@@ -1637,10 +1657,10 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                 onInsert = { revealNewPage(model.insertPage(pageIndex + 1)) },
                 onDuplicate = { model.duplicatePage(pageIndex)?.let { revealNewPage(it) } },
                 onDelete = { deletingPage = page.id }),
-            onPaste = { model.pasteClipboard(at, ::selectPlaced) }, canPaste = canPaste,
+            onPaste = { paste(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
-            onText = { selectTool(Tool.TEXT); placeTextBox(page, at) },
-            onImage = { imagePicker.launch(arrayOf("image/*")) },
+            onText = { finishTextEditing(hideKeyboard = false); borrowTool(Tool.TEXT); placeTextBox(page, at) },
+            onImage = { pictureAt = at; imagePicker.launch(arrayOf("image/*")) },
             canUndo = state.canUndo || textEditor?.box?.text?.isNotBlank() == true, canRedo = state.canRedo,
             onUndo = { finishTextEditing(); undoEditor() }, onRedo = { finishTextEditing(); redoEditor() },
             onDismiss = { pageMenu = null })
@@ -1652,10 +1672,10 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         EditorCommand("Duplicate page", "Ctrl+Shift+D", run = { model.duplicatePage()?.let(::revealNewPage) }),
         EditorCommand(if (page.pdfIndex != null) "Search PDF text" else "Find in document", "Ctrl+F", run = ::openSearch),
         EditorCommand("Go to page", "Ctrl+G", run = { pageBrowser = true; editor.browser.jumpExpanded.value = true }),
-        EditorCommand("Choose paper", run = { openPaperMenu(false) }),
+        EditorCommand("Choose paper", enabled = page.pdfIndex == null, reason = "A PDF page keeps its own paper", run = { openPaperMenu(false) }),
         EditorCommand("Browse pages", run = { pageBrowser = true }),
         EditorCommand(if (page.bookmarked) "Remove bookmark from this page" else "Bookmark this page", run = { model.togglePageBookmark(page.id) }),
-        EditorCommand("Rename notebook", run = { finishTextEditing(); renameTitle = note.title; rename = true }),
+        EditorCommand("Rename notebook", run = { finishTextEditing(); rename = true }),
         EditorCommand("Insert picture", run = { imagePicker.launch(arrayOf("image/*")) }),
         EditorCommand(if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
             enabled = music == null && !page.infinite, reason = "Canvases always scroll freely", run = { setSinglePage(!singlePage) }),

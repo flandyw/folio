@@ -325,7 +325,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         state.loading -> Icons.Rounded.HourglassTop to "Loading saved exams…"
         state.syncing -> Icons.Rounded.Sync to "Syncing with Focal…"
         state.userId == null -> Icons.Rounded.PhoneAndroid to "Saved on this device · connect Focal to sync"
-        state.cache.outbox.isNotEmpty() -> Icons.Rounded.CloudUpload to "${state.cache.outbox.size} changes waiting to sync"
+        state.cache.outbox.isNotEmpty() -> Icons.Rounded.CloudUpload to "${com.folio.notes.model.countOf(state.cache.outbox.size, "change")} waiting to sync"
         else -> Icons.Rounded.CloudDone to "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
     }
     FolioScreenHeading(

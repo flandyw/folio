@@ -74,6 +74,10 @@ internal fun PdfImportDialog(
         checkingDuplicates = false
     }
     var acknowledged by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Import waits on every duplicate, so bring the next unanswered one forward.
+    LaunchedEffect(checkingDuplicates, acknowledged) {
+        if (!checkingDuplicates && (selectedUri !in duplicates || selectedUri in acknowledged)) duplicates.keys.firstOrNull { it !in acknowledged }?.let { selectedUri = it }
+    }
     val remaining = files.count { !it.detected }
     val valid = files.all { it.detected && it.inspectionError == null && it.title.isNotBlank() &&
         (it.exam.year == null || it.exam.year in 1900..2099) &&
@@ -108,6 +112,7 @@ internal fun PdfImportDialog(
                         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("This PDF already exists in ${state.notes.firstOrNull { it.id == existingId }?.title ?: "your library"}.", Modifier.weight(1f))
                             TextButton({ onDismiss(); model.open(existingId) }) { Text("Open existing") }
+                            if (files.size > 1) TextButton({ onRemove(selected.uri) }) { Text("Skip") }
                             TextButton({ acknowledged = acknowledged + selected.uri.toString() }) { Text(if (selected.uri.toString() in acknowledged) "Another copy allowed" else "Import another copy") }
                         }
                     }

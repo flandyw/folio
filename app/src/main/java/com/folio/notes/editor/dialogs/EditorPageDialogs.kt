@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.dialogs
 
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
@@ -28,15 +30,14 @@ import com.folio.notes.ui.FolioShapes
     var namedPage by overlays.namedPage
     var pageTitle by overlays.pageTitle
     var movingPage by overlays.movingPage
-    var destinationPage by overlays.destinationPage
+    val destinationPage by overlays.destinationPage
     var deletingPage by overlays.deletingPage
         namedPage?.let { target ->
             val nameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-            val changed = pageTitle != target.title
-            fun savePageName() { if (changed) { model.renamePage(target.id, pageTitle); namedPage = null } }
+            fun savePageName() { if (pageTitle != target.title) model.renamePage(target.id, pageTitle); namedPage = null }
             FolioPopover("Name page", Icons.Rounded.Edit, onDismiss = { namedPage = null }, actions = {
                 TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button(::savePageName, enabled = changed, shapes = ButtonDefaults.shapes()) { Text("Save") }
+                Button(::savePageName, shapes = ButtonDefaults.shapes()) { Text("Save") }
             }) {
                 OutlinedTextField(pageTitle, { pageTitle = it.take(120) }, label = { Text("Page name") },
                     placeholder = { Text("e.g. Quadratics homework") },
@@ -48,19 +49,23 @@ import com.folio.notes.ui.FolioShapes
             }
         }
         movingPage?.let { pageId ->
-            val destination = destinationPage.toIntOrNull()
+            // The old number starts selected, so typing replaces it instead of appending to it.
+            var field by remember(pageId) { mutableStateOf(TextFieldValue(destinationPage, TextRange(0, destinationPage.length))) }
+            val destination = field.text.toIntOrNull()?.takeIf { it in 1..note.pages.size }
             val moveFocus = remember { androidx.compose.ui.focus.FocusRequester() }
             fun commit() {
                 val from = note.pages.indexOfFirst { it.id == pageId }
-                if (from >= 0 && destination != null && destination in 1..note.pages.size) model.movePage(from, destination - 1)
+                if (destination == null) return
+                if (from >= 0) model.movePage(from, destination - 1)
                 movingPage = null
             }
             FolioPopover("Move page", Icons.Rounded.LowPriority, onDismiss = { movingPage = null }, actions = {
                 TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button(::commit, enabled = destination != null && destination in 1..note.pages.size, shapes = ButtonDefaults.shapes()) { Text("Move") }
+                Button(::commit, enabled = destination != null, shapes = ButtonDefaults.shapes()) { Text("Move") }
             }) {
-                OutlinedTextField(destinationPage, { destinationPage = it.filter(Char::isDigit).take(9) },
+                OutlinedTextField(field, { field = it.copy(text = it.text.filter(Char::isDigit).take(9)) },
                     label = { Text("New position (1–${note.pages.size})") }, singleLine = true,
+                    isError = field.text.isNotEmpty() && destination == null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { commit() }),
                     shape = FolioShapes.large, modifier = Modifier.fillMaxWidth().focusRequester(moveFocus))
@@ -74,7 +79,7 @@ import com.folio.notes.ui.FolioShapes
             if (index >= 0 && note.pages.size > 1) {
                 val name = note.pages[index].displayTitle(index)
                 model.deletePage(index)
-                model.reportError("$name deleted · Undo brings it back")
+                model.reportNotice("$name deleted · Undo brings it back")
             }
             deletingPage = null
         }

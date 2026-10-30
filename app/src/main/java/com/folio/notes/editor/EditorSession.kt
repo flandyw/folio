@@ -119,7 +119,6 @@ internal class EditorOverlayState {
     val destinationPage = mutableStateOf("")
     val deletingPage = mutableStateOf<String?>(null)
     val rename = mutableStateOf(false)
-    val renameTitle = mutableStateOf("")
     val pdfSearch = mutableStateOf(false)
     val pdfContents = mutableStateOf(false)
     val timer = mutableStateOf(false)

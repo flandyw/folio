@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.planner
 
+import com.folio.notes.model.countOf
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import android.content.ClipData
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -102,7 +104,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             Text(when {
                 state.loading -> "Loading…"; state.syncing -> "Syncing with Focal…"
                 state.userId == null -> "Saved on this device · connect Focal to sync"
-                state.cache.outbox.isNotEmpty() -> "${state.cache.outbox.size} changes waiting to sync"
+                state.cache.outbox.isNotEmpty() -> "${countOf(state.cache.outbox.size, "change")} waiting to sync"
                 else -> "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
             }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }) {
@@ -163,7 +165,31 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 
 @Composable internal fun Field(label: String, value: String, modifier: Modifier = Modifier, number: Boolean = false, onChange: (String) -> Unit) =
     OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text))
+        keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text,
+            capitalization = if (number) KeyboardCapitalization.None else KeyboardCapitalization.Sentences))
+
+/** Typed dates still work; the calendar button saves remembering the format. */
+@Composable internal fun DateField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+    val context = LocalContext.current
+    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, trailingIcon = {
+        IconButton({
+            val start = runCatching { LocalDate.parse(value.trim()) }.getOrDefault(LocalDate.now())
+            android.app.DatePickerDialog(context, { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day).toString()) },
+                start.year, start.monthValue - 1, start.dayOfMonth).show()
+        }) { Icon(Icons.Rounded.CalendarMonth, "Choose a date") }
+    })
+}
+
+@Composable internal fun TimeField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+    val context = LocalContext.current
+    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, trailingIcon = {
+        IconButton({
+            val start = runCatching { java.time.LocalTime.parse(value.trim()) }.getOrDefault(java.time.LocalTime.now())
+            android.app.TimePickerDialog(context, { _, hour, minute -> onChange(java.time.LocalTime.of(hour, minute).toString()) },
+                start.hour, start.minute, true).show()
+        }) { Icon(Icons.Rounded.Schedule, "Choose a time") }
+    })
+}
 
 /** A figure tile: the number first, its name under it. */
 @Composable private fun Stat(label: String, value: String, modifier: Modifier = Modifier) =
@@ -232,7 +258,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             }
             item { Text("All SACs", style = MaterialTheme.typography.titleMedium) }
             items(sacs.sortedByDescending { it.optString("scheduledAt") }, key = { it.optString("id") }) { sac ->
-                SacRow(sac, Planner.percentage(sac)?.let { pct(it) } ?: "Upcoming") { editing = sac }
+                SacRow(sac, Planner.percentage(sac)?.let { pct(it) } ?: if (sac.optString("scheduledAt") >= LocalDate.now().toString()) "Upcoming" else "No mark yet") { editing = sac }
             }
         }
     }
@@ -292,7 +318,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         Field("SAC title", title) { title = it }
         Row2 {
             Box(Modifier.weight(1f)) { ChoiceField("Unit", unit, listOf("1", "2", "3", "4"), { unit = it }) }
-            Field("Date · YYYY-MM-DD", date, Modifier.weight(1f)) { date = it }
+            DateField("Date", date, Modifier.weight(1f)) { date = it }
         }
         Row2 {
             Field("Duration (min)", minutes, Modifier.weight(1f), true) { minutes = it }
@@ -333,7 +359,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     scope.launch {
                         val (next, count) = Planner.planWeek(learning, subject)
                         notice = if (count == 0) "Nothing to plan: every red, amber or re-check item already has a task."
-                        else if (save(next)) "Added $count revision task${if (count == 1) "" else "s"} (shown in Focal's calendar)." else null
+                        else if (save(next)) "Added ${countOf(count, "revision task")} (shown in Focal's calendar)." else "Could not save the tasks. Try again."
                     }
                 }, enabled = enabled) { Icon(Icons.Rounded.EventAvailable, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan this week") }
             }
@@ -379,7 +405,8 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                         trailingContent = { Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                             Planner.RATINGS.forEach { r ->
                                 val on = item.optString("rating") == r
-                                FilterChip(on, { scope.launch { save(Planner.setRating(learning, item.optString("id"), r)) } }, { Text(r.replaceFirstChar(Char::uppercase)) },
+                                // Tapping the rating in place takes it off again, back to Unrated.
+                                FilterChip(on, { scope.launch { save(if (on) Planner.clearRating(learning, item.optString("id")) else Planner.setRating(learning, item.optString("id"), r)) } }, { Text(r.replaceFirstChar(Char::uppercase)) },
                                     enabled = enabled, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = RATING_COLOUR.getValue(r), selectedLabelColor = Color.White))
                             }
                         } })
@@ -495,7 +522,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         if (kind != "atar") ChoiceField("Subject", subject, subjects, { subject = it }, true)
         Row2 {
             Field("Target", target, Modifier.weight(1f), true) { target = it }
-            Field("By · YYYY-MM-DD", deadline, Modifier.weight(1f)) { deadline = it }
+            DateField("By", deadline, Modifier.weight(1f)) { deadline = it }
         }
     }
 }

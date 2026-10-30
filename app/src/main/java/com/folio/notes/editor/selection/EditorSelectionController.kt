@@ -162,12 +162,14 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
             val clip = if (internal) _state.value.clipboard else {
                 val text = system?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
                 if (text.isBlank()) { reportError("Copy some text or a selection first."); return }
-                CanvasSelection(texts = listOf(TextBox(text = text, x = 0f, y = 0f)))
+                // Outside text arrives in the look the user last typed in.
+                CanvasSelection(texts = listOf(TextBox(text = text, x = 0f, y = 0f, size = prefs.getFloat("text.size", 26f), color = prefs.getInt("text.color", 0xFF303431.toInt()))))
             }
             if (clip.isEmpty()) return
             val sourceNoteId = clipboardNoteId ?: note.id
             scope.launch {
-                awaitLoaded(targetId) ?: run { reportError("Couldn't load the page for pasting."); return@launch }
+                val loaded = awaitLoaded(targetId) ?: run { reportError("Couldn't load the page for pasting."); return@launch }
+                if (!PageLayers.editable(loaded.layers, activeLayerOf(loaded))) { reportError("Unlock this layer before pasting."); return@launch }
                 try {
                     // New image ids keep placements independent, including across notebooks.
                     val images = clip.images.map { image ->
@@ -180,7 +182,7 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
                     val current = _state.value.active?.takeIf { it.id == note.id } ?: return@launch
                     val page = current.pages.find { it.id == targetId && it.loaded } ?: return@launch
                     val placed = placeSelection(clip.copy(images = images), page, at,
-                        PASTE_OFFSET * (pasteGeneration++ % 5))
+                        PASTE_OFFSET * (pasteGeneration++ % 5), centred = at != null)
                     updateContent(page.id, page.strokes + placed.strokes, page.texts + placed.texts, page.images + placed.images)
                     onPlaced(placed)
                 } catch (cancelled: CancellationException) { throw cancelled }

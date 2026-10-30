@@ -184,8 +184,10 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal fun findPageContent(pageId: String): NotePage? = documentEngine.findPageContent(pageId)
 
     internal fun identitySet(strokes: List<Stroke>): Set<Stroke> = editorSelectionController.identitySet(strokes)
-    fun clearError() { _state.update { it.copy(error = null) } }
-    fun reportError(message: String) { _state.update { it.copy(error = message) } }
+    fun clearError() { _state.update { it.copy(error = null, errorIsNotice = false) } }
+    fun reportError(message: String) { _state.update { it.copy(error = message, errorIsNotice = false) } }
+    /** A confirmation rather than a problem: same bar, shorter stay. */
+    fun reportNotice(message: String) { _state.update { it.copy(error = message, errorIsNotice = true) } }
     fun export(block: suspend () -> Unit): Unit = backupService.export(block)
     fun folder(id: String?): Unit = notebookCatalog.folder(id)
     fun createFolder(name: String, parentId: String? = _state.value.folderId): Boolean = notebookCatalog.createFolder(name, parentId)

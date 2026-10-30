@@ -28,11 +28,14 @@ import java.util.UUID
 /** Application-owned NotebookWorkflowService commands over the single shared document runtime. */
 internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
     internal val copyingResponses = mutableSetOf<String>()
+    internal var shelfTag: String? = null
+    internal var shelfFavorites = false
     fun create(title: String, cover: Int, paper: Paper, exam: ExamTags = ExamTags(), pageCount: Int = 1, infinite: Boolean = false, pageCover: Boolean = true, response: LongResponse? = null, responseMode: ResponseMode = ResponseMode.FULL, folderId: String? = runtime._state.value.folderId) {
         with(runtime) {
             if (title.isBlank() || _state.value.loading || _state.value.loadFailed) return
             val pages = List(if (infinite) 1 else pageCount.coerceIn(1, 40)) { NotePage(paper = paper, infinite = infinite) }
             val note = Notebook(title = title.trim(), folderId = folderId, cover = cover, pages = pages, exam = exam, pageCover = pageCover,
+                tags = listOfNotNull(shelfTag), starred = shelfFavorites,
                 defaultPaper = if (response != null) Paper.RULED else null,
                 longResponse = response?.copy(attempts = listOf(ResponseAttempt(title = "First attempt", mode = responseMode, pageIds = pages.map { it.id }))))
             installNewNotebook(note)

@@ -28,7 +28,7 @@ import com.folio.notes.ui.FolioPanel
                     onDismiss()
                 }, enabled = ids.isNotEmpty()) { Text("Duplicate") }
                 TextButton({ model.exportSelection = note.pages.indices.filter { note.pages[it].id in selected }.toSet(); onDismiss(); onExport() }, enabled = ids.isNotEmpty()) { Text("Export") }
-                TextButton({ ids.asReversed().forEach { id -> model.state.value.active?.pages?.indexOfFirst { it.id == id }?.takeIf { it >= 0 }?.let(model::deletePage) }; model.reportError("${ids.size} pages deleted · Undo brings them back"); onDismiss() }, enabled = ids.isNotEmpty() && ids.size < note.pages.size) { Text("Delete") }
+                TextButton({ ids.asReversed().forEach { id -> model.state.value.active?.pages?.indexOfFirst { it.id == id }?.takeIf { it >= 0 }?.let(model::deletePage) }; model.reportNotice("${com.folio.notes.model.countOf(ids.size, "page")} deleted · Undo brings ${if (ids.size == 1) "it" else "them"} back"); onDismiss() }, enabled = ids.isNotEmpty() && ids.size < note.pages.size) { Text("Delete") }
             }
             Row {
                 OutlinedTextField(target, { target = it.filter(Char::isDigit).take(8) }, Modifier.weight(1f), label = { Text("Move block to position") }, singleLine = true)

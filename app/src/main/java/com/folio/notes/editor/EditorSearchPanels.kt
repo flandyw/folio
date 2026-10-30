@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor
 
+import com.folio.notes.model.countOf
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -102,7 +103,7 @@ import kotlinx.coroutines.withContext
             if (indexProgress != null) Text(indexProgress!!, style = MaterialTheme.typography.bodySmall)
             if (searchError != null) Text(searchError!!, color = MaterialTheme.colorScheme.error)
             if (pages?.any { !it.loaded } == true) Text("Some pages are unavailable; results are incomplete.", color = MaterialTheme.colorScheme.error)
-            Text(when { pages == null || searching -> "Searching…"; noteQuery.isBlank() -> "Enter a word or phrase. Results identify their source."; hits.isEmpty() -> "No matches."; else -> "${hits.size} matching page sources" }, style = MaterialTheme.typography.bodySmall)
+            Text(when { pages == null || searching -> "Searching…"; noteQuery.isBlank() -> "Enter a word or phrase. Results identify their source."; hits.isEmpty() -> "No matches."; else -> countOf(hits.size, "matching page source") }, style = MaterialTheme.typography.bodySmall)
             LazyColumn(Modifier.weight(1f, false), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                 itemsIndexed(hits) { index, (source, hit) ->
                     Surface(onClick = {
@@ -113,7 +114,7 @@ import kotlinx.coroutines.withContext
                         jumpTo(hit.pageIndex); noteSearchOpen = false
                     }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                            Text("${note.pages[hit.pageIndex].displayTitle(hit.pageIndex)} · $source · ${hit.matchCount} matches", style = MaterialTheme.typography.titleSmall)
+                            Text("${note.pages[hit.pageIndex].displayTitle(hit.pageIndex)} · $source · ${countOf(hit.matchCount, "match", "matches")}", style = MaterialTheme.typography.titleSmall)
                             Text(hit.snippet, style = MaterialTheme.typography.bodySmall, maxLines = 3)
                         }
                     }

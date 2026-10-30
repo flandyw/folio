@@ -75,7 +75,7 @@ data class FolioState(
      */
     val editGeneration: Long = 0, val durableGeneration: Long = 0,
     val saveFailed: Boolean = false, val retryingSave: Boolean = false, val saveFailureReason: String? = null,
-    val lastSaveProgressAt: Long? = null, val loadFailed: Boolean = false, val error: String? = null,
+    val lastSaveProgressAt: Long? = null, val loadFailed: Boolean = false, val error: String? = null, val errorIsNotice: Boolean = false,
     val pendingPdfImports: List<PendingPdfImport> = emptyList(),
     val importProgress: String? = null,
     val backupProgress: String? = null,

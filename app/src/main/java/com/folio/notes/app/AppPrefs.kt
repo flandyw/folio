@@ -283,9 +283,9 @@ object AppPrefs {
         if (value == null || !value.isFinite()) DEFAULT_MISTAKE_ZOOM
         else (value.coerceIn(.5f, 3f) * 10).let { Math.round(it) / 10f }
 
-    /** A folder deleted since it was chosen falls back to the Library top level. */
-    fun quickFolderId(raw: String?, folders: List<Folder>): String? =
-        raw?.takeIf { id -> folders.any { it.id == id } }
+    /** A chosen folder wins; otherwise, or if it was deleted, a new note stays where the user is looking. */
+    fun quickFolderId(raw: String?, folders: List<Folder>, open: String? = null): String? =
+        raw?.takeIf { id -> folders.any { it.id == id } } ?: open
 
     fun librarySort(raw: String?): LibrarySort =
         runCatching { LibrarySort.valueOf(raw ?: "") }.getOrDefault(LibrarySort.RECENT)

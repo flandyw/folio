@@ -33,7 +33,7 @@ import com.folio.notes.ui.FolioSpacing
     var query by rememberSaveable { mutableStateOf("") }
     var newFolder by rememberSaveable { mutableStateOf("") }
     var creating by rememberSaveable { mutableStateOf(false) }
-    val visible = remember(folders, query, excluded) { folders.filter { it.id !in excluded && LibraryFolders.label(folders, it.id).contains(query.trim(), ignoreCase = true) }.sortedBy { LibraryFolders.label(folders, it.id).lowercase() } }
+    val visible = remember(folders, query, excluded) { val words = query.trim().split(Regex("\\s+")); folders.filter { folder -> folder.id !in excluded && LibraryFolders.label(folders, folder.id).let { label -> words.all { label.contains(it, ignoreCase = true) } } }.sortedBy { LibraryFolders.label(folders, it.id).lowercase() } }
     FolioPanel(title, onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a folder") },

@@ -52,7 +52,7 @@ internal fun MistakeReviewControls(preferences: MistakeReviewPreferences, mistak
                 }, enabled = !busy) { Text("Practice time · $routineTime") }
                 if (routineDays.isEmpty()) Text("No practice days chosen: Today will just say practise whenever it suits you.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${routineTarget.roundToInt()} cards per session")
+                Text("${com.folio.notes.model.countOf(routineTarget.roundToInt(), "card")} per session")
                 Slider(routineTarget, { routineTarget = it }, enabled = !busy, valueRange = 1f..20f, steps = 18, modifier = Modifier.semantics { contentDescription = "Cards per practice session" })
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Subtle effects & confetti", Modifier.weight(1f)); Switch(effects, { effects = it }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Subtle effects and confetti" }) }
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Quiet sound effects", Modifier.weight(1f)); Switch(sound, { sound = it }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Quiet sound effects" }) }

@@ -1,5 +1,7 @@
 package com.folio.notes.vcaa
 
+import com.folio.notes.model.countOf
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -153,6 +155,8 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
         }
     }
 
+    BackHandler(selecting) { selecting = false; picked = emptyList() }
+    BackHandler(!selecting && query.isNotEmpty()) { query = ""; focus.clearFocus() }
     Column(modifier.fillMaxSize()) {
         FolioScreenHeading("VCAA exams",
             subtitle = {
@@ -275,7 +279,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                 Button({ import(selected) }, Modifier.fillMaxWidth(), enabled = selected.isNotEmpty() && canImport) {
                     Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp8))
-                    Text(if (selected.isEmpty()) "Choose papers" else "Import ${selected.size} selected papers")
+                    Text(if (selected.isEmpty()) "Choose papers" else "Import ${countOf(selected.size, "selected paper")}")
                 }
             }
         }

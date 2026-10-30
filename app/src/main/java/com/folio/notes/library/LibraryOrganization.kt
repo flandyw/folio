@@ -89,7 +89,7 @@ object LibraryBrowse {
         val term = query.trim()
         val shown = if (term.isEmpty()) folders.filter { it.parentId == open }
             else (open?.let { LibraryFolders.descendants(folders, it) - it }?.let { ids -> folders.filter { it.id in ids } } ?: folders)
-                .filter { it.name.contains(term, true) }
+                .filter { folder -> term.split(Regex("\\s+")).all { folder.name.contains(it, true) } }
         return shown.sortedWith(compareBy<Folder> { it.name.lowercase(Locale.ROOT) }.thenBy { it.id })
     }
 

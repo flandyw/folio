@@ -453,7 +453,7 @@ private const val CELL_LINES = 3
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         Row2 {
             Field("Minutes", minutes, Modifier.weight(1f), true) { minutes = it }
-            Field("Date · YYYY-MM-DD", date, Modifier.weight(1f)) { date = it }
+            DateField("Date", date, Modifier.weight(1f)) { date = it }
         }
         Field("Notes", detail) { detail = it }
         if (source != null) ChoiceField("Status", status, listOf("planned", "completed", "skipped"), { status = it })
@@ -476,12 +476,12 @@ private const val CELL_LINES = 3
     }) {
         Field("Title", title) { title = it }
         ChoiceField("Type", Calendar.typeLabel(type), Calendar.EVENT_TYPES.map { it.second }, { label -> type = Calendar.EVENT_TYPES.first { it.second == label }.first })
-        Field("Date · YYYY-MM-DD", date) { date = it }
+        DateField("Date", date) { date = it }
         Row2 {
-            Field("Start · HH:mm", start, Modifier.weight(1f)) { start = it }
-            Field("End · HH:mm", end, Modifier.weight(1f)) { end = it }
+            TimeField("Start", start, Modifier.weight(1f)) { start = it }
+            TimeField("End", end, Modifier.weight(1f)) { end = it }
         }
-        Field("End date (multi-day, optional)", endDate) { endDate = it }
+        DateField("End date (multi-day, optional)", endDate) { endDate = it }
         Field("Location", location) { location = it }
         onDelete?.let { TextButton(it, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete event") } }
     }
@@ -502,7 +502,7 @@ private const val CELL_LINES = 3
         Text("Attach a screenshot of your timetable to any chatbot with this prompt, then paste its JSON reply.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Timetable prompt", Calendar.SCREENSHOT_PROMPT))); copied = true } }) {
             Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
-        Field("Day 1 starts · YYYY-MM-DD", day1) { day1 = it }
+        DateField("Day 1 starts", day1) { day1 = it }
         OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Timetable JSON") }, minLines = 4, maxLines = 10)
     }
 }

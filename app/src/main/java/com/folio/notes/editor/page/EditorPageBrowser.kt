@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.page
 
+import com.folio.notes.model.countOf
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
@@ -103,6 +104,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
             LaunchedEffect(Unit) { jumpFocus.requestFocus() }
             OutlinedTextField(pageNumber, { pageNumber = it.take(100) },
                 label = { Text("Page number, name or PDF label") }, supportingText = { Text("Use label:3 for printed PDF page 3, or name:12 for a page named 12.") }, singleLine = true,
+                isError = pageNumber.isNotBlank() && resolvePageLabel(note.pages, pdfLabels, pageNumber) == null,
                 shape = FolioShapes.large,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { goToPage() }),
@@ -112,7 +114,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                 shapes = ButtonDefaults.shapes()) { Text("Go") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${visiblePages.size} pages · tap to open", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (canDrag) "Long-press a page and drag to reorder it." else "${countOf(visiblePages.size, "page")} · tap to open", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton({ pageBrowserGrid = !pageBrowserGrid }) {
                 Icon(if (pageBrowserGrid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                     if (pageBrowserGrid) "Show page list" else "Show page thumbnails")
@@ -162,7 +164,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                                     onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
                                     onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
                                     onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
-                                    onInsert = { model.insertPage(index + 1) }, onDuplicate = { model.duplicatePage(index) },
+                                    onInsert = { revealNewPage(model.insertPage(index + 1)) }, onDuplicate = { model.duplicatePage(index)?.let(revealNewPage) },
                                     onDelete = { deletingPage = item.id })
                             }
                         }
@@ -202,7 +204,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                         },
                     onOpen = { jumpTo(index); pageBrowser = false },
                     onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
-                    onDuplicate = { model.duplicatePage(index) }, onInsert = { model.insertPage(index + 1) },
+                    onDuplicate = { model.duplicatePage(index)?.let(revealNewPage) }, onInsert = { revealNewPage(model.insertPage(index + 1)) },
                     onDelete = { deletingPage = item.id },
                     onName = { namedPage = item; pageTitle = item.title },
                     onBookmark = { model.togglePageBookmark(item.id) },

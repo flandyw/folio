@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.model.countOf
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -154,7 +155,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         } },
         onReduce = { days, target -> scope.launch {
             working = true
-            try { val moved = model.reduceReviews(days, target); showPacing = false; snackbar.showSnackbar("Moved $moved review dates") }
+            try { val moved = model.reduceReviews(days, target); showPacing = false; snackbar.showSnackbar("Moved ${countOf(moved, "review date")}") }
             catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; snackbar.showSnackbar("Could not move review dates. Try again.") }
             finally { working = false }
         } },
@@ -232,6 +233,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val librarySort = MistakeLibrarySort.parse(sort)
     val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules, librarySort) {
         val q = debouncedQuery.trim().lowercase()
+        val words = q.split(Regex("\\s+"))
         // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
         val dueSet = due.toSet()
         mistakes.filter { m ->
@@ -249,7 +251,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             val matchesQuery = q.isBlank() || listOfNotNull(
                 m.question, m.questionText, m.category, m.explanation, m.correction, m.areaOfStudy, m.criterion,
                 ctx?.subject, ctx?.title, ctx?.paper
-            ).any { it.lowercase().contains(q) }
+            ).joinToString(" ").lowercase().let { text -> words.all { it in text } }
             matchesSubject && matchesPaper && matchesCategory && matchesFilter && matchesQuery
         }.let { librarySort.sorted(it, schedules) }
     }

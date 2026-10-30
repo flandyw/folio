@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.model.countOf
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,7 +42,7 @@ import java.util.Date
             }
             if (state.trash.isNotEmpty()) item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    OutlinedButton({ model.restoreNotebooks(available) }, enabled = enabled && available.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
+                    OutlinedButton({ model.restoreNotebooks(available); model.reportNotice("Restored ${countOf(available.size, "notebook")}") }, enabled = enabled && available.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
                         Text("Restore all")
                     }
                     TextButton({ deleting = available }, enabled = enabled && available.isNotEmpty(), shapes = ButtonDefaults.shapes(),
@@ -67,7 +68,7 @@ import java.util.Date
                         Text("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"} · Deleted $date",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            TextButton({ model.restoreNotebooks(setOf(note.id)) }, enabled = enabled && !busy, shapes = ButtonDefaults.shapes()) {
+                            TextButton({ model.restoreNotebooks(setOf(note.id)); model.reportNotice("Restored “${note.title}”") }, enabled = enabled && !busy, shapes = ButtonDefaults.shapes()) {
                                 Icon(Icons.Rounded.RestoreFromTrash, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Restore")
                             }
                             TextButton({ deleting = setOf(note.id) }, enabled = enabled && !busy, shapes = ButtonDefaults.shapes(),
@@ -86,7 +87,7 @@ import java.util.Date
         AlertDialog(onDismissRequest = { deleting = null }, modifier = Modifier.guardUiTouches(),
             properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
             title = { Text(if (selected.size == 1) "Delete “${selected.single().notebook.title}” forever?" else "Delete ${selected.size} notebooks forever?") },
-            text = { Text("This permanently deletes the notebooks and all their pages, ink and attached files from this device. You cannot undo this.") },
+            text = { Text("This permanently deletes ${if (selected.size == 1) "the notebook and all its" else "the notebooks and all their"} pages, ink and attached files from this device. You cannot undo this.") },
             dismissButton = { TextButton({ deleting = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
             confirmButton = {
                 TextButton({ model.deleteTrashedNotebooks(ids); deleting = null }, enabled = enabled && ids.any { it in available },

@@ -34,15 +34,11 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
     internal fun updateNotes(ids: Set<String>, transform: (Notebook) -> Notebook) {
         with(runtime) {
             if (ids.isEmpty()) return
-            val now = System.currentTimeMillis()
+            // Organising is not editing: "Last edited" and Continue working only follow content.
             var changed: List<Notebook> = emptyList()
             _state.update { state ->
                 val updated = state.notes.map { note ->
-                    if (note.id !in ids) note
-                    else {
-                        val next = transform(note)
-                        if (next == note) note else next.copy(updated = now)
-                    }
+                    if (note.id !in ids) note else transform(note).takeUnless { it == note } ?: note
                 }
                 // map keeps order and returns the same instance for untouched notes, so identity is the diff.
                 changed = updated.filterIndexed { i, note -> note !== state.notes[i] }
@@ -270,14 +266,13 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         with(runtime) {
             if (ids.isEmpty()) return
             // Single state pass; only notebooks whose tags actually change are rewritten + saved.
-            val now = System.currentTimeMillis()
             var changed: List<Notebook> = emptyList()
             _state.update { state ->
                 val updated = state.notes.map { note ->
                     if (note.id !in ids) note
                     else {
                         val tags = transform(note.exam)
-                        if (tags == note.exam) note else note.copy(exam = tags, updated = now)
+                        if (tags == note.exam) note else note.copy(exam = tags)
                     }
                 }
                 changed = updated.filter { next ->
@@ -304,6 +299,7 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
                         // Publish the copy's preference before an automatic backup can capture it.
                         if (live.id in _state.value.backupExcludedNotebookIds) setBackupExcluded(setOf(copy.id), true)
                     }
+                    reportNotice("Copied as “$title”")
                     LibraryAutoBackup.requestAfterSave(getApplication<FolioApplication>())
                 } catch (e: Exception) {
                     reportError("Couldn't duplicate notebook: ${e.message ?: "unknown error"}")
@@ -314,10 +310,17 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
 
     fun delete(note: Notebook) = deleteNotebooks(setOf(note.id))
 
+    /** Trash changes queue behind a failed save, so they wait for Retry save and say so. */
+    private fun trashBlocked(): Boolean = with(runtime) {
+        val state = _state.value
+        if (state.saveFailed) reportError("Retry save first, then try that again.")
+        state.loading || state.loadFailed || state.saveFailed
+    }
+
     fun deleteNotebooks(ids: Set<String>) {
         with(runtime) {
+            if (trashBlocked()) return
             val state = _state.value
-            if (state.loading || state.loadFailed || state.saveFailed) return
             val removed = state.notes.filter { it.id in ids && it.musicScoreId == null }
             if (removed.isEmpty()) return
             val removedIds = removed.map { it.id }.toSet()
@@ -345,8 +348,8 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
 
     fun restoreNotebooks(ids: Set<String>) {
         with(runtime) {
+            if (trashBlocked()) return
             val state = _state.value
-            if (state.loading || state.loadFailed || state.saveFailed) return
             val selected = state.trash.filter { it.notebook.id in ids && it.notebook.id !in state.trashBusyIds }
             _state.update { it.copy(trashBusyIds = it.trashBusyIds + selected.map { n -> n.notebook.id }) }
             selected.forEach { entry -> enqueue {
@@ -360,8 +363,8 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
 
     fun deleteTrashedNotebooks(ids: Set<String>) {
         with(runtime) {
+            if (trashBlocked()) return
             val state = _state.value
-            if (state.loading || state.loadFailed || state.saveFailed) return
             val selected = state.trash.filter { it.notebook.id in ids && it.notebook.id !in state.trashBusyIds }
             _state.update { it.copy(trashBusyIds = it.trashBusyIds + selected.map { n -> n.notebook.id }) }
             selected.forEach { entry -> enqueue {

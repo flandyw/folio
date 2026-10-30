@@ -266,7 +266,7 @@ import java.io.File
                     else if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved as PDF" else "${request.indices.size} pages saved as PDF"
                 PageExportFormat.PNG -> if (request.indices.size == 1) "Page ${request.indices.first() + 1} saved to gallery" else "${request.indices.size} pages saved as images"
             }
-            model.reportError(message)
+            model.reportNotice(message)
         }
     }
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { exportTo(it) }
@@ -286,7 +286,7 @@ import java.io.File
             val scoped = pending
             model.export {
                 exporter.saveSinglePngToGallery(context.applicationContext, scoped.note, scoped.indices.first(), pngScale)
-                model.reportError("Page ${scoped.indices.first() + 1} saved to gallery")
+                model.reportNotice("Page ${scoped.indices.first() + 1} saved to gallery")
             }
         }
     }
@@ -303,7 +303,7 @@ import java.io.File
         val pngScale = AppPrefs.pngScale(prefs.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { prefs.contains(AppPrefs.EXPORT_PNG_SCALE) })
         model.export {
             exporter.saveSinglePngToGallery(context.applicationContext, scoped.note, scoped.indices.first(), pngScale)
-            model.reportError("Page ${scoped.indices.first() + 1} saved to gallery")
+            model.reportNotice("Page ${scoped.indices.first() + 1} saved to gallery")
         }
     }
     fun launchExport(request: PageExportRequest) {
@@ -478,8 +478,11 @@ import java.io.File
         kotlinx.coroutines.delay(3000)
         updates.check(experimentalUpdates, manual = false)
     }
-    LaunchedEffect(shortcutRequest, state.loading) { if (shortcutRequest > 0 && !state.loading) newNote = true }
-    LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Long); model.clearError() } }
+    var handledShortcut by remember { mutableIntStateOf(0) }
+    LaunchedEffect(shortcutRequest, state.loading) {
+        if (shortcutRequest > handledShortcut && !state.loading) { handledShortcut = shortcutRequest; newNote = true }
+    }
+    LaunchedEffect(state.error) { state.error?.let { snackbar.showSnackbar(it, duration = if (state.errorIsNotice) SnackbarDuration.Short else SnackbarDuration.Long); model.clearError() } }
     LaunchedEffect(state.loading, state.activeId) {
         if (!state.loading && state.activeId == null) workspaceLibraryPurpose = null
     }
@@ -561,7 +564,7 @@ import java.io.File
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     Paper.DOTS, infinite = true,
                                     pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED),
-                                    folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders))
+                                    folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders, state.folderId))
                             },
                             onQuickNote = {
                                 workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
@@ -569,7 +572,7 @@ import java.io.File
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     AppPrefs.defaultPaper(prefs.getString(AppPrefs.DEFAULT_PAPER, null)),
                                     pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED),
-                                    folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders))
+                                    folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders, state.folderId))
                             },
                             onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; newNote = true },
                             onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },

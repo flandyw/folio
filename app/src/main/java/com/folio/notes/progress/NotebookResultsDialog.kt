@@ -174,7 +174,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                                     OutlinedTextField(d.max, { v -> update(d.id) { it.copy(max = v) } }, Modifier.weight(1f), label = { Text("Out of") },
                                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                                 }
-                                OutlinedTextField(d.date, { v -> update(d.id) { it.copy(date = v) } }, Modifier.fillMaxWidth(), label = { Text("Date (YYYY-MM-DD)") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done))
+                                com.folio.notes.planner.DateField("Date", d.date) { v -> update(d.id) { it.copy(date = v) } }
                             }
                         }
                     }

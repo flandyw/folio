@@ -90,6 +90,8 @@ import com.folio.notes.ui.folioSelected
     var pdfMode by remember(note.id) { mutableStateOf(initialPdfMode) }
     var rangeText by remember(note.id) { mutableStateOf("") }
     var rangeError by remember { mutableStateOf<String?>(null) }
+    /** A chip replaces the selection, so the typed range no longer describes it. */
+    fun pick(pages: Set<Int>) { selected = pages; rangeText = ""; rangeError = null }
 
     FolioPanel(title = "Export pages", onDismissRequest = onDismiss) {
         Column(
@@ -145,7 +147,8 @@ import com.folio.notes.ui.folioSelected
             ExportPreview(PageExportRequest(note, selected.sorted(), format, pdfMode), model)
             OutlinedTextField(
                 value = rangeText,
-                onValueChange = { rangeText = it; rangeError = null },
+                // Live, so Save never exports the old selection because Apply was not tapped.
+                onValueChange = { text -> rangeText = text; rangeError = null; parsePageRange(text, note.pages.size).takeIf { it.isNotEmpty() }?.let { selected = it.toSet() } },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Pages, e.g. 1-3, 5") },
                 placeholder = { Text("1–${note.pages.size}") },
@@ -182,21 +185,21 @@ import com.folio.notes.ui.folioSelected
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 FilterChip(selected == setOf(initialIndex) && initialIndex in note.pages.indices,
-                    { selected = setOf(initialIndex).filter { it in note.pages.indices }.toSet(); rangeError = null },
+                    { pick(setOf(initialIndex).filter { it in note.pages.indices }.toSet()) },
                     { Text("Current page") }, enabled = initialIndex in note.pages.indices)
                 FilterChip(selected.size == note.pages.size && selected.isNotEmpty(),
-                    { selected = note.pages.indices.toSet(); rangeError = null }, { Text("All pages") }, enabled = note.pages.isNotEmpty())
+                    { pick(note.pages.indices.toSet()) }, { Text("All pages") }, enabled = note.pages.isNotEmpty())
                 val bookmarks = remember(note.pages) { note.pages.indices.filter { note.pages[it].bookmarked }.toSet() }
                 FilterChip(selected == bookmarks && bookmarks.isNotEmpty(),
-                    { selected = bookmarks; rangeError = null }, { Text("Bookmarks (${bookmarks.size})") }, enabled = bookmarks.isNotEmpty())
+                    { pick(bookmarks) }, { Text("Bookmarks (${bookmarks.size})") }, enabled = bookmarks.isNotEmpty())
                 val flagged = note.pages.indices.filter { note.pages[it].redoFlag }.toSet()
-                FilterChip(selected == flagged && flagged.isNotEmpty(), { selected = flagged }, { Text("Flagged (${flagged.size})") }, enabled = flagged.isNotEmpty())
+                FilterChip(selected == flagged && flagged.isNotEmpty(), { pick(flagged) }, { Text("Flagged (${flagged.size})") }, enabled = flagged.isNotEmpty())
                 val annotated = annotatedPages.orEmpty().indices.filter { index -> annotatedPages!![index].let { it.strokes.isNotEmpty() || it.texts.isNotEmpty() || it.images.isNotEmpty() } }.toSet()
-                FilterChip(selected == annotated && annotated.isNotEmpty(), { selected = annotated }, { Text("Annotated (${annotated.size})") }, enabled = annotated.isNotEmpty())
+                FilterChip(selected == annotated && annotated.isNotEmpty(), { pick(annotated) }, { Text("Annotated (${annotated.size})") }, enabled = annotated.isNotEmpty())
                 val odd = remember(note.pages.size) { note.pages.indices.filter { it % 2 == 0 }.toSet() }
                 val even = remember(note.pages.size) { note.pages.indices.filter { it % 2 == 1 }.toSet() }
-                FilterChip(selected == odd && odd.isNotEmpty(), { selected = odd; rangeError = null }, { Text("Odd pages") }, enabled = note.pages.size > 1)
-                FilterChip(selected == even && even.isNotEmpty(), { selected = even; rangeError = null }, { Text("Even pages") }, enabled = even.isNotEmpty())
+                FilterChip(selected == odd && odd.isNotEmpty(), { pick(odd) }, { Text("Odd pages") }, enabled = note.pages.size > 1)
+                FilterChip(selected == even && even.isNotEmpty(), { pick(even) }, { Text("Even pages") }, enabled = even.isNotEmpty())
             }
             Row(
                 Modifier.fillMaxWidth(),
@@ -204,12 +207,12 @@ import com.folio.notes.ui.folioSelected
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 TextButton(
-                    onClick = { selected = note.pages.indices.toSet(); rangeError = null },
+                    onClick = { pick(note.pages.indices.toSet()) },
                     enabled = selected.size < note.pages.size,
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Select all") }
                 TextButton(
-                    onClick = { selected = emptySet(); rangeError = null },
+                    onClick = { pick(emptySet()) },
                     enabled = selected.isNotEmpty(),
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Clear") }

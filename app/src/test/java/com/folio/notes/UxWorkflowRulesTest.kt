@@ -1,6 +1,8 @@
 package com.folio.notes
 
+import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.EditorKeyBindings
+import com.folio.notes.editor.PickedImage
 import com.folio.notes.editor.selection.ObjectSnapping
 import com.folio.notes.editor.selection.SelectionPlacement
 import com.folio.notes.exam.ExamFilter
@@ -8,9 +10,12 @@ import com.folio.notes.exam.ExamStatus
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamType
 import com.folio.notes.exam.VceSubject
+import com.folio.notes.library.LibraryBrowse
+import com.folio.notes.library.LibraryPlace
 import com.folio.notes.library.toUxJson
 import com.folio.notes.library.uxExamFilter
 import com.folio.notes.model.CanvasSelection
+import com.folio.notes.model.Folder
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Notebook
@@ -19,6 +24,7 @@ import com.folio.notes.model.Stroke
 import com.folio.notes.model.TextBox
 import com.folio.notes.model.Tool
 import com.folio.notes.model.blankLike
+import com.folio.notes.model.countOf
 import com.folio.notes.model.reorderedPageBlock
 import com.folio.notes.model.resolvePageLabel
 import org.junit.Assert.*
@@ -124,4 +130,37 @@ class UxWorkflowRulesTest {
         }
     }
 
+    @Test fun quickNotesFollowTheOpenFolderUnlessOneWasChosen() {
+        val folders = listOf(Folder(id = "maths", name = "Maths"), Folder(id = "pe", name = "PE"))
+        assertEquals("maths", AppPrefs.quickFolderId(null, folders, "maths"))
+        assertEquals("pe", AppPrefs.quickFolderId("pe", folders, "maths"))
+        assertEquals("maths", AppPrefs.quickFolderId("deleted", folders, "maths"))
+        assertNull(AppPrefs.quickFolderId(null, folders))
+    }
+
+    @Test fun countsAgreeWithTheirNoun() {
+        assertEquals("1 page", countOf(1, "page"))
+        assertEquals("0 pages", countOf(0, "page"))
+        assertEquals("1 match", countOf(1, "match", "matches"))
+        assertEquals("2 matches", countOf(2, "match", "matches"))
+    }
+
+    @Test fun folderSearchMatchesEveryWordInAnyOrder() {
+        val folders = listOf(Folder(id = "a", name = "2023 Methods"), Folder(id = "b", name = "Methods drafts"))
+        assertEquals(listOf("a"), LibraryBrowse.folders(folders, LibraryPlace.ALL, null, null, "methods  2023").map { it.id })
+    }
+
+    @Test fun picturesLandCentredOnTheViewAndInsideThePaper() {
+        val picture = PickedImage(ByteArray(0), 200, 100)
+        val canvas = NotePage(infinite = true)
+        val inView = picture.placement(canvas, InkPoint(5000f, -3000f))
+        assertEquals(5000f, inView.x + inView.width / 2f, .01f)
+        assertEquals(-3000f, inView.y + inView.height / 2f, .01f)
+        val paper = NotePage()
+        val corner = picture.placement(paper, InkPoint(paper.width, paper.height))
+        assertEquals(paper.width, corner.x + corner.width, .01f)
+        assertEquals(paper.height, corner.y + corner.height, .01f)
+        val centred = picture.placement(paper)
+        assertEquals(paper.width / 2f, centred.x + centred.width / 2f, .01f)
+    }
 }

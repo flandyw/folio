@@ -57,6 +57,33 @@ Notebook, snapshot and journal formats are unchanged. New preferences are in `Ap
 | 49 | Persistent save-failure indicator with reason and retry in the main editor | `EditorUxPanels.kt` |
 | 50 | Protection panel separates device saves, Focal study/mistake sync and library backup; includes retry, backup-now and direct backup/restore settings | `EditorUxPanels.kt`, `FolioApp.kt` |
 
+## Expected-behaviour pass
+
+Small rules that make the app do the obvious thing. None changes the storage format.
+
+- Back from Progress, Planner, VCAA or Trash returns to the shelf as it was left, instead of leaving the app. Back also clears the search-matches bar before it closes the notebook.
+- Quick note and Canvas use the folder chosen in Settings, otherwise the open folder, so a note made inside a folder stays there.
+- Name dialogs: Done or Save on an unchanged name closes the dialog.
+- Paste centres on the view (or on the long-pressed point), and a picture on the clipboard pastes as a picture, including *Copy page as image*.
+- Inserted pictures land in the middle of the view, which also keeps them on screen on a panned infinite canvas.
+- A text box or picture added from a menu borrows its tool: finishing with it hands back the tool that was in use. Choosing a tool by hand keeps that choice.
+- With the text tool, a tap away from the open box only finishes it, as with sticky notes. The next tap places a new box; tapping another box still edits it.
+- Trash, Restore and Delete forever say *Retry save first* while a save has failed, and bulk Trash no longer reports a move that did not happen.
+- Folder search matches every word in any order, like notebook search. A launcher shortcut opens New notebook once, not again when the library reloads.
+
+### Second pass
+
+- **Last edited** follows content only: starring, pinning, moving, tagging, recolouring, renaming or removing a folder no longer changes a notebook's date, its place in the sort or *Continue working*.
+- A notebook made in a tag or Favorites view joins that view, and those empty states offer to create one. Tapping Library while on the Library clears search and filters. *Continue working* steps aside during a search.
+- Moving notebooks reports where they went, with Undo. Bulk actions end Select mode. Duplicating and restoring confirm, and Undo of a Trash move waits for that move to finish.
+- Year and company filters list everything, companies by use. Mistake, command and move-panel searches match every word in any order.
+- Confirmations use a short snackbar (`reportNotice`); errors keep the long one. One imported PDF opens without a count, and a batch walks to each unanswered duplicate, which can be skipped.
+- Export: a typed page range is the selection as you type, and a chip clears it.
+- Rename and Name page close on an unchanged name; Rename selects the name. Move page keeps the panel open on a bad number and selects the old one. Go to page marks an unknown page. Inserting from the page browser shows the new page. Moving a selection names the destination page.
+- Pasted outside text uses the last text look, and pasting onto a locked layer is refused. A picture from the long-press menu lands at the press. Ctrl+W closes the notebook. Choose paper is disabled on PDF pages.
+- Planner dates and times have pickers (typing still works). A past SAC with no mark reads *No mark yet*, tapping a stoplight rating again clears it, and Plan this week reports a failed save.
+- VCAA: Back leaves Select mode, then the search. Music: *All scores* clears every filter. Counts use `countOf`, so nothing reads "1 pages".
+
 ## Boundaries
 
 - Search navigation moves between matching **pages**, not individual word rectangles. OCR may misread handwriting; unindexed and unreadable states are shown.

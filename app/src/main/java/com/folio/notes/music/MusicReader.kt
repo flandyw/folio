@@ -261,7 +261,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
                                 Anchored(ReaderPopover.MORE) {
                                     Text(score.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text(listOfNotNull(score.composer.ifBlank { null }, score.part.ifBlank { null }, setLabel,
-                                        "${score.pages} pages", if (score.annotationCount() > 0) "${score.annotationCount()} pencil marks" else null).joinToString(" · "),
+                                        com.folio.notes.model.countOf(score.pages, "page"), if (score.annotationCount() > 0) com.folio.notes.model.countOf(score.annotationCount(), "pencil mark") else null).joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                         PopoverTile(Icons.Rounded.EditNote, "Details", Modifier.weight(1f)) { close(); onDetails() }

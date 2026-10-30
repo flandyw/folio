@@ -7,8 +7,9 @@ internal class PenStartHold {
     private var x = 0f
     private var y = 0f
     private var since: Long? = null
+    private var armed = false
 
-    fun reset() { since = null }
+    fun reset() { since = null; armed = false }
 
     fun begin(x: Float, y: Float, time: Long) {
         reset()
@@ -16,15 +17,20 @@ internal class PenStartHold {
         this.x = x; this.y = y; since = time
     }
 
-    fun sample(x: Float, y: Float, slop: Float) {
-        if (!x.isFinite() || !y.isFinite() || hypot(x - this.x, y - this.y) > slop) reset()
+    /** True when an armed hold leaves the slop: only then does the tool switch, so a long dot stays a dot. */
+    fun sample(x: Float, y: Float, slop: Float): Boolean {
+        val finite = x.isFinite() && y.isFinite()
+        if (finite && hypot(x - this.x, y - this.y) <= slop) return false
+        val moved = finite && armed
+        reset()
+        return moved
     }
 
     fun remaining(now: Long): Long? = since?.let { (it + DELAY_MS - now).coerceAtLeast(0L) }
 
     fun attempt(now: Long): Boolean {
-        if (remaining(now) != 0L) return false
-        reset()
+        if (armed || remaining(now) != 0L) return false
+        armed = true
         return true
     }
 

@@ -214,7 +214,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
     }
-    SettingsGroup("Hold at stroke start", footer = "With the pen selected, rest the tip still for half a second before drawing to use this tool for one stroke. Lift to return to the pen.") {
+    SettingsGroup("Hold at stroke start", footer = "With the pen selected, rest the tip still for half a second, then draw to use this tool for one stroke. Lifting without moving leaves a normal dot.") {
         SettingsSegmentedRow("Switch to", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
             { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } })
     }
@@ -460,7 +460,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val quickFolder = AppPrefs.quickFolderId(quickRaw, folders)
     SettingsGroup("Quick notes and canvases", footer = "Where the Quick note and Canvas buttons save new notebooks.") {
         SettingsRadioGroup {
-            SettingsRadioRow("Library", "Top level of the shelf", quickFolder == null) { p.write { remove(AppPrefs.QUICK_FOLDER) } }
+            SettingsRadioRow("Folder you have open", "Or the top level of the shelf", quickFolder == null) { p.write { remove(AppPrefs.QUICK_FOLDER) } }
             folders.map { it to LibraryFolders.label(folders, it.id) }.sortedBy { it.second }.forEach { (folder, label) ->
                 SettingsRadioRow(label, null, quickFolder == folder.id) { p.write { putString(AppPrefs.QUICK_FOLDER, folder.id) } }
             }
