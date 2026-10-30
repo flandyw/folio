@@ -178,6 +178,11 @@ class VcaaIndex(exams: List<VcaaExam>) {
         "${company.lowercase()}|$year|$type|${subject.lowercase()}"
 
     companion object {
+        fun matchingStudies(studies: List<String>, query: String): List<String> {
+            val words = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            return studies.filter { name -> words.all { name.contains(it, ignoreCase = true) } }
+        }
+
         /** Studies the user already has notebooks for, so they lead the subject list. */
         fun yoursFirst(studies: List<String>, notes: List<Notebook>): List<String> {
             val yours = notes.map { it.exam.subjectLabel.lowercase() }.toSet()

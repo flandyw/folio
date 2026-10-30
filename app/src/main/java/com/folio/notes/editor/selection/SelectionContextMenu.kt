@@ -111,8 +111,8 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
             if (showCopy) SelectionAction(Icons.Rounded.ContentCopy, "Copy selection") { run(onCopy) }
-            if (showStyle) SelectionAction(Icons.Rounded.Palette, "Style selection") { run(onStyle) }
             if (showDuplicate) SelectionAction(Icons.Rounded.DynamicFeed, "Duplicate selection") { run(onDuplicate) }
+            if (showStyle) SelectionAction(Icons.Rounded.Palette, "Style selection") { run(onStyle) }
             if (showDelete) SelectionAction(Icons.Rounded.DeleteOutline, "Delete selection", destructive = true) { run(onDelete) }
             SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { overflow = !overflow }
         }

@@ -407,8 +407,8 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun cutSelection(selection: CanvasSelection): Unit = editorSelectionController.cutSelection(selection)
     fun deleteSelection(selection: CanvasSelection): Unit = editorSelectionController.deleteSelection(selection)
     fun replaceInkWithText(pageId: String, selection: CanvasSelection, box: TextBox): Boolean = editorSelectionController.replaceInkWithText(pageId, selection, box)
-    fun duplicateSelection(selection: CanvasSelection): Unit = editorSelectionController.duplicateSelection(selection)
-    fun pasteClipboard(at: InkPoint? = null): Unit = editorSelectionController.pasteClipboard(at)
+    fun duplicateSelection(selection: CanvasSelection, onPlaced: (CanvasSelection) -> Unit = {}): Unit = editorSelectionController.duplicateSelection(selection, onPlaced)
+    fun pasteClipboard(at: InkPoint? = null, onPlaced: (CanvasSelection) -> Unit = {}): Unit = editorSelectionController.pasteClipboard(at, onPlaced)
 
     internal fun placeSelection(clip: CanvasSelection, page: NotePage, at: InkPoint?, offset: Float = 0f, centred: Boolean = false): CanvasSelection = editorSelectionController.placeSelection(clip, page, at, offset, centred)
 
@@ -440,7 +440,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun appendDocumentStrokes(noteId: String, strokes: Map<String, List<Stroke>>, revisions: Map<String, Int>): Boolean = documentEngine.appendDocumentStrokes(noteId, strokes, revisions)
 
-    fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: () -> Unit): Unit = editorSelectionController.duplicateDocumentSelection(noteId, selection, onDone)
+    fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: (Map<String, CanvasSelection>) -> Unit): Unit = editorSelectionController.duplicateDocumentSelection(noteId, selection, onDone)
 
     fun moveDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, flattened: CanvasSelection,
         targetId: String, onDone: () -> Unit): Unit = editorSelectionController.moveDocumentSelection(noteId, selection, flattened, targetId, onDone)

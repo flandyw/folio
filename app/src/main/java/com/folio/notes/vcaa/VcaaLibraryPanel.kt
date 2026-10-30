@@ -5,15 +5,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -23,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
@@ -42,6 +44,7 @@ import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem
 import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioScreenHeading
 import com.folio.notes.ui.FolioSectionHeading
 import com.folio.notes.ui.FolioShapes
@@ -68,7 +71,7 @@ private sealed interface VcaaRow {
 
 /**
  * Official past papers, imported directly as PDF notebooks with their exam details filled in. A
- * sidebar destination of its own: subjects down the side (a chip row on a phone), one search box
+ * sidebar destination of its own: searchable subjects down the side (a chooser on a phone), one search box
  * over every paper, and papers grouped by year. Searching runs off the main thread over an index
  * built once ([VcaaIndex]), so typing never waits on it.
  */
@@ -76,6 +79,9 @@ private sealed interface VcaaRow {
 internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: String?, folderName: String?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val focus = LocalFocusManager.current
+    val gridState = rememberLazyGridState()
+    var choosingStudy by rememberSaveable { mutableStateOf(false) }
     var loadAttempt by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf(false) }
     val index by produceState<VcaaIndex?>(null, loadAttempt) {
@@ -113,6 +119,13 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
             }
         }
     }
+    var searchStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(query, study, year, type, provider, reportsOnly, availability, sort) {
+        if (searchStarted) gridState.scrollToItem(0)
+        searchStarted = true
+    }
+    val hasFilters = study != null || query.isNotBlank() || year != null || type != null || provider != null ||
+        availability != VcaaAvailability.ALL || reportsOnly || sort != VcaaSort.NEWEST
     val paperCount = rows?.count { it is VcaaRow.Paper } ?: 0
     val canImport = !state.busy && !state.loading && !state.loadFailed
     val pickedSet = remember(picked) { picked.toSet() }
@@ -166,10 +179,15 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                             placeholder = { Text(if (study != null) "Search $study" else "Search every subject, year and paper") },
                             leadingIcon = { Icon(Icons.Rounded.Search, null) },
                             trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
-                        if (!wide && index != null) LazyRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            item { FilterChip(study == null, { study = null }, { Text("All subjects") }) }
-                            items(studies, key = { it }) { name -> FilterChip(study == name, { study = if (study == name) null else name }, { Text(name) }) }
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }))
+                        if (!wide && index != null) {
+                            OutlinedButton({ choosingStudy = true }, Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.School, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(FolioSpacing.dp8))
+                                Text(study ?: "All subjects", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                            }
                         }
                         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -184,14 +202,13 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                             FilterChip(reportsOnly, { reportsOnly = !reportsOnly }, { Text("With reports or guides") })
                             ChoiceFilter(sort.label, sort != VcaaSort.NEWEST, VcaaSort.entries,
                                 { it.label }, { it == sort }) { sort = it }
-                            if (study != null || query.isNotBlank() || year != null || type != null || provider != null ||
-                                availability != VcaaAvailability.ALL || reportsOnly || sort != VcaaSort.NEWEST)
-                                AssistChip({ resetFilters() }, { Text("Clear all") })
                         }
                         linkError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                        if (index != null) Text(
-                            "$paperCount ${if (paperCount == 1) "paper" else "papers"} · ${sort.label.lowercase()}",
-                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (index != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("$paperCount ${if (paperCount == 1) "paper" else "papers"} · ${sort.label.lowercase()}",
+                                Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (hasFilters) TextButton({ resetFilters() }) { Text("Clear all") }
+                        }
                     }
                     when {
                         loadError -> Column(Modifier.padding(FolioDestinationInset)) {
@@ -204,7 +221,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                             TextButton({ resetFilters() }) { Text("Clear search and filters") }
                         }
                         else -> LazyVerticalGrid(
-                            GridCells.Adaptive(if (wide) 300.dp else 280.dp), Modifier.weight(1f).fillMaxWidth(),
+                            GridCells.Adaptive(if (wide) 300.dp else 280.dp), Modifier.weight(1f).fillMaxWidth(), state = gridState,
                             contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = FolioSpacing.dp8,
                                 bottom = FolioSpacing.dp24),
                             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
@@ -232,6 +249,10 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                     }
                 }
             }
+        }
+        if (choosingStudy) FolioPanel("Choose a subject", { choosingStudy = false }) {
+            SubjectList(studies, index?.studyCounts.orEmpty(), index?.exams?.size ?: 0, study,
+                { study = it; choosingStudy = false }, Modifier.fillMaxWidth().weight(1f, fill = false))
         }
         previewUrl?.let { url ->
             index?.exams?.firstOrNull { it.url == url }?.let { exam ->
@@ -263,10 +284,27 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
 
 @Composable
 private fun SubjectList(studies: List<String>, counts: Map<String, Int>, total: Int, current: String?, onPick: (String?) -> Unit, modifier: Modifier) {
-    LazyColumn(modifier, contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioSpacing.dp8, bottom = FolioSpacing.dp24),
-        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-        item(key = "all") { SubjectRow("All subjects", total, null, current == null) { onPick(null) } }
-        items(studies, key = { it }) { name -> SubjectRow(name, counts[name] ?: 0, VcaaLibrary.subjectFor(name), current == name) { onPick(name) } }
+    var query by rememberSaveable { mutableStateOf("") }
+    val focus = LocalFocusManager.current
+    val visible = remember(studies, query) { VcaaIndex.matchingStudies(studies, query) }
+    Column(modifier) {
+        OutlinedTextField(query, { query = it },
+            Modifier.fillMaxWidth().padding(start = FolioDestinationInset, end = FolioSpacing.dp8, bottom = FolioSpacing.dp8),
+            singleLine = true, shape = FolioShapes.large, label = { Text("Find a subject") },
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear subject search") } },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }))
+        LazyColumn(Modifier.weight(1f, fill = false),
+            contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioSpacing.dp8, bottom = FolioSpacing.dp24),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+            item(key = "all") { SubjectRow("All subjects", total, null, current == null) { onPick(null) } }
+            items(visible, key = { it }) { name -> SubjectRow(name, counts[name] ?: 0, VcaaLibrary.subjectFor(name), current == name) { onPick(name) } }
+            if (visible.isEmpty()) item {
+                Text("No matching subjects. Try a different name.", Modifier.padding(FolioSpacing.dp12),
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -321,13 +359,13 @@ private fun PaperCard(
                         Text("In your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     }
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     var resourcesExpanded by remember { mutableStateOf(false) }
                     Box {
                         TextButton({ resourcesExpanded = true }) {
                             Icon(Icons.Rounded.Description, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(FolioSpacing.dp6))
-                            Text("Documents")
+                            Text(if (exam.reports.isEmpty()) "Exam PDF" else "Reports & PDF")
                         }
                         FolioMenuPopover(resourcesExpanded, { resourcesExpanded = false }, title = "Official documents") {
                             FolioMenuItem({ Text("Original exam PDF") }, {
@@ -343,14 +381,13 @@ private fun PaperCard(
                         Spacer(Modifier.width(FolioSpacing.dp6))
                         Text("Preview")
                     }
-                    Spacer(Modifier.weight(1f))
-                    if (!selecting) {
-                        if (owned != null) TextButton(onOpen, enabled = enabled) { Text("Open") }
-                        else FilledTonalButton(onImport, enabled = enabled) {
-                            Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(FolioSpacing.dp6))
-                            Text("Import")
-                        }
+                }
+                if (!selecting) {
+                    if (owned != null) FilledTonalButton(onOpen, Modifier.fillMaxWidth(), enabled = enabled) { Text("Open in library") }
+                    else FilledTonalButton(onImport, Modifier.fillMaxWidth(), enabled = enabled) {
+                        Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(FolioSpacing.dp6))
+                        Text("Import paper")
                     }
                 }
             }

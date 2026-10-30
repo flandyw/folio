@@ -9,6 +9,14 @@ import com.folio.notes.storage.PageContent
 import com.folio.notes.storage.content
 
 internal object SelectionPlacement {
+    private const val DUPLICATE_ONWARD = 18f
+    // Not -DUPLICATE_ONWARD: identical strokes count as one, so a repeat must not land back on an earlier copy.
+    private const val DUPLICATE_BACK = -23f
+
+    /** How far a duplicate lands from its source on one axis: onward, or back where onward leaves the paper. */
+    fun duplicateStep(end: Float, pageSize: Float, infinite: Boolean): Float =
+        if (infinite || end + DUPLICATE_ONWARD <= pageSize) DUPLICATE_ONWARD else DUPLICATE_BACK
+
     fun apply(page: NotePage, picked: CanvasSelection, action: String, textHeight: (TextBox) -> Float): PageContent {
         val items = picked.strokes.map { CanvasSelection(strokes = listOf(it)) } + picked.texts.map { CanvasSelection(texts = listOf(it)) } + picked.images.map { CanvasSelection(images = listOf(it)) }
         if (items.size < 2) return page.content()

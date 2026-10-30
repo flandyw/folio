@@ -297,9 +297,15 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     }
     val editorDensity = LocalDensity.current
     val activeInkView = if (zoomPaneOpen) zoomInkView else mainInkView
+    /** New copies stay selected while lassoing, ready to drag; any other tool stays in hand. */
+    fun selectPlaced(placed: CanvasSelection) {
+        if (tool != Tool.LASSO) return
+        editor.documentInput.clearSelection()
+        activeInkView?.takeIf { it.page.id == page.id }?.select(placed)
+    }
     fun pasteInView() {
         val visible = activeInkView?.currentPeekAnchor()?.takeIf { it.pageId == page.id }
-        model.pasteClipboard(visible?.let { InkPoint(it.left + 24f, it.top + 48f) })
+        model.pasteClipboard(visible?.let { InkPoint(it.left + 24f, it.top + 48f) }, ::selectPlaced)
     }
     val followView = activeInkView
     fun setWritingFollow(enabled: Boolean) {
@@ -916,7 +922,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         if (documentSelection.isNotEmpty()) { editor.documentInput.copySelection(); if (cut) editor.documentInput.deleteSelection() }
         else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { if (cut) model.cutSelection(picked) else model.copyToClipboard(picked); if (cut) clearPicked() } }
     }
-    fun duplicatePicked() { if (documentSelection.isNotEmpty()) editor.documentInput.duplicateSelection() else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { model.duplicateSelection(picked); clearPicked() } } }
+    fun duplicatePicked() { if (documentSelection.isNotEmpty()) editor.documentInput.duplicateSelection() else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { clearPicked(); model.duplicateSelection(picked, ::selectPlaced) } } }
     fun deletePicked() { if (documentSelection.isNotEmpty()) editor.documentInput.deleteSelection() else { val picked = keyboardPicked(); if (picked.isNotEmpty()) { model.deleteSelection(picked); clearPicked() } } }
     Column(Modifier.fillMaxSize().onSizeChanged { editorSize = it }.onPreviewKeyEvent { event ->
         if (event.key == Key.Spacebar && event.type == KeyEventType.KeyUp && temporaryTool != null) {
@@ -1059,13 +1065,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                     onCopy = { model.copyToClipboard(selected) },
                     canMove = note.pages.size > 1,
                     onMove = { moveSelection = page.id to selected },
-                    onPaste = { pasteInView(); dismissSelection() }, canPaste = canPaste,
+                    onPaste = { dismissSelection(); pasteInView() }, canPaste = canPaste,
                     onCut = { model.cutSelection(selected); dismissSelection() },
-                    onDuplicate = {
-                        model.duplicateSelection(selected)
-                        activeInkView?.clearSelection()
-                        selection = null
-                    },
+                    onDuplicate = { model.duplicateSelection(selected, ::selectPlaced) },
                     onStyle = { restylePicked = page.id to selected; restyleSelection = selected.strokes + selected.texts.flatMap { it.stickyInk } },
                     onDelete = { model.deleteSelection(selected); dismissSelection() },
                     onDeselect = ::dismissSelection,
@@ -1635,7 +1637,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                 onInsert = { revealNewPage(model.insertPage(pageIndex + 1)) },
                 onDuplicate = { model.duplicatePage(pageIndex)?.let { revealNewPage(it) } },
                 onDelete = { deletingPage = page.id }),
-            onPaste = { model.pasteClipboard(at) }, canPaste = canPaste,
+            onPaste = { model.pasteClipboard(at, ::selectPlaced) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
             onText = { selectTool(Tool.TEXT); placeTextBox(page, at) },
             onImage = { imagePicker.launch(arrayOf("image/*")) },

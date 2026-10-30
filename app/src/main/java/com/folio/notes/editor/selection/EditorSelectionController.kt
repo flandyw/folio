@@ -63,6 +63,10 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
             val plainText = selection.texts.joinToString("\n") { it.text }
             systemClipboard.setPrimaryClip(android.content.ClipData.newPlainText(clipboardToken, plainText))
             _state.update { it.copy(clipboard = selection) }
+            // Android 13+ confirms a copy itself, but ink alone leaves it no text to show.
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU || plainText.isBlank()) {
+                android.widget.Toast.makeText(application, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -115,36 +119,41 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
         }
     }
 
-    fun duplicateSelection(selection: CanvasSelection) {
+    private fun duplicateOffset(selection: CanvasSelection, page: NotePage): Pair<Float, Float> {
+        val bounds = InkGeometry.contentBounds(selection.strokes, selection.texts, selection.images,
+            InkRenderer::textHeight, page.width, page.height)
+        return SelectionPlacement.duplicateStep(bounds.right, page.width, page.infinite) to
+            SelectionPlacement.duplicateStep(bounds.bottom, page.height, page.infinite)
+    }
+
+    /** Leaves the clipboard alone: duplicating must not lose what was copied earlier. */
+    fun duplicateSelection(selection: CanvasSelection, onPlaced: (CanvasSelection) -> Unit = {}) {
         with(runtime) {
             if (selection.isEmpty()) return
             val note = _state.value.active ?: return
-            val page = _state.value.page ?: return
-            if (!page.loaded) return
-            copyToClipboard(selection)
-            val offset = 18f
-            val movedStrokes = selection.strokes.map { InkGeometry.translate(it, offset, offset) }
-            val movedTexts = selection.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(offset, offset) }
+            val pageId = _state.value.page?.takeIf { it.loaded }?.id ?: return
             scope.launch {
-                val movedImages = selection.images.map { image ->
-                    val placed = image.moved(offset, offset)
-                    val freshId = UUID.randomUUID().toString()
-                    try {
-                        repository.loadImageBytes(note.id, image.id)?.let { repository.saveImage(note.id, freshId, it) }
-                    } catch (_: Exception) { }
-                    placed.copy(id = freshId)
-                }
-                updateContent(
-                    page.id,
-                    page.strokes + movedStrokes,
-                    page.texts + movedTexts,
-                    page.images + movedImages
-                )
+                try {
+                    val images = selection.images.map { image ->
+                        val bytes = repository.loadImageBytes(note.id, image.id) ?: error("Missing picture")
+                        val id = UUID.randomUUID().toString()
+                        repository.saveImage(note.id, id, bytes)
+                        image.copy(id = id)
+                    }
+                    val page = _state.value.active?.takeIf { it.id == note.id }?.pages?.find { it.id == pageId && it.loaded } ?: return@launch
+                    val (dx, dy) = duplicateOffset(selection, page)
+                    val placed = CanvasSelection(selection.strokes.map { InkGeometry.translate(it, dx, dy) },
+                        selection.texts.map { it.copy(id = UUID.randomUUID().toString()).moved(dx, dy) },
+                        images.map { it.moved(dx, dy) })
+                    updateContent(page.id, page.strokes + placed.strokes, page.texts + placed.texts, page.images + placed.images)
+                    onPlaced(placed)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { reportError("Couldn't duplicate the selection. The original is unchanged.") }
             }
         }
     }
 
-    fun pasteClipboard(at: InkPoint? = null) {
+    fun pasteClipboard(at: InkPoint? = null, onPlaced: (CanvasSelection) -> Unit = {}) {
         with(runtime) {
             val note = _state.value.active ?: return
             val targetId = _state.value.page?.id ?: return
@@ -173,6 +182,7 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
                     val placed = placeSelection(clip.copy(images = images), page, at,
                         PASTE_OFFSET * (pasteGeneration++ % 5))
                     updateContent(page.id, page.strokes + placed.strokes, page.texts + placed.texts, page.images + placed.images)
+                    onPlaced(placed)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { reportError("Couldn't paste the selection. The original is unchanged.") }
             }
@@ -264,25 +274,31 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
         }
     }
 
-    fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: () -> Unit) {
+    fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: (Map<String, CanvasSelection>) -> Unit) {
         with(runtime) {
             val note = _state.value.active?.takeIf { it.id == noteId } ?: return
             val revisions = selection.keys.associateWith { id -> note.pages.first { it.id == id }.revision }
             scope.launch {
                 try {
-                    val edits = selection.mapValues { (id, value) ->
-                        val page = note.pages.first { it.id == id }
+                    // One offset for every page, so a selection that spans pages keeps its shape.
+                    val offsets = selection.map { (id, value) -> duplicateOffset(value, note.pages.first { it.id == id }) }
+                    val dx = offsets.minOf { it.first }; val dy = offsets.minOf { it.second }
+                    val placed = selection.mapValues { (_, value) ->
                         val images = value.images.map { image ->
                             val fresh = java.util.UUID.randomUUID().toString()
                             val bytes = repository.loadImageBytes(noteId, image.id) ?: error("Missing picture")
                             repository.saveImage(noteId, fresh, bytes)
-                            image.copy(id = fresh).moved(18f, 18f)
+                            image.copy(id = fresh).moved(dx, dy)
                         }
-                        PageEdit(StrokesEdit.Add(value.strokes.map { InkGeometry.translate(it, 18f, 18f) }),
-                            (page.texts + value.texts.map { it.copy(id = java.util.UUID.randomUUID().toString()).moved(18f, 18f) }).takeIf { value.texts.isNotEmpty() },
-                            (page.images + images).takeIf { images.isNotEmpty() })
+                        CanvasSelection(value.strokes.map { InkGeometry.translate(it, dx, dy) },
+                            value.texts.map { it.copy(id = java.util.UUID.randomUUID().toString()).moved(dx, dy) }, images)
                     }
-                    if (commitDocumentEdits(noteId, edits, revisions)) onDone() else reportError("The selection changed before it could be duplicated")
+                    val edits = placed.mapValues { (id, value) ->
+                        val page = note.pages.first { it.id == id }
+                        PageEdit(StrokesEdit.Add(value.strokes), (page.texts + value.texts).takeIf { value.texts.isNotEmpty() },
+                            (page.images + value.images).takeIf { value.images.isNotEmpty() })
+                    }
+                    if (commitDocumentEdits(noteId, edits, revisions)) onDone(placed) else reportError("The selection changed before it could be duplicated")
                 } catch (e: Exception) { reportError("Couldn't duplicate the document selection: ${e.message.orEmpty()}") }
             }
         }

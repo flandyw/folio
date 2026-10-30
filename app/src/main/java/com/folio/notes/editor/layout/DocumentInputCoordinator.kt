@@ -228,8 +228,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
                 if (selection.isEmpty()) null else page.id to selection
             }.toMap()
             selectionFrames = frames
-            interaction.documentSelection.value = selected
-            surfaces.mainSurfaces().forEach { it.showDocumentSelection(selected[it.page.id] ?: CanvasSelection()) }
+            showSelection(selected)
         } else {
             val routed = routed(current)
             if (routed.blocked) { model.reportError("A crossed surface is locked or unavailable; draw again"); return true }
@@ -292,6 +291,10 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     private fun clearPreviews() { surfaces.mainSurfaces().forEach { it.documentMarkRegionPreview = null; it.documentContentPreview = null; it.documentInkPreview = emptyList(); it.documentPreviewLiveStroke = null; it.documentLassoPreview = emptyList() } }
     fun selectionOn(id: String): CanvasSelection? = interaction.documentSelection.value[id]
     fun selectedOn(id: String): Boolean = interaction.documentSelection.value[id]?.isNotEmpty() == true
+    private fun showSelection(selected: Map<String, CanvasSelection>) {
+        interaction.documentSelection.value = selected
+        surfaces.mainSurfaces().forEach { it.showDocumentSelection(selected[it.page.id] ?: CanvasSelection()) }
+    }
     fun clearSelection() {
         interaction.documentSelection.value = emptyMap(); interaction.selection.value = null; selectionFrames = emptyMap(); snapSelection = null; snapBounds = null; snapX = emptyList(); snapY = emptyList()
         surfaces.mainSurfaces().forEach { it.showDocumentSelection(CanvasSelection()) }
@@ -308,7 +311,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
     }
     fun duplicateSelection() {
         val note = note ?: return
-        model?.duplicateDocumentSelection(note.id, interaction.documentSelection.value) { clearSelection() }
+        model?.duplicateDocumentSelection(note.id, interaction.documentSelection.value, ::showSelection)
     }
     fun restyleSelection(color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle?, brush: StrokeStyle? = null) {
         val note = note ?: return; val model = model ?: return

@@ -3597,6 +3597,8 @@ class InkView(context: Context) : View(context) {
             onSelectionViewBounds(rect)
         }
     }
+    /** Selects items just placed on this page, so they can be dragged without a new lasso. */
+    fun select(value: CanvasSelection) = setSelection(value)
     /** Drops the lasso selection, e.g. when the page scrolls away or another tool is picked. */
     fun clearSelection() {
         if (selection.isNotEmpty() || selectedTexts.isNotEmpty() || selectedImages.isNotEmpty()) setSelection(CanvasSelection())

@@ -16,6 +16,14 @@ class VcaaIndexTest {
     private val undated = paper("Biology", null)
     private val index = VcaaIndex(listOf(older, undated, chemistry, biology))
 
+    @Test fun subjectSearchMatchesEveryWordAndPreservesOrder() {
+        val studies = listOf("Specialist Mathematics", "Biology", "Mathematical Methods")
+        assertEquals(studies, VcaaIndex.matchingStudies(studies, "  "))
+        assertEquals(listOf("Mathematical Methods"), VcaaIndex.matchingStudies(studies, " METHODS\n math "))
+        assertEquals(listOf("Specialist Mathematics", "Mathematical Methods"), VcaaIndex.matchingStudies(studies, "MATH"))
+        assertTrue(VcaaIndex.matchingStudies(studies, "biology methods").isEmpty())
+    }
+
     @Test fun combinesFiltersAndHandlesWhitespace() {
         assertEquals(listOf(chemistry), index.search("CHEMISTRY\n\t2023", null, null, null,
             provider = "VCAA NHT", reportsOnly = true))
