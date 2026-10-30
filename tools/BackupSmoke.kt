@@ -10,7 +10,7 @@ import com.folio.notes.editor.sticky.StickyNotes
 import com.folio.notes.editor.toolbar.ToolbarLayouts
 import com.folio.notes.editor.toolbar.ToolbarSlot
 import com.folio.notes.exam.ExamAttempt
-import com.folio.notes.exam.matchesQuery
+import com.folio.notes.library.matchesQuery
 import com.folio.notes.ink.InkGeometry
 import com.folio.notes.ink.RulerLine
 import com.folio.notes.library.LibraryBrowse

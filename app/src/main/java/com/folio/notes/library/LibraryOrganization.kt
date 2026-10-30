@@ -1,6 +1,5 @@
 package com.folio.notes.library
 
-import com.folio.notes.exam.matchesQuery
 import com.folio.notes.model.Folder
 import com.folio.notes.model.Notebook
 import com.folio.notes.storage.LibraryFolders
