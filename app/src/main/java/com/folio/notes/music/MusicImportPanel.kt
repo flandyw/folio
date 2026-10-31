@@ -117,10 +117,10 @@ import kotlinx.coroutines.withContext
                                     contentPadding = PaddingValues(horizontal = FolioSpacing.dp4)) {
                                     items((0 until source.pages).toList(), key = { it }) { index ->
                                         FilmstripTile(index = index, file = model.store.pdf(source.id), cache = model.pageCache,
-                                            previewed = index == previewPage, included = index in activePages,
+                                            previewed = index == previewPage, included = index in activePages, enabled = !busy,
                                             onClick = {
                                                 preview(index)
-                                                if (activePart in ranges.indices && checked.getOrNull(activePart) != false) {
+                                                if (!busy && activePart in ranges.indices && checked.getOrNull(activePart) != false && (ranges[activePart].isBlank() || parsed[activePart].isSuccess)) {
                                                     val next = MusicParts.togglePage(parsed.getOrNull(activePart)?.getOrNull().orEmpty(), index)
                                                     ranges = ranges.toMutableList().also { it[activePart] = MusicParts.pageLabel(next) }
                                                 }
@@ -162,21 +162,21 @@ import kotlinx.coroutines.withContext
                                     Column(Modifier.padding(start = FolioSpacing.dp4, end = FolioSpacing.dp12, top = FolioSpacing.dp4, bottom = FolioSpacing.dp12),
                                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                                         // The whole header toggles the part, not just the checkbox.
-                                        Row(Modifier.clickable(enabled = !busy) { checked = checked.toMutableList().also { it[index] = !on } },
+                                        Row(Modifier.clickable(enabled = !busy) { checked = checked.toMutableList().also { it[index] = !on }; if (!on) activePart = index },
                                             verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(on, { value -> checked = checked.toMutableList().also { it[index] = value } }, enabled = !busy)
+                                            Checkbox(on, { value -> checked = checked.toMutableList().also { it[index] = value }; if (value) activePart = index }, enabled = !busy)
                                             Column(Modifier.weight(1f)) {
                                                 Text(instruments[index].ifBlank { "Custom part" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 Text(parsed[index].getOrNull()?.let { "Pages ${ranges[index]} · ${it.size} ${if (it.size == 1) "page" else "pages"}" } ?: "Choose pages",
                                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                             TextButton({
-                                                if (parsed[index].isSuccess) { activePart = index; parsed[index].getOrNull()?.firstOrNull()?.let(::preview) }
-                                            }, enabled = parsed[index].isSuccess, shapes = ButtonDefaults.shapes()) {
+                                                if (!busy && parsed[index].isSuccess) { activePart = index; parsed[index].getOrNull()?.firstOrNull()?.let(::preview) }
+                                            }, enabled = !busy && parsed[index].isSuccess, shapes = ButtonDefaults.shapes()) {
                                                 Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Show")
                                             }
                                         }
-                                        review.suggestions.getOrNull(index)?.takeIf { it.inferredPages > 0 }?.let {
+                                        review.suggestions.find { it.instrument == instruments[index] && MusicParts.pageLabel(it.pages) == ranges[index] }?.takeIf { it.inferredPages > 0 }?.let {
                                             Text("${it.inferredPages} unlabelled ${if (it.inferredPages == 1) "page was" else "pages were"} added after the heading — check them in the preview.",
                                                 Modifier.padding(start = FolioSpacing.dp12), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                                         }
@@ -194,17 +194,18 @@ import kotlinx.coroutines.withContext
                                                         Modifier.weight(1f), label = { Text("Instrument / part") }, singleLine = true, enabled = !busy,
                                                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next),
                                                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { rangeFocus.requestFocus() }))
-                                                    OutlinedTextField(ranges[index], { value -> ranges = ranges.toMutableList().also { it[index] = value } },
+                                                    OutlinedTextField(ranges[index], { value -> ranges = ranges.toMutableList().also { it[index] = value }; activePart = index },
                                                         Modifier.weight(1f).focusRequester(rangeFocus), label = { Text("Pages, e.g. 3-6, 9") }, singleLine = true, enabled = !busy,
-                                                        isError = ranges[index].isNotBlank() && parsed[index].isFailure,
+                                                        isError = parsed[index].isFailure,
                                                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
                                                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { titleFocus.requestFocus() }))
                                                 }
-                                                parsed[index].exceptionOrNull()?.takeIf { ranges[index].isNotBlank() }?.let {
+                                                parsed[index].exceptionOrNull()?.let {
                                                     Text(it.message ?: "Check the pages", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                                 }
                                                 OutlinedTextField(titles[index], { value -> titles = titles.toMutableList().also { it[index] = value } },
                                                     Modifier.fillMaxWidth().focusRequester(titleFocus), label = { Text("Title in Music") }, singleLine = true, enabled = !busy,
+                                                    isError = titles[index].isBlank(), supportingText = { if (titles[index].isBlank()) Text("Give this part a title.") },
                                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                                                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { partKeyboard?.hide() }))
                                             }
@@ -216,6 +217,7 @@ import kotlinx.coroutines.withContext
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     TextButton({
                                         instruments = instruments + ""; titles = titles + source.title; ranges = ranges + ""; checked = checked + true
+                                        activePart = instruments.lastIndex
                                     }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                                         Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a custom part")
                                     }
@@ -226,11 +228,12 @@ import kotlinx.coroutines.withContext
                                     val mergeable = selected.size >= 2 && selected.all { parsed[it].isSuccess }
                                     TextButton({
                                         MusicParts.merged(selected.map { MusicPartRequest(titles[it], instruments[it], parsed[it].getOrThrow()) })?.let { merged ->
-                                            instruments = listOf(merged.instrument.ifBlank { "Merged part" })
-                                            titles = listOf(merged.title.ifBlank { autoTitle(merged.instrument) })
-                                            ranges = listOf(MusicParts.pageLabel(merged.pages))
-                                            checked = listOf(true)
-                                            activePart = 0
+                                            val kept = checked.indices.filter { !checked[it] }
+                                            instruments = kept.map { instruments[it] } + merged.instrument.ifBlank { "Merged part" }
+                                            titles = kept.map { titles[it] } + merged.title.ifBlank { autoTitle(merged.instrument) }
+                                            ranges = kept.map { ranges[it] } + MusicParts.pageLabel(merged.pages)
+                                            checked = kept.map { false } + true
+                                            activePart = instruments.lastIndex
                                         }
                                     }, enabled = !busy && mergeable, shapes = ButtonDefaults.shapes()) {
                                         Icon(Icons.AutoMirrored.Rounded.CallMerge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Merge selected parts")
@@ -267,13 +270,13 @@ import kotlinx.coroutines.withContext
  * part already holds it, and whether it is the page on the big preview.
  */
 @Composable private fun FilmstripTile(index: Int, file: java.io.File, cache: MusicPageCache,
-    previewed: Boolean, included: Boolean, onClick: () -> Unit) {
+    previewed: Boolean, included: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val widthPx = with(androidx.compose.ui.platform.LocalDensity.current) { 52.dp.roundToPx() }
     val bitmap by produceState<Bitmap?>(null, file, index, widthPx) {
         value = withContext(Dispatchers.IO) { runCatching { cache.render(file, index, widthPx) }.getOrNull() }
     }
     val image = remember(bitmap) { bitmap?.asImageBitmap() }
-    Surface(onClick = onClick, shape = FolioShapes.medium,
+    Surface(onClick = onClick, enabled = enabled, shape = FolioShapes.medium,
         color = if (included) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         border = BorderStroke(if (previewed) 2.dp else 1.dp, if (previewed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.size(52.dp, 68.dp)) {

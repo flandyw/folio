@@ -2,6 +2,8 @@
 package com.folio.notes.exam
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,7 +46,8 @@ fun BatchExamTagsPanel(
     var changeStatus by rememberSaveable { mutableStateOf(false) }
     var newStatusName by rememberSaveable { mutableStateOf(ExamStatus.TO_DO.name) }
     val newStatus: ExamStatus = ExamStatus.safeValueOf(newStatusName) ?: ExamStatus.TO_DO
-    val canApply = changeSubject || changeYear || changeCompany || changeType || changeStatus
+    val validYear = !changeYear || validExamYear(newYear)
+    val canApply = validYear && (changeSubject || changeYear || changeCompany || changeType || changeStatus)
     val companySuggestions = remember { listOf("VCAA", "NEAP", "TSSM", "Insight", "Heffernan", "Edrolo") }
     val thisYear = remember { Calendar.getInstance().get(Calendar.YEAR).toString() }
 
@@ -100,11 +103,13 @@ fun BatchExamTagsPanel(
                     newYear, { newYear = it.filter(Char::isDigit).take(4) },
                     Modifier.fillMaxWidth(), label = { Text("Year (empty clears)") },
                     placeholder = { Text("2022") }, singleLine = true,
+                    isError = !validYear,
+                    supportingText = { if (!validYear) Text("Use a four-digit year or leave blank to clear.") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    listOf(thisYear, "2022", "2021").distinct().forEach { suggestion ->
-                        FilterChip(newYear == suggestion, { newYear = suggestion }, { Text(suggestion) })
+                    listOf(thisYear, (thisYear.toInt() - 1).toString(), (thisYear.toInt() - 2).toString()).forEach { suggestion ->
+                        FilterChip(newYear == suggestion, { newYear = if (newYear == suggestion) "" else suggestion }, { Text(suggestion) })
                     }
                 }
             }
@@ -121,7 +126,7 @@ fun BatchExamTagsPanel(
                 )
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     companySuggestions.forEach { suggestion ->
-                        FilterChip(newCompany.trim().equals(suggestion, ignoreCase = true), { newCompany = suggestion }, { Text(suggestion) })
+                        FilterChip(newCompany.trim().equals(suggestion, ignoreCase = true), { newCompany = if (newCompany.trim().equals(suggestion, true)) "" else suggestion }, { Text(suggestion) })
                     }
                 }
             }
@@ -157,7 +162,7 @@ fun BatchExamTagsPanel(
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)
             ) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button({ onApply(buildTransform()) }, enabled = canApply, shapes = ButtonDefaults.shapes()) { Text("Apply to $count") }
+                Button({ if (canApply) onApply(buildTransform()) }, enabled = canApply, shapes = ButtonDefaults.shapes()) { Text("Apply to $count") }
             }
         }
     }
@@ -173,8 +178,8 @@ private fun BatchSection(
 ) {
     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked, onChecked)
+            Row(Modifier.fillMaxWidth().toggleable(checked, role = Role.Checkbox, onValueChange = onChecked), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked, null)
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleSmall)
                     Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

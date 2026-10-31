@@ -4,6 +4,7 @@ package com.folio.notes.backup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import com.folio.notes.library.matchesQuery
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,7 +32,7 @@ import com.folio.notes.ui.FolioSpacing
     val keyboard = LocalSoftwareKeyboardController.current
     var query by rememberSaveable { mutableStateOf("") }
     val visible = remember(notes, query) {
-        notes.filter { it.title.contains(query.trim(), ignoreCase = true) }.sortedBy { it.title.lowercase() }
+        notes.filter { matchesQuery(it, query) }.sortedBy { it.title.lowercase() }
     }
     val count = notes.count { it.id in excludedIds }
     FolioPanel("Backup exclusions", onDismiss) {
@@ -47,6 +48,11 @@ import com.folio.notes.ui.FolioSpacing
                 if (query.isNotBlank()) TextButton({ query = "" }) { Text("Show all notebooks") }
             } else {
                 if (query.isNotBlank()) Text("${visible.size} matching notebook${if (visible.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium)
+                val visibleIds = visible.map { it.id }.toSet()
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    TextButton({ onExcluded(visibleIds, true) }, enabled = visible.any { it.id !in excludedIds }) { Text("Exclude shown") }
+                    TextButton({ onExcluded(visibleIds, false) }, enabled = visible.any { it.id in excludedIds }) { Text("Include shown") }
+                }
                 LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
                     items(visible, key = { it.id }) { note ->
                         val excluded = note.id in excludedIds

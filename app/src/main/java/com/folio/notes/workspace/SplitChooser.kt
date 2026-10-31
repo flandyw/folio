@@ -1,7 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.workspace
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -45,6 +50,8 @@ import com.folio.notes.ui.FolioSpacing
     onCancel: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    val keyboard = LocalSoftwareKeyboardController.current
+    BackHandler(query.isNotEmpty()) { query = "" }
     val choices = remember(state.notes, state.tabs, state.activeId, query) {
         SplitChooser.choices(state.notes, state.tabs, state.activeId, query)
     }
@@ -71,6 +78,8 @@ import com.folio.notes.ui.FolioSpacing
                     { IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
                 shape = FolioShapes.large,
             )
             if (choices.isEmpty) {

@@ -1,6 +1,7 @@
 package com.folio.notes.workspace
 
 import com.folio.notes.model.Notebook
+import com.folio.notes.library.matchesQuery
 import com.folio.notes.model.hiddenFromLibrary
 
 /** Why the workspace is browsing the Library, which decides what a notebook tap does. */
@@ -35,13 +36,8 @@ object SplitChooser {
     /** Notebooks that never open beside the editor: practice pages, music scores, hidden copies. */
     fun eligible(note: Notebook): Boolean = !note.hiddenFromLibrary && !note.mistakePractice && note.musicScoreId == null
 
-    /** Case- and accent-insensitive enough for titles: every word of [query] must appear. */
-    fun matches(note: Notebook, query: String): Boolean {
-        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (words.isEmpty()) return true
-        val haystack = (note.title + " " + note.tags.joinToString(" ")).lowercase()
-        return words.all { it in haystack }
-    }
+    /** Use the same titles, page names, subject and tags as the Library search. */
+    fun matches(note: Notebook, query: String): Boolean = matchesQuery(note, query)
 
     fun choices(notes: List<Notebook>, tabs: List<EditorTab>, activeId: String?, query: String = ""): SplitChoices {
         val usable = notes.filter { eligible(it) && matches(it, query) }

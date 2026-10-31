@@ -41,6 +41,7 @@ import com.folio.notes.app.NameDialog
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.libraryLastEditedLabel
 import com.folio.notes.library.semanticsLabel
+import com.folio.notes.storage.SharedStorageRules
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem
 import com.folio.notes.ui.FolioMenuPopover
@@ -168,7 +169,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     }
     val visible = remember(children, query, pdfOnly, sort, showHiddenFolders) {
         children.filter { (showHiddenFolders || !it.directory || !it.name.startsWith('.')) &&
-            it.name.contains(query.trim(), true) && (!pdfOnly || it.directory || it.pdf || it.folio) }
+            matchesFileName(it.name, query) && (!pdfOnly || it.directory || it.pdf || it.folio) }
             .sortedWith(compareByDescending<DeviceFile> { it.directory }.then(when (sort) {
                 FileSort.NAME -> compareBy { it.name.lowercase() }
                 FileSort.RECENT -> compareByDescending { it.modified }
@@ -184,7 +185,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
             selecting -> clearSelection()
             query.isNotBlank() -> query = ""
             pathUris.size > 1 -> { pathUris = pathUris.dropLast(1); pathNames = pathNames.dropLast(1) }
-            current != null -> { activeTree = null; pathUris = emptyList(); pathNames = emptyList() }
+            current != null -> { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = "" }
             else -> onShelf()
         }
     }
@@ -200,6 +201,10 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
         } catch (_: Exception) { model.reportError("No app could open this file") }
     }
     fun importFiles(selection: List<DeviceFile>) {
+        if (state.busy || state.loading || state.loadFailed || changing) {
+            model.reportError("Wait for the current operation to finish before importing.")
+            return
+        }
         try {
             val uris = selection.map { files.contentUri(it.uri) }
             if (selection.size == 1 && !selection.single().pdf) model.importArchive(uris.single())
@@ -211,7 +216,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
         if (changing) return
         changing = true
         scope.launch {
-            try { block(); model.reportError(success) }
+            try { block(); model.reportNotice(success) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { model.reportError("Couldn't change this file: ${e.message.orEmpty()}") }
             finally { changing = false; refresh++ }
@@ -223,14 +228,14 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
             if (wide) Surface(Modifier.width(224.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12), shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 LazyColumn(contentPadding = PaddingValues(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     item { Text("Locations", Modifier.padding(FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall) }
-                    item { ExplorerPlace("Tablet storage", Icons.Rounded.TabletAndroid, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() } } }
+                    item { ExplorerPlace("Tablet storage", Icons.Rounded.TabletAndroid, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() } } }
                     items(locations, key = { it.tree }) { location -> ExplorerPlace(location.name, Icons.Rounded.FolderOpen, activeTree == location.tree) { if (!changing) { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) } } }
                     item { TextButton({ picker.launch(activeTree?.let(Uri::parse)) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Connect folder") } }
                 }
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Column(Modifier.padding(horizontal = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    if (current != null) ExplorerBreadcrumbs(listOf("Locations" to { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() } }) + pathNames.mapIndexed { index, name -> name to { if (!changing) { pathUris = pathUris.take(index + 1); pathNames = pathNames.take(index + 1); query = ""; clearSelection() } } })
+                    if (current != null) ExplorerBreadcrumbs(listOf("Locations" to { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() } }) + pathNames.mapIndexed { index, name -> name to { if (!changing) { pathUris = pathUris.take(index + 1); pathNames = pathNames.take(index + 1); query = ""; clearSelection() } } })
                     else Text("Tablet storage", Modifier.padding(top = FolioSpacing.dp8), style = MaterialTheme.typography.titleMedium)
                     if (current == null && !fullAccess) Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -364,7 +369,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                         when {
                                             selecting && !file.directory -> toggle(file)
                                             file.directory -> { pathUris = pathUris + file.uri.toString(); pathNames = pathNames + file.name; query = ""; clearSelection() }
-                                            (file.pdf || file.folio) && !file.virtual -> importFile = file
+                                            (file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual -> importFile = file
                                             else -> launchFile(file)
                                         }
                                     }, onLongClick = { if (!file.directory) { selecting = true; toggle(file) } })) {
@@ -392,30 +397,38 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                 }
                 if (selecting) ExplorerSelectionBar(selection.size, visible.count { !it.directory },
                     { selectedUris = if (selection.size == visible.count { !it.directory }) emptyList() else visible.filterNot { it.directory }.map { it.uri.toString() } }, { clearSelection() }) {
-                    Button({ importFiles(selection) }, enabled = selection.isNotEmpty() && selection.all { it.pdf && !it.virtual } && !state.busy && !state.loading && !state.loadFailed,
-                        shapes = ButtonDefaults.shapes()) { Text("Import PDFs") }
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Select PDFs to import together", style = MaterialTheme.typography.bodySmall)
+                    Button({ importFiles(selection) }, enabled = selection.isNotEmpty() && selection.none { it.virtual } &&
+                        (selection.all { it.pdf } || selection.size == 1 && (selection.single().folio || selection.single().name.endsWith(".zip", true))) &&
+                        !changing && !state.busy && !state.loading && !state.loadFailed,
+                        shapes = ButtonDefaults.shapes()) { Text(if (selection.size == 1 && !selection.single().pdf) "Import notebook" else "Import PDFs") }
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Select PDFs together, or one Folio archive", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
     }
+    fun validName(name: String): Boolean {
+        val failure = runCatching { SharedStorageRules.validateName(name.trim()) }.exceptionOrNull() ?: return true
+        model.reportError(failure.message ?: "Choose another name")
+        return false
+    }
     if (newFolder) NameDialog("New device folder", "Inside ${pathNames.lastOrNull().orEmpty()}", "", "Create", { newFolder = false }) { name ->
         val uri = current?.let(Uri::parse)
-        if (uri != null && name.isNotBlank() && '/' !in name && '\\' !in name) { newFolder = false; mutate("Folder created") { files.createFolder(uri, name.trim()) } }
-        else model.reportError("Use a folder name without slashes")
+        if (uri != null && validName(name)) { newFolder = false; mutate("Folder created") { files.createFolder(uri, name.trim()) } }
     }
     rename?.let { file -> NameDialog("Rename ${if (file.directory) "folder" else "file"}", "Keep the file extension so other apps can open it.", file.name, "Save", { rename = null }) { name ->
-        if (name.isNotBlank() && '/' !in name && '\\' !in name) { rename = null; mutate("Renamed") { files.rename(file, name.trim()) } }
-        else model.reportError("Use a name without slashes")
+        if (validName(name)) { rename = null; mutate("Renamed") { files.rename(file, name.trim()) } }
     } }
     delete?.let { file -> ExplorerConfirm("Delete “${file.name}”?", if (file.directory) "This deletes this device folder and its contents. This cannot be undone in Folio." else "This deletes the original file from this location. This cannot be undone in Folio.", "Delete", { delete = null }) { delete = null; mutate("Deleted") { files.delete(file) } } }
     forget?.let { location -> ExplorerConfirm("Disconnect “${location.name}”?", "It will disappear from Explorer. Files stay on your tablet, and you can connect the folder again.", "Disconnect", { forget = null }) {
         // Other Folio features may hold a grant to the same tree, so don't revoke shared permissions.
         rememberTrees(trees.filterNot { it == location.tree }); forget = null
-        if (activeTree == location.tree) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); clearSelection() }
+        if (activeTree == location.tree) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() }
     } }
-    importFile?.let { file -> AlertDialog(onDismissRequest = { importFile = null }, modifier = Modifier.guardUiTouches(), title = { Text(file.name) },
+    importFile?.let { file -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), onDismissRequest = { importFile = null }, modifier = Modifier.guardUiTouches(), title = { Text(file.name) },
         text = { Text("Import a copy into your notebooks to read and write on it. The original stays in this folder.") },
-        dismissButton = { TextButton({ importFile = null; launchFile(file) }, shapes = ButtonDefaults.shapes()) { Text("Open with…") } },
+        dismissButton = { FlowRow {
+            TextButton({ importFile = null }) { Text("Cancel") }
+            TextButton({ importFile = null; launchFile(file) }, shapes = ButtonDefaults.shapes()) { Text("Open with…") }
+        } },
         confirmButton = { Button({ importFile = null; importFiles(listOf(file)) }, enabled = !state.busy && !state.loading && !state.loadFailed, shapes = ButtonDefaults.shapes()) { Text("Import to Folio") } }) }
 }

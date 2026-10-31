@@ -2,6 +2,7 @@
 package com.folio.notes.exam
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -53,7 +54,7 @@ internal fun TimingPanel(
     var selectedTab by rememberSaveable { mutableIntStateOf(if (timer.phase == ExamTimerPhase.IDLE && focalState.visibleFocus != null) 1 else 0) }
     FolioPanel(title = "Timer & stopwatch", onDismissRequest = onDismiss) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
         ) {
             // Each tab says when its clock is live, so a running timer is never hidden behind the other tab.
@@ -98,6 +99,16 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
     val defaultReading = AppPrefs.timerReadingMinutes(timerPrefs.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_READING_MIN) })
     val idleMinutes = AppPrefs.timerIdleMinutes(timerPrefs.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_IDLE_MIN) })
     var customMinutes by rememberSaveable { mutableStateOf("$defaultCustom") }
+    val parsedCustom = customTimerMinutes(customMinutes, AppPrefs.TIMER_CUSTOM_MAX)
+    fun startCustom() {
+        val minutes = parsedCustom ?: return
+        onStart(ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60))
+    }
+    var confirmStop by rememberSaveable { mutableStateOf(false) }
+    if (confirmStop) AlertDialog(onDismissRequest = { confirmStop = false }, title = { Text("Stop this exam timer?") },
+        text = { Text("The sitting's elapsed writing time is kept. You can keep the timer running instead.") },
+        confirmButton = { TextButton({ confirmStop = false; onStop(null) }) { Text("Stop timer") } },
+        dismissButton = { TextButton({ confirmStop = false }) { Text("Keep timer") } })
     Box {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
@@ -133,17 +144,12 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                                 OutlinedTextField(
                                     customMinutes, { customMinutes = it.filter(Char::isDigit).take(3) },
                                     Modifier.weight(1f), label = { Text("Writing minutes") }, singleLine = true,
+                                    isError = parsedCustom == null,
                                     supportingText = { Text("1–${AppPrefs.TIMER_CUSTOM_MAX} min, after $defaultReading min reading") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
-                                        val minutes = AppPrefs.timerCustomMinutes(customMinutes.toIntOrNull())
-                                        onStart(ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60))
-                                    })
+                                    keyboardActions = KeyboardActions(onDone = { startCustom() })
                                 )
-                                Button({
-                                    val minutes = AppPrefs.timerCustomMinutes(customMinutes.toIntOrNull())
-                                    onStart(ExamTimerPreset("Custom · $minutes min", minutes * 60, defaultReading * 60))
-                                }, shapes = ButtonDefaults.shapes()) { Text("Start") }
+                                Button(::startCustom, enabled = parsedCustom != null, shapes = ButtonDefaults.shapes()) { Text("Start") }
                             }
                         }
                     }
@@ -201,7 +207,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                         Text(if (active) "Finish writing now" else "Skip reading · start writing")
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                        TextButton({ onStop(null) }, shapes = ButtonDefaults.shapes()) { Text("Stop timer") }
+                        TextButton({ confirmStop = true }, shapes = ButtonDefaults.shapes()) { Text("Stop timer") }
                     }
                 }
                 ExamTimerPhase.DONE -> {

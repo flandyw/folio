@@ -52,6 +52,9 @@ fun ScoreDialog(
     var totalEdited by rememberSaveable(total) { mutableStateOf(total != null) }
     var minutes by rememberSaveable { mutableStateOf(defaultSeconds?.let { (it / 60).coerceAtLeast(1) }?.toString() ?: "") }
     var timed by rememberSaveable { mutableStateOf(defaultSeconds != null) }
+    var minutesEdited by rememberSaveable { mutableStateOf(false) }
+    val seconds = recordedSeconds(timed, minutes, defaultSeconds, minutesEdited)
+    val validTime = !timed || minutes.isBlank() || seconds != null
 
     // Marks stamped so far, re-read whenever detection finishes so a freshly awarded label is counted.
     var stamped by remember { mutableStateOf<Float?>(null) }
@@ -72,9 +75,10 @@ fun ScoreDialog(
     val parsedTotal = totalText.toIntOrNull()
     val scoreFocus = remember { FocusRequester() }
     val totalFocus = remember { FocusRequester() }
+    val minutesFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { scoreFocus.requestFocus() }
     val scoreTooHigh = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore > parsedTotal
-    val canRecord = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal
+    val canRecord = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal && validTime
     AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
@@ -151,12 +155,15 @@ fun ScoreDialog(
                         totalText, { totalText = it.filter(Char::isDigit).take(4); totalEdited = true },
                         Modifier.weight(1f).focusRequester(totalFocus), label = { Text("Out of") }, placeholder = { Text("40") },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = {
-                            if (canRecord) onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed)
-                        }),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = if (timed) ImeAction.Next else ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onNext = { minutesFocus.requestFocus() },
+                            onDone = { if (canRecord) onRecord(parsedScore ?: 0, parsedTotal, seconds, timed) }
+                        ),
+                        isError = totalText.isNotEmpty() && (parsedTotal == null || parsedTotal <= 0),
                         supportingText = {
-                            if (total != null) Text("From exam details")
+                            if (totalText.isNotEmpty() && (parsedTotal == null || parsedTotal <= 0)) Text("Enter a total greater than zero.")
+                            else if (total != null) Text("From exam details")
                             else if (!totalEdited && printed != null) Text("From printed marks")
                         }
                     )
@@ -174,20 +181,22 @@ fun ScoreDialog(
                 }
                 if (timed) {
                     OutlinedTextField(
-                        minutes, { minutes = it.filter(Char::isDigit).take(3) },
-                        Modifier.fillMaxWidth(), label = { Text("Minutes taken") }, placeholder = { Text("82") },
+                        minutes, { minutes = it.filter(Char::isDigit).take(3); minutesEdited = true },
+                        Modifier.fillMaxWidth().focusRequester(minutesFocus), label = { Text("Minutes taken (optional)") }, placeholder = { Text("82") },
+                        isError = !validTime,
+                        supportingText = { if (!validTime) Text("Enter 1–999 minutes.") },
                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = {
-                            if (canRecord) onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed)
+                            if (canRecord) onRecord(parsedScore ?: 0, parsedTotal, seconds, timed)
                         })
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                         listOf("60", "90", "120").forEach { suggestion ->
-                            FilterChip(minutes == suggestion, { minutes = suggestion }, { Text("${suggestion}m") })
+                            FilterChip(minutes == suggestion, { minutes = suggestion; minutesEdited = true }, { Text("${suggestion}m") })
                         }
                     }
                 }
-                if (parsedScore != null && parsedTotal != null && parsedTotal > 0) {
+                if (parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal) {
                     Text(
                         "${(parsedScore.toFloat() / parsedTotal * 100).roundToInt()}%",
                         style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary
@@ -197,14 +206,14 @@ fun ScoreDialog(
         },
         dismissButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 if (onRecordAndSave != null) OutlinedButton(
-                    { onRecordAndSave(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
+                    { onRecordAndSave(parsedScore ?: 0, parsedTotal, seconds, timed) },
                     enabled = canRecord,
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Record and save to Focal") }
                 Button(
-                    { onRecord(parsedScore ?: 0, parsedTotal, minutes.toIntOrNull()?.times(60), timed) },
+                    { onRecord(parsedScore ?: 0, parsedTotal, seconds, timed) },
                     enabled = canRecord,
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Record") }

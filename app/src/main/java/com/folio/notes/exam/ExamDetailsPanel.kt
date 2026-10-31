@@ -2,6 +2,7 @@
 package com.folio.notes.exam
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -57,13 +58,21 @@ fun ExamDetailsPanel(
     var scoreDialog by rememberSaveable { mutableStateOf(false) }
     var datePicker by rememberSaveable { mutableStateOf(false) }
 
+    var deleteAttemptId by rememberSaveable(note.id) { mutableStateOf<String?>(null) }
+    var discard by rememberSaveable(note.id) { mutableStateOf(false) }
+    val validYear = validExamYear(year)
+    val validUnit = validExamUnit(unit)
+    val validMarks = validExamTotal(marksTotal)
+    val canSave = validYear && validUnit && validMarks
+
     fun currentTags(): ExamTags = ExamTags(
         subject = subjectValue, subjectText = subjectText.trim(),
         year = year.toIntOrNull(), company = company.trim(), type = typeValue,
-        unit = unit.toIntOrNull()?.coerceIn(1, 4), difficulty = difficulty,
+        unit = unit.toIntOrNull(), difficulty = difficulty,
         marksTotal = marksTotal.toIntOrNull(), status = statusValue, tags = tagsValue, examDate = examDate
     )
     fun saveAndDismiss() {
+        if (!canSave) return
         onSave(currentTags())
         onDismiss()
     }
@@ -72,7 +81,8 @@ fun ExamDetailsPanel(
     val yearSuggestions = remember(thisYear) { listOf(thisYear, thisYear - 1, thisYear - 2).map { it.toString() } }
     val companySuggestions = remember { listOf("VCAA", "NEAP", "TSSM", "Insight", "Heffernan", "Edrolo") }
 
-    FolioPanel(title = "Exam details", onDismissRequest = onDismiss) {
+    FolioPanel(title = "Exam details", onDismissRequest = onDismiss,
+        canDismiss = { if (!canSave || currentTags() != exam) { discard = true; false } else true }) {
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
@@ -105,16 +115,20 @@ fun ExamDetailsPanel(
                     OutlinedTextField(
                         year, { year = it.filter(Char::isDigit).take(4) },
                         Modifier.weight(1f), label = { Text("Year") }, placeholder = { Text("2022") },
+                        isError = !validYear, supportingText = { if (!validYear) Text("Use a four-digit year.") },
                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
                     )
                     OutlinedTextField(
                         unit, { unit = it.filter(Char::isDigit).take(1) },
                         Modifier.weight(1f), label = { Text("Unit") }, placeholder = { Text("3") },
+                        isError = !validUnit, supportingText = { if (!validUnit) Text("Use 1–4 or leave blank.") },
                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
                     )
                     OutlinedTextField(
                         marksTotal, { marksTotal = it.filter(Char::isDigit).take(4) },
                         Modifier.weight(1f), label = { Text("Marks") }, placeholder = { Text("40") },
+                        isError = !validMarks, supportingText = { if (!validMarks) Text("Use 1–9999 or leave blank.") },
+                        keyboardActions = KeyboardActions(onDone = { saveAndDismiss() }),
                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done)
                     )
                 }
@@ -180,7 +194,8 @@ fun ExamDetailsPanel(
                         Column(Modifier.weight(1f)) {
                             Text("Exam date", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                examDate?.let { compactDate(it) } ?: "Count down to the real sitting",
+                                examDate?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                                    .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")) } ?: "Count down to the real sitting",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -201,13 +216,13 @@ fun ExamDetailsPanel(
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            FilledTonalButton({ scoreDialog = true }, shapes = ButtonDefaults.shapes()) {
+                            FilledTonalButton({ scoreDialog = true }, enabled = validMarks, shapes = ButtonDefaults.shapes()) {
                                 Icon(Icons.AutoMirrored.Rounded.Grading, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text("Record a mark")
                             }
                         }
-                        val sortedAttempts = remember(note.attempts) { note.attempts.sortedBy { it.date } }
+                        val sortedAttempts = remember(note.attempts) { note.attempts.sortedByDescending { it.date } }
                         sortedAttempts.forEach { attempt ->
                             val share = attempt.share
                             Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -223,7 +238,7 @@ fun ExamDetailsPanel(
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                     }
-                                    IconButton({ onDeleteAttempt(attempt) }, shapes = IconButtonDefaults.shapes()) {
+                                    IconButton({ deleteAttemptId = attempt.id }, shapes = IconButtonDefaults.shapes()) {
                                         Icon(Icons.Rounded.Close, "Delete this attempt", Modifier.size(16.dp))
                                     }
                                 }
@@ -239,10 +254,23 @@ fun ExamDetailsPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button(::saveAndDismiss, shapes = ButtonDefaults.shapes()) { Text("Save") }
+                Button(::saveAndDismiss, enabled = canSave, shapes = ButtonDefaults.shapes()) { Text("Save") }
             }
         }
     }
+    deleteAttemptId?.let { id ->
+        AlertDialog(onDismissRequest = { deleteAttemptId = null }, title = { Text("Delete recorded mark?") },
+            text = { Text("This removes the mark from your history. Notebook pages are kept.") },
+            confirmButton = { TextButton({
+                note.attempts.find { it.id == id }?.let(onDeleteAttempt)
+                deleteAttemptId = null
+            }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton({ deleteAttemptId = null }) { Text("Keep") } })
+    }
+    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard exam detail changes?") },
+        text = { Text("Your unsaved details will be lost. Recorded marks are saved separately.") },
+        confirmButton = { TextButton(onDismiss) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
     if (scoreDialog) {
         ScoreDialog(
             total = marksTotal.toIntOrNull(),

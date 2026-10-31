@@ -34,10 +34,10 @@ import com.folio.notes.ui.FolioSpacing
 }
 
 @Composable internal fun ScoreDetailsPanel(score: MusicScore, dismiss: () -> Unit, save: (String, String, String, String) -> Unit) {
-    var title by rememberSaveable { mutableStateOf(score.title) }
-    var composer by rememberSaveable { mutableStateOf(score.composer) }
-    var part by rememberSaveable { mutableStateOf(score.part) }
-    var notes by rememberSaveable { mutableStateOf(score.notes) }
+    var title by rememberSaveable(score.id) { mutableStateOf(score.title) }
+    var composer by rememberSaveable(score.id) { mutableStateOf(score.composer) }
+    var part by rememberSaveable(score.id) { mutableStateOf(score.part) }
+    var notes by rememberSaveable(score.id) { mutableStateOf(score.notes) }
     val composerFocus = remember { FocusRequester() }
     val partFocus = remember { FocusRequester() }
     fun submit() { if (title.isNotBlank()) save(title.trim(), composer.trim(), part.trim(), notes.trim()) }
@@ -47,6 +47,7 @@ import com.folio.notes.ui.FolioSpacing
             Text("${score.pages} ${if (score.pages == 1) "page" else "pages"} · ${score.marks.size} rehearsal ${if (score.marks.size == 1) "mark" else "marks"}",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true,
+                isError = title.isBlank(), supportingText = { if (title.isBlank()) Text("Enter a title.") },
                 keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { composerFocus.requestFocus() }))
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -72,21 +73,26 @@ import com.folio.notes.ui.FolioSpacing
     val filterFocus = LocalFocusManager.current
     var filter by rememberSaveable { mutableStateOf("") }
     val shown = scores.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-        .filter { s -> filter.isBlank() || listOf(s.title, s.composer, s.part).any { it.contains(filter.trim(), true) } }
+        .filter { it.matchesQuery(filter) }
     FolioPanel("Add to ${set.name}", dismiss) {
         Column(Modifier.padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text("${set.scores.size} in the set · new scores join at the end", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a score…") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = FolioShapes.extraLarge,
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = { if (filter.isNotEmpty()) IconButton({ filter = "" }) { Icon(Icons.Rounded.Close, "Clear score search") } },
+                singleLine = true, shape = FolioShapes.extraLarge,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { filterFocus.clearFocus() }),
                 colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
         }
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12)) {
+            if (shown.isEmpty()) Text(
+                if (scores.isEmpty()) "Import scores into Music to add them to this set." else "No scores match “${filter.trim()}”.",
+                Modifier.padding(FolioSpacing.dp12), color = MaterialTheme.colorScheme.onSurfaceVariant)
             shown.forEach { score ->
                 val included = score.id in set.scores
                 PickRow(included, score.title, scoreMeta(score), { ScoreFace(score, model, Modifier.width(30.dp).height(40.dp), small = true) }) {
-                    model.set(set.id) { s -> s.copy(scores = if (included) s.scores - score.id else (s.scores + score.id).distinct()) }
+                    model.set(set.id) { s -> s.copy(scores = if (score.id in s.scores) s.scores - score.id else (s.scores + score.id).distinct()) }
                 }
             }
         }
@@ -106,7 +112,7 @@ import com.folio.notes.ui.FolioSpacing
                 val included = score.id in set.scores
                 PickRow(included, set.name, "${set.scores.size} ${if (set.scores.size == 1) "score" else "scores"}", {
                     Icon(Icons.AutoMirrored.Rounded.QueueMusic, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }) { model.set(set.id) { s -> s.copy(scores = if (included) s.scores - score.id else (s.scores + score.id).distinct()) } }
+                }) { model.set(set.id) { s -> s.copy(scores = if (score.id in s.scores) s.scores - score.id else (s.scores + score.id).distinct()) } }
             }
             Surface(onClick = onNewSet, shape = FolioShapes.large, color = Color.Transparent) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
@@ -129,11 +135,11 @@ import com.folio.notes.ui.FolioSpacing
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12)) {
             PickRow(score.folder == null, "No folder", "Keep it on the main shelf", {
                 Icon(Icons.Rounded.LibraryMusic, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }) { model.moveToFolder(setOf(score.id), null); dismiss() }
+            }) { if (score.folder != null) model.moveToFolder(setOf(score.id), null); dismiss() }
             folders.forEach { folder ->
                 PickRow(score.folder == folder.id, folder.name, "Folder", {
                     Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }) { model.moveToFolder(setOf(score.id), folder.id); dismiss() }
+                }) { if (score.folder != folder.id) model.moveToFolder(setOf(score.id), folder.id); dismiss() }
             }
             Surface(onClick = onNewFolder, shape = FolioShapes.large, color = Color.Transparent) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
