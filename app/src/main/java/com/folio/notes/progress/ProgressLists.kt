@@ -135,7 +135,7 @@ private const val FORM_ADD = -1
         } catch (e: Exception) { error = e.message ?: "Check the paper details." }
     }
     val doneCount = papers.count { paperKey(it) in done }
-    FolioPanel("Exam progression", ::dismiss, actions = {
+    FolioPanel("Exam progression", ::dismiss, canDismiss = { dismiss(); false }, actions = {
         IconButton({ papersRaw = history.removeAt(history.lastIndex); notice = "Undid the last change."; error = null }, enabled = history.isNotEmpty() && !busy) {
             Icon(Icons.AutoMirrored.Rounded.Undo, "Undo last change")
         }

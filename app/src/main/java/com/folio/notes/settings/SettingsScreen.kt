@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -59,6 +60,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
 @Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
+    val focusManager = LocalFocusManager.current
     var category by rememberSaveable { mutableStateOf<SettingsCategory?>(if (startWithBackup) SettingsCategory.BACKUP else if (startWithWritingFollow) SettingsCategory.FOLLOW else null) }
     var query by rememberSaveable { mutableStateOf("") }
     val searching = query.isNotBlank()
@@ -92,7 +94,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
     CompositionLocalProvider(LocalDestinationTopGap provides topGap, LocalSettingsTarget provides searchTarget) {
     BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
         val wide = maxWidth >= 840.dp
-        val open: (SettingsCategory) -> Unit = { category = it; query = "" }
+        val open: (SettingsCategory) -> Unit = { focusManager.clearFocus(); category = it; query = "" }
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 SettingsSidebar(category ?: SettingsCategory.APPEARANCE, searching, query, { query = it }, open, Modifier.width(320.dp).fillMaxHeight())
@@ -142,12 +144,14 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).imePadding(), contentAlignment = Alignment.TopCenter) {
-            Column(
-                Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(horizontal = FolioDestinationInset).padding(bottom = FolioSpacing.dp32),
-                verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24),
-                content = content,
-            )
+            key(title) {
+                Column(
+                    Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+                        .padding(horizontal = FolioDestinationInset).padding(bottom = FolioSpacing.dp32),
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24),
+                    content = content,
+                )
+            }
         }
     }
 }
@@ -293,34 +297,46 @@ private enum class SettingsCategory(val title: String, val summary: String, val 
 /** What search can find: each setting by name plus the words someone might use for it. */
 private object SettingsIndex {
     class Hit(val category: SettingsCategory, val title: String, val keywords: String) {
-        val target get() = when (title) {
-            "Colour theme", "Black and white theme" -> "Colours"
-            "Toolbar tools and order", "Toolbar undo and redo", "Toolbar colour dots, presets and timer" -> "Toolbar"
-            "Typed text size and alignment" -> "Typed text"
-            "Reading direction" -> "Writing direction"
-            "Writing follow" -> "Start here"
-            "Room before moving and edge strip width" -> "Room before moving"
-            "Writing position and line spacing" -> "Where your writing sits"
-            "Movement feel and timing" -> "Feel"
-            "Zoom pane height and auto peek" -> "Zoom pane & peek"
-            "Default paper" -> "Paper"
-            "Default cover colour" -> "Cover design and colour"
-            "Library layout" -> "Layout"
-            "Restore from backup folder" -> "Restore"
-            "Library backup file" -> "Library file"
-            "Page image sharpness" -> "Export"
-            "Split view balance" -> "Split view"
-            "Share button long-press" -> "Share button"
-            "Mistake practice paper" -> "Paper guide"
-            "Focal account" -> "Focal"
-            "Check for updates" -> "Updates"
-            else -> title
-        }
+        val target get() = settingsSearchTarget(title)
     }
 
     private fun e(c: SettingsCategory, title: String, keywords: String = "") = Hit(c, title, keywords)
 
     private val all = listOf(
+        e(SettingsCategory.ACCOUNT, "Check on launch", "automatic app updates"),
+        e(SettingsCategory.MISTAKES, "Starting zoom", "practice handwriting size"),
+        e(SettingsCategory.MISTAKES, "Respond by", "write type exam paper default"),
+        e(SettingsCategory.WORKFLOW, "Custom timer, reading time", "exam duration"),
+        e(SettingsCategory.WORKFLOW, "Custom timer, writing minutes", "exam duration"),
+        e(SettingsCategory.BACKUP, "Back up now", "automatic folder manual run"),
+        e(SettingsCategory.BACKUP, "Restore library backup", "import portable recover file"),
+        e(SettingsCategory.BACKUP, "Save library backup", "export portable device file"),
+        e(SettingsCategory.FOLLOW, "Switch to the area I write in", "detected response"),
+        e(SettingsCategory.FOLLOW, "Show answer area outlines", "boundaries display"),
+        e(SettingsCategory.FOLLOW, "Detect answer areas automatically", "pdf lines"),
+        e(SettingsCategory.FOLLOW, "Start following at this zoom", "minimum page zoom"),
+        e(SettingsCategory.FOLLOW, "Learn my line spacing", "adaptive natural breaks"),
+        e(SettingsCategory.FOLLOW, "Show where the next line lands", "landing guide dot dashed"),
+        e(SettingsCategory.FOLLOW, "Line-end zone", "return margin"),
+        e(SettingsCategory.FOLLOW, "Position after a sideways move", "horizontal location"),
+        e(SettingsCategory.FOLLOW, "Writing height", "vertical position line"),
+        e(SettingsCategory.FOLLOW, "Movement speed", "glide pace motion"),
+        e(SettingsCategory.FOLLOW, "Pause before moving", "delay glide wait"),
+        e(SettingsCategory.STYLUS, "Pan speed", "navigation fast multiplier"),
+        e(SettingsCategory.STYLUS, "Fast pan", "navigation drag speed"),
+        e(SettingsCategory.WRITING, "Document tabs", "toolbar open notebooks"),
+        e(SettingsCategory.WRITING, "Start with ink options open", "width colours palette toolbar"),
+        e(SettingsCategory.WRITING, "Timer on the toolbar", "focal exam chips"),
+        e(SettingsCategory.WRITING, "Pinned presets", "toolbar saved tools"),
+        e(SettingsCategory.WRITING, "Colour dots", "toolbar pen highlighter color preview"),
+        e(SettingsCategory.WRITING, "Sticky notes", "default text size font"),
+        e(SettingsCategory.WRITING, "Keep notebooks small", "storage refit points"),
+        e(SettingsCategory.WRITING, "Low-latency ink", "display pen delay experimental"),
+        e(SettingsCategory.WRITING, "Tilt widens the highlighter", "angle marker width"),
+        e(SettingsCategory.WRITING, "Soft stroke ends", "taper pen"),
+        e(SettingsCategory.WRITING, "Thinner when fast", "pen speed width"),
+        e(SettingsCategory.WRITING, "Pull past the end to add a page", "scroll release blank"),
+        e(SettingsCategory.WRITING, "Pen smoothing", "jitter handwriting steady"),
         e(SettingsCategory.APPEARANCE, "Show tool names", "labels learning icons"),
         e(SettingsCategory.APPEARANCE, "Larger controls", "accessibility touch targets buttons"),
         e(SettingsCategory.APPEARANCE, "Shortcut hints", "tips guide dismiss"),

@@ -12,15 +12,16 @@ import com.folio.notes.model.PageLayers
 import com.folio.notes.model.Stroke
 import com.folio.notes.model.StrokeStyle
 import com.folio.notes.model.TextBox
+import com.folio.notes.model.displayTitle
 import com.folio.notes.model.page
 import com.folio.notes.storage.PageEdit
 import com.folio.notes.storage.PageJournal
 import com.folio.notes.storage.StrokesEdit
 import com.folio.notes.storage.content
+import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import java.util.UUID
 
 /** Editor commands over the shared document engine; no independent notebook content. */
 internal class EditorSelectionController(private val runtime: FolioRuntime) {
@@ -240,6 +241,7 @@ internal class EditorSelectionController(private val runtime: FolioRuntime) {
                 // A drag lands where the finger is, so the view stays put; the menu route jumps to the page.
                 if (at == null) {
                     selectPage(note.pages.indexOfFirst { it.id == targetId })
+                    reportNotice("Moved to ${target.displayTitle(note.pages.indexOfFirst { it.id == targetId })}")
                     _state.update { it.copy(navigationRequest = it.navigationRequest + 1) }
                 }
             }

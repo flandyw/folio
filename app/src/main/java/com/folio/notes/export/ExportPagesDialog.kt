@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
@@ -89,9 +90,9 @@ import com.folio.notes.ui.folioSelected
     var format by remember(note.id) { mutableStateOf(initialFormat) }
     var pdfMode by remember(note.id) { mutableStateOf(initialPdfMode) }
     var rangeText by remember(note.id) { mutableStateOf("") }
-    var rangeError by remember { mutableStateOf<String?>(null) }
+    val keyboard = LocalSoftwareKeyboardController.current
     /** A chip replaces the selection, so the typed range no longer describes it. */
-    fun pick(pages: Set<Int>) { selected = pages; rangeText = ""; rangeError = null }
+    fun pick(pages: Set<Int>) { selected = pages; rangeText = "" }
 
     FolioPanel(title = "Export pages", onDismissRequest = onDismiss) {
         Column(
@@ -147,41 +148,21 @@ import com.folio.notes.ui.folioSelected
             ExportPreview(PageExportRequest(note, selected.sorted(), format, pdfMode), model)
             OutlinedTextField(
                 value = rangeText,
-                // Live, so Save never exports the old selection because Apply was not tapped.
-                onValueChange = { text -> rangeText = text; rangeError = null; parsePageRange(text, note.pages.size).takeIf { it.isNotEmpty() }?.let { selected = it.toSet() } },
+                // Invalid input clears the selection rather than exporting an older range.
+                onValueChange = { text -> rangeText = text; selected = parsePageRange(text, note.pages.size).toSet() },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Pages, e.g. 1-3, 5") },
                 placeholder = { Text("1–${note.pages.size}") },
                 singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
-                    if (rangeText.isNotBlank() && note.pages.isNotEmpty()) {
-                        val parsed = parsePageRange(rangeText, note.pages.size)
-                        if (parsed.isEmpty()) rangeError = "Enter page numbers from 1 to ${note.pages.size}, such as 1-3, 5."
-                        else { selected = parsed.toSet(); rangeError = null }
-                    }
-                }),
-                isError = rangeError != null,
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { keyboard?.hide() }),
+                isError = rangeText.isNotBlank() && selected.isEmpty(),
                 shape = FolioShapes.large,
                 supportingText = {
-                    rangeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        ?: Text(if (selected.isEmpty()) "Select at least one page to save or share."
-                            else "${selected.size} selected · ${formatExportSelection(selected.sorted())}")
+                    Text(if (rangeText.isNotBlank() && selected.isEmpty()) "Enter page numbers from 1 to ${note.pages.size}, such as 1-3, 5."
+                        else if (selected.isEmpty()) "Select at least one page to save or share."
+                        else "${selected.size} selected · ${formatExportSelection(selected.sorted())}")
                 },
-                trailingIcon = {
-                    TextButton(
-                        onClick = {
-                            val parsed = parsePageRange(rangeText, note.pages.size)
-                            if (parsed.isEmpty()) rangeError = "Enter page numbers from 1 to ${note.pages.size}, such as 1-3, 5."
-                            else {
-                                selected = parsed.toSet()
-                                rangeError = null
-                            }
-                        },
-                        enabled = rangeText.isNotBlank() && note.pages.isNotEmpty(),
-                        shapes = ButtonDefaults.shapes()
-                    ) { Text("Apply") }
-                }
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 FilterChip(selected == setOf(initialIndex) && initialIndex in note.pages.indices,
@@ -215,7 +196,7 @@ import com.folio.notes.ui.folioSelected
                     onClick = { pick(emptySet()) },
                     enabled = selected.isNotEmpty(),
                     shapes = ButtonDefaults.shapes()
-                ) { Text("Clear") }
+                ) { Text("Clear selection") }
                 Spacer(Modifier.weight(1f))
                 Text(
                     "${selected.size}/${note.pages.size}",
@@ -236,8 +217,8 @@ import com.folio.notes.ui.folioSelected
                         current = index == initialIndex,
                         checked = index in selected,
                         thumbnails = thumbnails,
-                        onToggle = { selected = if (index in selected) selected - index else selected + index; rangeError = null },
-                        onOnly = { selected = setOf(index); rangeError = null }
+                        onToggle = { pick(if (index in selected) selected - index else selected + index) },
+                        onOnly = { pick(setOf(index)) }
                     )
                 }
             }

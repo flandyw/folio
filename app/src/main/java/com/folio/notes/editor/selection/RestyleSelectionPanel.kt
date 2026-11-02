@@ -10,14 +10,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.folio.notes.library.semanticsLabel
 import com.folio.notes.editor.toolbar.InkColorDot
 import com.folio.notes.ink.InkGeometry
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.model.ShapeTools
 import com.folio.notes.model.Stroke
 import com.folio.notes.model.StrokeStyle
@@ -58,13 +58,13 @@ import kotlin.math.roundToInt
             }
             if (hasShape) {
                 Text("Line style", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     FilterChip(lineStyle == null, { lineStyle = null }, { Text("Keep") })
                     FilterChip(lineStyle == StrokeStyle.SOLID, { lineStyle = StrokeStyle.SOLID }, { Text("Solid") })
                     FilterChip(lineStyle == StrokeStyle.DASHED, { lineStyle = StrokeStyle.DASHED }, { Text("Dashed") })
                     FilterChip(lineStyle == StrokeStyle.DOTTED, { lineStyle = StrokeStyle.DOTTED }, { Text("Dotted") })
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     listOf(StrokeStyle.LONG_DASH, StrokeStyle.DASH_DOT, StrokeStyle.DENSE_DOTS).forEach { style ->
                         FilterChip(lineStyle == style, { lineStyle = style }, { Text(style.label) })
                     }
@@ -90,7 +90,7 @@ import kotlin.math.roundToInt
                 Slider(opacity, { opacity = it }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f).semanticsLabel("Selection opacity"))
                 Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button({ onApply(color, scale.takeIf { it != 1f }, opacity.takeIf { fade }, lineStyle, brush) }, shapes = ButtonDefaults.shapes()) { Text("Apply") }
             }

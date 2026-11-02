@@ -1,9 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.planner
 
-import com.folio.notes.model.countOf
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import android.content.ClipData
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -11,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,15 +20,14 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,13 +38,14 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.folio.notes.FolioApplication
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.model.Notebook
+import com.folio.notes.model.countOf
 import com.folio.notes.progress.ChoiceField
 import com.folio.notes.progress.MetricBars
 import com.folio.notes.progress.ProgressCard
 import com.folio.notes.progress.ScoreTrend
 import com.folio.notes.progress.countsAsExam
-import com.folio.notes.progress.notebookExams
 import com.folio.notes.progress.friendlyDate
+import com.folio.notes.progress.notebookExams
 import com.folio.notes.progress.objects
 import com.folio.notes.progress.strings
 import com.folio.notes.study.FocalAccountButton
@@ -55,15 +55,15 @@ import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioScreenHeading
 import com.folio.notes.ui.FolioSpacing
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val TABS = listOf("Calendar", "SACs", "Stoplight", "Goals", "Score", "Grades")
 private val RATING_COLOUR = mapOf("red" to Color(0xFFC62828), "amber" to Color(0xFFF9A825), "green" to Color(0xFF2E7D32))
@@ -152,13 +152,13 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    FolioPanel(title, { if (!busy) onDismiss() }) {
+    FolioPanel(title, onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             fields()
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
-        Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
+        FlowRow(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
             TextButton(onDismiss, enabled = !busy) { Text("Cancel") }
             Button({ busy = true; scope.launch { error = onSave(); busy = false; if (error == null) onDismiss() } }, enabled = !busy) { Text(if (busy) "Saving…" else "Save") }
         }

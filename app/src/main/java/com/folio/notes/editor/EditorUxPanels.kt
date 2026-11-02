@@ -32,12 +32,12 @@ import com.folio.notes.storage.InkCodec
 import com.folio.notes.storage.PageJournal
 import com.folio.notes.storage.content
 import com.folio.notes.ui.FolioPanel
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.File
-import java.util.UUID
 
 @Composable internal fun EditorUxStatus(state: FolioState, model: FolioViewModel, onGuide: () -> Unit) {
     val prefs = rememberPrefs()
@@ -115,7 +115,7 @@ import java.util.UUID
     val scope = rememberCoroutineScope()
     val snapshots = remember { selection.mapNotNull { (id, picked) -> note.pages.firstOrNull { it.id == id }?.let { id to (it to picked) } }.toMap() }
     var busy by remember { mutableStateOf(false) }
-    FolioPanel("Align and distribute", onDismiss) {
+    FolioPanel("Align and distribute", onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Each selected stroke, text box or picture is an item. On a spanning selection, items are aligned within each page. All affected pages change in one undoable action.")
             if (snapshots.values.none { it.second.size >= 2 }) Text("Select two or more items on a page to align them; select three to distribute them.")
@@ -145,7 +145,7 @@ import java.util.UUID
     var busy by remember { mutableStateOf(false) }
     suspend fun refresh() { entries = withContext(Dispatchers.IO) { root.listFiles()?.filter { it.extension == "json" }?.sortedBy { it.name }.orEmpty() } }
     LaunchedEffect(Unit) { refresh() }
-    FolioPanel("Reusable snippets", onDismiss) {
+    FolioPanel("Reusable snippets", onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Name this selection") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), singleLine = true)
             Button({ busy = true; scope.launch {

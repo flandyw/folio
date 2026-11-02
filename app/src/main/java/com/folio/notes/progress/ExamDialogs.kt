@@ -23,11 +23,11 @@ import com.folio.notes.ui.FolioMenuItem
 import com.folio.notes.ui.FolioMenuPopover
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
+import java.time.LocalDate
+import java.util.UUID
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.LocalDate
-import java.util.UUID
 
 @Composable internal fun ChoiceField(label: String, value: String, options: List<String>, onChange: (String) -> Unit,
     editable: Boolean = false) {
@@ -129,7 +129,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
         scope.launch { if (manager.save("attempts", id, raw, owner)) onSaved(id, addMistake)
             else error = manager.state.value.error; busy = false }
     }
-    FolioPanel(if (editing) "Edit exam" else "Log exam", ::dismiss) {
+    FolioPanel(if (editing) "Edit exam" else "Log exam", ::dismiss, canDismiss = { dismiss(); false }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             ChoiceField("Subject", subject, (catalog.references.map { it.subject } + catalog.studies.map { it.subject }).distinct().sorted(), { subject = it }, true)
             ChoiceField("Provider", provider, (listOf("VCAA", "VCAA NHT", "NEAP", "Insight", "TSSM", "MAV", "iTute", "Kilbaha", "Heffernan", "Other")), { provider = it }, true)
@@ -223,7 +223,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     var discard by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun dismiss() { if (!busy) { if (category != "Concept" || question.isNotBlank() || explanation.isNotBlank() || correction.isNotBlank() || topic.isNotBlank() || lost.isNotBlank() || total.isNotBlank()) discard = true else onDismiss() } }
-    FolioPanel("Log mistake · ${exam.paper}", ::dismiss) {
+    FolioPanel("Log mistake · ${exam.paper}", ::dismiss, canDismiss = { dismiss(); false }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(exam.title)
             OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Question") }, singleLine = true, placeholder = { Text("e.g. Q3b") }, keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next))

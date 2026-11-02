@@ -50,13 +50,12 @@ import com.folio.notes.ui.FolioSpacing
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (destinations.isEmpty()) item {
-                EmptyHint("No destination pages match.")
-                TextButton({ destinationQuery = "" }) { Text("Show all destinations") }
+                EmptyHint(if (note.pages.size < 2) "Add another page to this notebook before moving the selection." else "No destination pages match your search.")
+                if (destinationQuery.isNotBlank()) TextButton({ destinationQuery = ""; textKeyboard?.hide() }) { Text("Clear destination search") }
             }
             items(destinations, key = { it.value.id }) { (index, destination) ->
                 Surface(onClick = {
                     model.moveSelectionToPage(sourceId, destination.id, picked)
-                    model.reportNotice("Moved to ${destination.displayTitle(index)}")
                     onMoved()
                 }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,

@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.settings.write
@@ -28,14 +29,15 @@ import org.json.JSONObject
     FolioPanel("Saved workspaces", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Save a notebook pair, page positions, zoom, pane order, page link and split. Workspaces are kept on this device.")
-            OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Workspace name") }, singleLine = true)
+            OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Workspace name") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences))
             Button({ model.workspaceSnapshot(name.trim())?.let { snapshot -> save((entries.filterNot { it.optString("name").equals(name.trim(), true) } + snapshot).takeLast(20)); name = "" } }, enabled = name.isNotBlank() && state.companion != null) { Text("Save current pair") }
-            if (state.companion == null) Text("Open a companion document to save a pair.")
+            if (state.companion == null) Text("Close this panel and use the toolbar’s split button to open a second document, then save the pair here.")
+            if (entries.isEmpty()) Text("No saved workspaces yet. Save a document pair to reopen both pages and their layout together.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             entries.forEach { item ->
                 val available = state.notes.any { it.id == item.optString("editor") } && state.notes.any { it.id == item.optString("companion") }
                 Row {
-                    TextButton({ if (model.restoreWorkspace(item)) onDismiss() }, enabled = available, modifier = Modifier.weight(1f)) { Text(item.optString("name")) }
-                    TextButton({ save(entries.filterNot { it === item }) }) { Text("Delete") }
+                    TextButton({ if (model.restoreWorkspace(item)) onDismiss() }, enabled = available, modifier = Modifier.weight(1f)) { Text(item.optString("name"), maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                    TextButton({ save(entries.filterNot { it === item }) }, modifier = Modifier.semanticsLabel("Remove workspace ${item.optString("name")}")) { Text("Remove") }
                 }
                 if (!available) Text("A document in this workspace was deleted or is unavailable.", style = MaterialTheme.typography.bodySmall)
             }

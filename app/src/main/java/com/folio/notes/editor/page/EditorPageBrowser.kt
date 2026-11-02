@@ -1,13 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.page
 
-import com.folio.notes.model.countOf
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +38,7 @@ import com.folio.notes.editor.EditorOverlayState
 import com.folio.notes.editor.dialogs.BatchPagesPanel
 import com.folio.notes.editor.dialogs.EditorPageDialogs
 import com.folio.notes.model.PageFilter
+import com.folio.notes.model.countOf
 import com.folio.notes.model.displayTitle
 import com.folio.notes.model.organizePages
 import com.folio.notes.model.resolvePageLabel
@@ -45,7 +46,6 @@ import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import kotlin.math.roundToInt
-import androidx.compose.foundation.lazy.grid.items as gridItems
 
 @Composable internal fun EditorPageBrowser(state: FolioState, model: FolioViewModel, overlays: EditorOverlayState,
     browser: EditorBrowserState, jumpTo: (Int) -> Unit, addPage: () -> Unit, revealNewPage: (Int) -> Unit,
@@ -82,7 +82,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
         }
         fun goToPage() {
             val target = resolvePageLabel(note.pages, pdfLabels, pageNumber) ?: return
-            jumpTo(target); pageBrowser = false; pageNumber = ""
+            keyboard?.hide(); jumpTo(target); pageBrowser = false; pageNumber = ""
         }
         OutlinedTextField(pageQuery, { pageQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
             label = { Text("Find a page by name or number") }, placeholder = { Text("e.g. Quadratics or 12") }, singleLine = true,
@@ -103,7 +103,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
             val jumpFocus = remember { androidx.compose.ui.focus.FocusRequester() }
             LaunchedEffect(Unit) { jumpFocus.requestFocus() }
             OutlinedTextField(pageNumber, { pageNumber = it.take(100) },
-                label = { Text("Page number, name or PDF label") }, supportingText = { Text("Use label:3 for printed PDF page 3, or name:12 for a page named 12.") }, singleLine = true,
+                label = { Text("Page number, name or PDF label") }, supportingText = { Text(if (pageNumber.isNotBlank() && resolvePageLabel(note.pages, pdfLabels, pageNumber) == null) "No page matches. Enter a page number, title or PDF label." else "Use label:3 for printed PDF page 3, or name:12 for a page named 12.") }, singleLine = true,
                 isError = pageNumber.isNotBlank() && resolvePageLabel(note.pages, pdfLabels, pageNumber) == null,
                 shape = FolioShapes.large,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Go),
@@ -120,7 +120,8 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                     if (pageBrowserGrid) "Show page list" else "Show page thumbnails")
             }
         }
-        TextButton({ batching = true }) { Text("Select pages for batch actions") }
+        TextButton({ pageBrowser = false; batching = true }) { Text("Select pages") }
+        val reorderColor = MaterialTheme.colorScheme.primary
         val rowHeight = 112.dp
         val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
         var dragFrom by remember { mutableStateOf<Int?>(null) }
@@ -154,7 +155,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                             IconButton({ model.togglePageBookmark(item.id) }) {
-                                Icon(if (item.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, "Bookmark page ${index + 1}")
+                                Icon(if (item.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (item.bookmarked) "Remove bookmark from page ${index + 1}" else "Bookmark page ${index + 1}")
                             }
                             Box {
                                 IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
@@ -164,7 +165,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                                     onRedoFlag = { model.setPageRedoFlag(note.id, item.id, !item.redoFlag) },
                                     onMoveTo = { movingPage = item.id; destinationPage = (index + 1).toString() },
                                     onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
-                                    onInsert = { revealNewPage(model.insertPage(index + 1)) }, onDuplicate = { model.duplicatePage(index)?.let(revealNewPage) },
+                                    onInsert = { revealNewPage(model.insertPage(index + 1)); pageBrowser = false }, onDuplicate = { model.duplicatePage(index)?.let { revealNewPage(it); pageBrowser = false } },
                                     onDelete = { deletingPage = item.id })
                             }
                         }
@@ -184,7 +185,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                 val dragging = dragFrom == index
                 PageRow(item, index, state.pageIndex == index, dragging,
                     Modifier.height(rowHeight)
-                        .then(if (insertion == index && dragFrom != index) Modifier.drawBehind { drawLine(androidx.compose.ui.graphics.Color(0xFF527A5A), androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 4.dp.toPx()) } else Modifier)
+                        .then(if (insertion == index && dragFrom != index) Modifier.drawBehind { drawLine(reorderColor, androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 4.dp.toPx()) } else Modifier)
                         .zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = if (dragging) dragDelta else 0f }
                         .pointerInput(item.id, index, canDrag, note.pages.size) {
@@ -204,7 +205,7 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
                         },
                     onOpen = { jumpTo(index); pageBrowser = false },
                     onMoveUp = { model.movePage(index, index - 1) }, onMoveDown = { model.movePage(index, index + 1) },
-                    onDuplicate = { model.duplicatePage(index)?.let(revealNewPage) }, onInsert = { revealNewPage(model.insertPage(index + 1)) },
+                    onDuplicate = { model.duplicatePage(index)?.let { revealNewPage(it); pageBrowser = false } }, onInsert = { revealNewPage(model.insertPage(index + 1)); pageBrowser = false },
                     onDelete = { deletingPage = item.id },
                     onName = { namedPage = item; pageTitle = item.title },
                     onBookmark = { model.togglePageBookmark(item.id) },

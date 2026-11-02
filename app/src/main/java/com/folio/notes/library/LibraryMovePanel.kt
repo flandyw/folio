@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.library
 
 import androidx.compose.foundation.clickable
@@ -48,18 +48,16 @@ import com.folio.notes.ui.FolioSpacing
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             if (visible.isEmpty()) item {
-                Text(if (folders.isEmpty()) "Create a folder below to organise these notebooks." else "No folders match your search. Try a different name.",
+                Text(if (query.isNotBlank()) "No folders match your search. Try a different name." else if (allowCreate) "Choose $rootLabel or create a folder below." else "No other folders available. Choose $rootLabel to move to the top level.",
                     Modifier.padding(vertical = FolioSpacing.dp12), style = MaterialTheme.typography.bodySmall)
             }
             items(visible, key = { it.id }) { folder ->
                 val here = single && currentFolder == folder.id
                 ListItem(modifier = Modifier.clickable(enabled = !here, onClickLabel = "Move to ${folder.name}") { onMove(folder.id) },
-                    headlineContent = { Text(folder.name) },
+                    headlineContent = { Text(folder.name, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                     supportingContent = { if (folder.parentId != null) Text(LibraryFolders.label(folders, folder.parentId)) },
                     leadingContent = { Icon(if (here) Icons.Rounded.Check else Icons.Rounded.FolderOpen, null, tint = if (here) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
-                    trailingContent = { TextButton({ onMove(folder.id) }, enabled = !single || currentFolder != folder.id) {
-                        Text(if (single && currentFolder == folder.id) "Current" else "Move here")
-                    } })
+                    trailingContent = { if (here) Text("Current", style = MaterialTheme.typography.labelMedium) })
             }
         }
         if (allowCreate) HorizontalDivider()
@@ -67,11 +65,11 @@ import com.folio.notes.ui.FolioSpacing
             if (creating) {
                 val newFolderFocus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { newFolderFocus.requestFocus() }
-                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth().focusRequester(newFolderFocus), singleLine = true, label = { Text("New folder name") },
+                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth().focusRequester(newFolderFocus), singleLine = true, label = { Text("New folder name") }, supportingText = { Text("Create at the top level and move the selected notebooks into it.") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { if (newFolder.isNotBlank() && onCreateAndMove(newFolder.trim())) onDismiss() }))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                    TextButton({ creating = false }) { Text("Cancel") }
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
+                    TextButton({ creating = false; newFolder = "" }) { Text("Cancel new folder") }
                     Button({ if (onCreateAndMove(newFolder.trim())) onDismiss() }, enabled = newFolder.isNotBlank()) { Text("Create & move") }
                 }
             } else TextButton({ creating = true }) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }

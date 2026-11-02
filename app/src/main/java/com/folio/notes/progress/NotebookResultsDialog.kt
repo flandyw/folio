@@ -24,10 +24,10 @@ import com.folio.notes.model.Notebook
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
-import kotlinx.coroutines.launch
-import org.json.JSONObject
 import java.time.LocalDate
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /** One notebook result waiting to be confirmed; every field is editable text until it is saved. */
 private data class ResultDraft(val id: String, val source: String, val notebookId: String?, val include: Boolean,
@@ -118,7 +118,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
             } finally { busy = false }
         }
     }
-    FolioPanel(if (singleResult) "Save mark to Focal" else "Add notebook results", ::dismiss) {
+    FolioPanel(if (singleResult) "Save mark to Focal" else "Add notebook results", ::dismiss, canDismiss = { dismiss(); false }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(if (singleResult) (if (user == null) "You're signed out of Focal, so this saves on this device until you sign in. Check the details first."

@@ -8,19 +8,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.folio.notes.ui.FolioPanel
 
 internal val LocalWorkspaceCommands = compositionLocalOf<List<EditorCommand>> { emptyList() }
 
-internal data class EditorCommand(val title: String, val keys: String = "", val enabled: Boolean = true,
-    val reason: String = "", val run: () -> Unit)
 
 internal val editorShortcutHelp = listOf(
     "Ctrl + K" to "Find an action", "P / E / H / L / V / T" to "Default tool letters (customise in Settings › Writing)",
@@ -39,8 +43,7 @@ internal val editorShortcutHelp = listOf(
 @Composable internal fun EditorCommandPanel(commands: List<EditorCommand>, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var highlighted by remember(query) { mutableIntStateOf(0) }
-    val words = query.trim().split(Regex("\\s+"))
-    val matches = commands.filter { command -> words.all { command.title.contains(it, true) } }
+    val matches = remember(commands, query) { matchingEditorCommands(commands, query) }
     val available = matches.filter { it.enabled }
     val active = available.getOrNull(highlighted.coerceIn(0, (available.size - 1).coerceAtLeast(0)))
     fun run(command: EditorCommand?) { if (command != null && command.enabled) { onDismiss(); command.run() } }
@@ -56,13 +59,13 @@ internal val editorShortcutHelp = listOf(
                     Key.Escape -> { onDismiss(); true }
                     else -> false
                 }
-            }, label = { Text("Search actions") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { run(active) }))
+            }, label = { Text("Search actions or shortcuts") }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear action search") } }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { run(active) }))
             Column(Modifier.fillMaxWidth().weight(1f, false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (matches.isEmpty()) Text("No matching actions. Try page, tool, search or export.")
+            if (matches.isEmpty()) Text("No matching actions. Try page, tool, search, export or a shortcut such as Ctrl + Z.")
             matches.forEach { command ->
                 val bring = remember(command.title) { BringIntoViewRequester() }
                 LaunchedEffect(active?.title) { if (active === command) bring.bringIntoView() }
-                TextButton({ run(command) }, enabled = command.enabled, modifier = Modifier.fillMaxWidth().bringIntoViewRequester(bring),
+                TextButton({ run(command) }, enabled = command.enabled, modifier = Modifier.fillMaxWidth().bringIntoViewRequester(bring).semantics { selected = active === command },
                     colors = ButtonDefaults.textButtonColors(containerColor = if (active === command) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)) {
                     Column(Modifier.weight(1f)) { Text(command.title); if (!command.enabled && command.reason.isNotBlank()) Text(command.reason, style = MaterialTheme.typography.bodySmall) }
                     if (command.keys.isNotBlank()) Text(command.keys, style = MaterialTheme.typography.labelSmall)
@@ -74,6 +77,7 @@ internal val editorShortcutHelp = listOf(
 }
 
 @Composable internal fun GestureGuide(onDismiss: () -> Unit) {
+    val keyboard = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
     val gestures = listOf(
         "Pencil double-tap" to "OnePlus/OPPO pencils: configure the action in Settings › Stylus & touch. Other pens use their system shortcut.",
@@ -90,9 +94,16 @@ internal val editorShortcutHelp = listOf(
     )
     FolioPanel("Gestures and shortcuts", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Find a gesture") }, singleLine = true)
-            gestures.filter { (it.first + it.second).contains(query.trim(), true) }.forEach { (title, detail) ->
-                Text(title, style = MaterialTheme.typography.titleSmall); Text(detail, style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Find a gesture") }, singleLine = true,
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear gesture search") } },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }))
+            val matches = gestures.filter { (it.first + it.second).contains(query.trim(), true) }
+            if (matches.isEmpty()) {
+                Text("No gestures match. Try pen, pages, selection or keyboard.")
+                TextButton({ query = ""; keyboard?.hide() }) { Text("Show all gestures") }
+            }
+            matches.forEach { (title, detail) ->
+                Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall); Text(detail, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

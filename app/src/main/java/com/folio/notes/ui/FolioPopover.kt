@@ -10,6 +10,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
@@ -43,12 +46,12 @@ import com.folio.notes.input.guardUiTouches
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true, dismissOnClickOutside = true, dismissOnBackPress = true)) {
         FolioPopoverSurface(
-            modifier = modifier.guardUiTouches().widthIn(min = 260.dp, max = 340.dp).imePadding()
+            modifier = modifier.semantics { paneTitle = title }.guardUiTouches().widthIn(min = 260.dp, max = 340.dp).imePadding()
         ) {
             Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Icon(icon, null, Modifier.size(20.dp))
-                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 }
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) { content() }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End),

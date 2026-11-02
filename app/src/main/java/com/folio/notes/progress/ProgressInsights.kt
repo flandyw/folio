@@ -15,18 +15,19 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
 import com.folio.notes.mistakes.ReviewRating
 import com.folio.notes.mistakes.isoTime
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
-import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: List<ExamTrackMistake>, references: List<ExamReference>,
     settings: JSONObject?, onMistakes: () -> Unit) {
@@ -231,10 +232,10 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
         val p = newProvider.trim()
         if (p.isNotEmpty() && providers.none { comparisonName(it) == comparisonName(p) }) { providers = providers + p; newProvider = "" }
     }
-    FolioPanel("Provider difficulty", { if (!busy) onDismiss() }) {
+    FolioPanel("Provider difficulty", onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Harder providers go above VCAA, easier below. This is a conservative planning adjustment, capped at 8 percentage points.")
-            Row(verticalAlignment = Alignment.CenterVertically) { Switch(enabled, { enabled = it }); Text("Apply alignment", Modifier.padding(start = FolioSpacing.dp12)) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Switch(enabled, { enabled = it }, modifier = Modifier.semanticsLabel("Apply provider difficulty alignment")); Text("Apply alignment", Modifier.padding(start = FolioSpacing.dp12)) }
             ChoiceField("Strength", strength, listOf("light", "balanced", "strong"), { strength = it })
             Text("Light: 1 point/rank · Balanced: 1.5 · Strong: 2", style = MaterialTheme.typography.bodySmall)
             providers.forEachIndexed { index, provider -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -247,8 +248,8 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { addProvider() }),
                 label = { Text("Add provider") })
-            TextButton(::addProvider) { Text("Add provider") }
-            TextButton({ providers = defaultProviderOrder; enabled = true; strength = "balanced" }) { Text("Reset defaults") }
+            TextButton(::addProvider, enabled = !busy && newProvider.isNotBlank() && providers.none { comparisonName(it) == comparisonName(newProvider) }) { Text("Add provider") }
+            TextButton({ providers = defaultProviderOrder; enabled = true; strength = "balanced" }, enabled = !busy) { Text("Reset defaults") }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
         Button({ busy = true; scope.launch {

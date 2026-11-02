@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.folio.notes.input.guardUiTouches
@@ -32,7 +33,7 @@ import com.folio.notes.input.guardUiTouches
             val panelWidth = minOf(if (landscape) 920.dp else 640.dp, maxWidth)
             val panelMaxHeight = minOf(if (landscape) 680.dp else 800.dp, maxHeight)
             Surface(
-                modifier = Modifier.graphicsLayer {
+                modifier = Modifier.semantics { paneTitle = title }.graphicsLayer {
                     alpha = progress.value
                     translationY = (1f - progress.value) * 20.dp.toPx()
                     scaleX = .96f + .04f * progress.value

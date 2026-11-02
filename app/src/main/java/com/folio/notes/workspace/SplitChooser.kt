@@ -3,16 +3,14 @@ package com.folio.notes.workspace
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
@@ -23,9 +21,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.app.FolioState
@@ -51,7 +52,7 @@ import com.folio.notes.ui.FolioSpacing
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
-    BackHandler(query.isNotEmpty()) { query = "" }
+    BackHandler { if (query.isNotEmpty()) query = "" else onCancel() }
     val choices = remember(state.notes, state.tabs, state.activeId, query) {
         SplitChooser.choices(state.notes, state.tabs, state.activeId, query)
     }
@@ -72,7 +73,7 @@ import com.folio.notes.ui.FolioSpacing
             OutlinedTextField(
                 query, { query = it.take(80) },
                 Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
-                placeholder = { Text("Search notebooks") },
+                label = { Text("Search notebooks") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = if (query.isEmpty()) null else {
                     { IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }
@@ -84,8 +85,12 @@ import com.folio.notes.ui.FolioSpacing
             )
             if (choices.isEmpty) {
                 Box(Modifier.fillMaxSize().padding(FolioSpacing.dp24), contentAlignment = Alignment.Center) {
-                    Text(if (query.isBlank()) "No other notebooks yet" else "No notebooks match “${query.trim()}”",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        Text(if (query.isBlank()) "No notebooks available" else "No notebooks match “${query.trim()}”",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (query.isNotBlank()) TextButton({ query = ""; keyboard?.hide() }) { Text("Show all notebooks") }
+                        TextButton(onCancel) { Text(if (replacing) "Keep current document" else "Cancel split view") }
+                    }
                 }
             } else LazyVerticalGrid(
                 GridCells.Adaptive(112.dp),
@@ -117,7 +122,7 @@ private fun pageCount(note: Notebook) = if (note.pages.size == 1) "1 page" else 
 
 private fun LazyGridScope.section(title: String) {
     item(key = "section:$title", span = { GridItemSpan(maxLineSpan) }) {
-        Text(title, Modifier.padding(top = FolioSpacing.dp8), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text(title, Modifier.padding(top = FolioSpacing.dp8).semantics { heading() }, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 
