@@ -44,6 +44,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
@@ -289,7 +290,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
                                     }
                                     PopoverGroup("Reading light") {
                                         PopoverRow(if (dim > 0f) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, if (dim > 0f) "Stop dimming the page" else "Dim the page for a dark pit") { setDim(if (dim > 0f) 0f else .35f) }
-                                        if (dim > 0f) Slider(dim, ::setDim, valueRange = 0f..AppPrefs.MUSIC_DIM_MAX)
+                                        if (dim > 0f) Slider(dim, ::setDim, valueRange = 0f..AppPrefs.MUSIC_DIM_MAX, modifier = Modifier.semanticsLabel("Score dimming"))
                                     }
                                     HorizontalDivider()
                                     Text("Tap the left or right of a page to turn it, or use the arrows. Pinch to zoom, double-tap to fit. Arrow, Space and Page keys work with page-turn pedals; Home/End jump to the ends. In landscape you can show two pages side by side. The pens, highlighter, eraser, shapes, text and lasso are the editor's own and all work on a score.",
@@ -427,7 +428,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
     }
     HorizontalDivider()
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        OutlinedTextField(name, { name = it }, Modifier.weight(1f), singleLine = true, shape = FolioShapes.medium,
+        OutlinedTextField(name, { name = it }, Modifier.weight(1f).semanticsLabel("Rehearsal mark name"), singleLine = true, shape = FolioShapes.medium,
             placeholder = { Text("Mark page ${page + 1}, e.g. Coda") },
             keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { add() }))
         FilledTonalIconButton(::add, enabled = name.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add rehearsal mark") }
@@ -456,7 +457,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
         }
         FilledTonalIconButton({ tempo(bpm.roundToInt() + 1) }, enabled = bpm < 240, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Faster") }
     }
-    Slider(bpm, { bpm = it }, valueRange = 30f..240f, onValueChangeFinished = { tempo(bpm.roundToInt()) })
+    Slider(bpm, { bpm = it }, modifier = Modifier.semanticsLabel("Tempo in beats per minute"), valueRange = 30f..240f, onValueChangeFinished = { tempo(bpm.roundToInt()) })
     // Coarse steps for finding a tempo quickly, then the slider for the exact number.
     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         OutlinedButton({ tempo(bpm.roundToInt() - 5) }, modifier = Modifier.weight(1f), enabled = bpm > 30, shapes = ButtonDefaults.shapes()) { Text("−5") }
@@ -533,7 +534,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE }
         }
     }
     // A scrubber for a long score: drag straight to a page instead of hunting for its tile.
-    if (score.pages > 1) Slider(visible.first.toFloat(), { go(it.roundToInt()) }, valueRange = 0f..(score.pages - 1).toFloat())
+    if (score.pages > 1) Slider(visible.first.toFloat(), { go(it.roundToInt()) }, valueRange = 0f..(score.pages - 1).toFloat(), modifier = Modifier.semanticsLabel("Score page"))
     if (marked.isNotEmpty() || counts.isNotEmpty()) Text(
         listOfNotNull(if (marked.isNotEmpty()) "a dot marks a rehearsal mark" else null,
             if (counts.isNotEmpty()) "a blue number counts pencil notes" else null).joinToString("; ").replaceFirstChar { it.uppercase() } + ".",

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.NotebookDragState
 import com.folio.notes.library.NotebookDropDestination
@@ -101,7 +102,7 @@ import com.folio.notes.ui.FolioSpacing
 
 @Composable internal fun ExplorerSearch(query: String, onQuery: (String) -> Unit, hint: String) {
     val focus = LocalFocusManager.current
-    OutlinedTextField(query, onQuery, Modifier.fillMaxWidth(), placeholder = { Text(hint) }, singleLine = true, shape = FolioShapes.extraLarge,
+    OutlinedTextField(query, onQuery, Modifier.fillMaxWidth().semanticsLabel(hint), placeholder = { Text(hint) }, singleLine = true, shape = FolioShapes.extraLarge,
         colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
         leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery(""); focus.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } })

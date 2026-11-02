@@ -30,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -282,7 +283,7 @@ internal fun FocalStudyContent(
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                         val minutes = manualMinutes.toIntOrNull()
                         val valid = minutes != null && minutes in 1..1_440
-                        Text("Log past study", style = MaterialTheme.typography.titleMedium)
+                        Text("Log past study", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                         Text("Saved as finished study ending now" + (subjectName(subjectId)?.let { ", under $it." } ?: ", without a subject.") +
                             if (dedicated) " To place it earlier in the day, drag across the timeline instead." else "",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -374,7 +375,7 @@ internal fun FocalStudyContent(
             }
             Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    Text("Wrap up", style = MaterialTheme.typography.titleMedium)
+                    Text("Wrap up", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                     ReflectionFields(notes, { notes = it }, confidence, { confidence = it })
                     val minutes = studyRoundedMinutes(elapsed)
                     Button({
@@ -444,7 +445,7 @@ internal fun FocalStudyContent(
         }
         if (sharedActive.isNotEmpty()) item(key = "shared") {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Text("Active across your apps", style = MaterialTheme.typography.titleMedium)
+                Text("Active across your apps", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 val pausedCount = sharedActive.count { it.paused }
                 if (pausedCount > 1) {
                     Text("$pausedCount paused sessions can be resolved together.",
@@ -517,7 +518,7 @@ internal fun FocalStudyContent(
                     }
                     FocalSubjectPicker(state.subjects, planSubject, emptyLabel = "All subjects") { planSubject = it; plannedLimit = 5 }
                     if (visiblePlans.isEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("No plans match these filters.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Text("No plans match. Clear the filters to see more plans.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         TextButton({ planSearch = ""; planScopeName = PlanScope.ALL.name; planSubject = null }) { Text("Clear filters") }
                     }
                 }
@@ -541,7 +542,7 @@ internal fun FocalStudyContent(
             }
         }
         if (history.isEmpty()) item(key = "empty-history") {
-            EmptyHint("No completed sessions yet. Your saved study will appear here.")
+            EmptyHint("Complete a study session or log past study to see it here.")
         }
         historyDays.forEach { day ->
             item(key = "day:${day.date}") {

@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
@@ -58,7 +59,7 @@ import com.folio.notes.ui.FolioSpacing
                     keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }))
             }
-            OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Rehearsal notes") },
+            OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Rehearsal notes") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
                 placeholder = { Text("Bowings, cuts, who to watch for the cue…") }, minLines = 4)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
@@ -77,7 +78,7 @@ import com.folio.notes.ui.FolioSpacing
     FolioPanel("Add to ${set.name}", dismiss) {
         Column(Modifier.padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text("${set.scores.size} in the set · new scores join at the end", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth(), placeholder = { Text("Find a score…") },
+            OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth().semanticsLabel("Find a score"), placeholder = { Text("Find a score…") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = { if (filter.isNotEmpty()) IconButton({ filter = "" }) { Icon(Icons.Rounded.Close, "Clear score search") } },
                 singleLine = true, shape = FolioShapes.extraLarge,
@@ -87,7 +88,7 @@ import com.folio.notes.ui.FolioSpacing
         }
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12)) {
             if (shown.isEmpty()) Text(
-                if (scores.isEmpty()) "Import scores into Music to add them to this set." else "No scores match “${filter.trim()}”.",
+                if (scores.isEmpty()) "Import a sheet music PDF in Music, then add it to this set list." else "No scores match “${filter.trim()}”.",
                 Modifier.padding(FolioSpacing.dp12), color = MaterialTheme.colorScheme.onSurfaceVariant)
             shown.forEach { score ->
                 val included = score.id in set.scores

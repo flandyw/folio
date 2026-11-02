@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.EditorPaperState
 import com.folio.notes.editor.toolbar.FolioPopover
@@ -44,7 +45,7 @@ import com.folio.notes.ui.FolioSpacing
                     Text("Use as notebook default", style = MaterialTheme.typography.bodyMedium)
                     Text("For new blank pages", style = MaterialTheme.typography.bodySmall)
                 }
-                Switch(savePaperDefault, { savePaperDefault = it })
+                Switch(savePaperDefault, { savePaperDefault = it }, modifier = Modifier.semanticsLabel("Use as notebook default"))
             }
             listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.SPLIT_RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
                 val selectedPaper = chosenPaper == p
@@ -60,9 +61,9 @@ import com.folio.notes.ui.FolioSpacing
                             Text(editorPaperLabel(p), style = MaterialTheme.typography.bodyMedium)
                             val hint = when (p) {
                                 Paper.SPLIT_RULED -> "Ruled lines with a centre divider"
-                                Paper.MATH_GRID -> "Fine 20 px grid, bold every 5"
-                                Paper.GRAPH -> "Same grid + centred axes"
-                                Paper.MC_SHEET -> "Exam Section A answer sheet, 25 questions A–E"
+                                Paper.MATH_GRID -> "Fine grid with a bold line every five squares"
+                                Paper.GRAPH -> "Fine grid with centred axes"
+                                Paper.MC_SHEET -> "25 multiple-choice questions with options A–E"
                                 Paper.TIAN_GRID -> "田字格 — one character per square, dashed cross"
                                 Paper.MI_GRID -> "米字格 — cross plus diagonals per square"
                                 else -> null

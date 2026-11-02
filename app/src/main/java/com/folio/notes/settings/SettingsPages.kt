@@ -207,12 +207,12 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsDivider()
         SettingsSliderRow("Pen smoothing", if (smoothing == 0f) "Off" else "${(smoothing * 100).roundToInt()}%", smoothing, 0f..1f,
             { p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)) } },
-            subtitle = "Steadies small jitters while keeping up with faster writing. Applies to new pen strokes.",
+            subtitle = "Smooth small hand movements while keeping up with fast writing. Applies to new pen strokes.",
             lowLabel = "Off", highLabel = "More smoothing",
             onReset = if (smoothing != AppPrefs.DEFAULT_PEN_SMOOTHING)
                 ({ p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING) } }) else null)
         SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Keep scrolling past the last page and let go to add a blank page. Off: use the Add page button.")
+        SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Scroll past the last page, then release to add a blank page. Turn off to add pages only with Add page.")
     }
     SettingsGroup("Hold at stroke start", footer = "With the pen selected, rest the tip still for half a second, then draw to use this tool for one stroke. Lifting without moving leaves a normal dot.") {
         SettingsSegmentedRow("Switch to", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
@@ -221,23 +221,23 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     SettingsGroup("Zoom") {
         SettingsSliderRow("Maximum zoom", "${(maxZoom * 100).roundToInt()}%", maxZoom, AppPrefs.MIN_MAX_ZOOM..AppPrefs.MAX_MAX_ZOOM,
             { p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.maxZoom(it.roundToInt().toFloat())) } }, steps = 6,
-            subtitle = "Limits how far you can zoom into pages, canvases and reference views.",
+            subtitle = "Set the closest zoom for pages, infinite canvases and reference views.",
             lowLabel = "100%", highLabel = "800%",
             onReset = if (maxZoom != AppPrefs.DEFAULT_MAX_ZOOM) ({ p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM) } }) else null)
     }
     val taper by rememberPref(p, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
     SettingsGroup("Pen feel", footer = "Pressure response and per-tool pen settings are in the pen's tool options in the editor. Soft ends change how every pen stroke is drawn, old and new; the rest apply to new strokes.") {
         SettingsPrefSwitch(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH, "Thinner when fast",
-            "Quick strokes lay down thinner ink and slow ones fuller, like a real pen. Works with or without pressure.")
+            "Write faster for thinner ink and slower for fuller strokes. Works with or without pressure.")
         SettingsDivider()
         SettingsSliderRow("Soft stroke ends", if (taper == 0f) "Off" else "${(taper * 100).roundToInt()}%", taper, 0f..1f,
             { p.write { putFloat(AppPrefs.INK_TAPER, AppPrefs.inkTaper(it)) } },
-            subtitle = "Thins the first and last few millimetres of each pen stroke so writing looks inked rather than plotted. Dots and short ticks are left as drawn.",
+            subtitle = "Taper the start and end of pen strokes. Dots and short ticks keep their original shape.",
             lowLabel = "Off", highLabel = "Softer",
             onReset = if (taper != 0f) ({ p.write { putFloat(AppPrefs.INK_TAPER, 0f) } }) else null)
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT, "Tilt widens the highlighter",
-            "Lay the stylus over and the highlighter lays down a broader stroke, like the side of a marker. The width is set when the pen touches down.")
+            "Tilt the stylus for a broader highlight. The stroke width is set when the tip touches down.")
         SettingsDivider()
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             SettingsPrefSwitch(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK, "Low-latency ink",
@@ -245,7 +245,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             SettingsDivider()
         }
         SettingsPrefSwitch(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES, "Keep notebooks small",
-            "When a pen stroke ends, samples that add nothing to its shape are dropped. The writing looks the same and the notebook takes less space.")
+            "Reduce stored points after each pen stroke while preserving its shape, so notebooks use less space.")
     }
     SettingsGroup("Tidy up shapes") {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { ShapeAssistSettings() }
@@ -253,13 +253,13 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     SettingsGroup("Shapes") {
         SettingsPrefSwitch(EditorQuickPrefs.SHAPE_MEASUREMENTS, true, "Live measurements", "Show length and angle, or width × height, while drawing a shape.")
         SettingsDivider()
-        SettingsPrefSwitch("mathSnap", true, "Snap to grid and 15°", "Lines snap to 15° and to the grid on Maths, Grid and Graph paper. Toggle any time in the editor.")
+        SettingsPrefSwitch("mathSnap", true, "Snap to grid and 15°", "Snap lines to 15° angles and the grid on Maths, Grid and Graph paper. You can also change this in the editor.")
     }
     ToolbarGroups()
-    SettingsGroup("Tool in hand", footer = "The tool a notebook opens with. Ink colour, width and opacity stay per tool in the editor's tool settings.") {
+    SettingsGroup("Starting tool", footer = "Choose the tool used when opening a notebook. Set each tool’s colour, width and opacity in the editor.") {
         DefaultToolPicker(defaultTool) { p.write { putString(AppPrefs.DEFAULT_TOOL, it.name) } }
     }
-    SettingsGroup("Typed text", footer = "New text boxes use these. Existing boxes are unchanged.") {
+    SettingsGroup("Typed text", footer = "Choose the size and alignment for new text boxes. Existing text boxes keep their settings.") {
         SettingsSliderRow(
             "Size", "${textSize.roundToInt()} pt", textSize, AppPrefs.TEXT_SIZE_MIN..AppPrefs.TEXT_SIZE_MAX,
             { p.write { putFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.textSize(it)) } },
@@ -268,7 +268,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsDivider()
         SettingsSegmentedRow("Alignment", TextAlignMode.entries.map { it to title(it.name) }, textAlign, { p.write { putString("text.align", it.name) } })
     }
-    SettingsGroup("Sticky notes", footer = "New sticky notes start at this size. Existing notes keep their own; change one from its menu.") {
+    SettingsGroup("Sticky notes", footer = "Choose the text size for new sticky notes. To resize text on an existing note, use its menu.") {
         SettingsSliderRow(
             "Text size", "${stickyTextSize.roundToInt()} pt", stickyTextSize, StickyNotes.TEXT_SIZE_MIN..StickyNotes.TEXT_SIZE_MAX,
             { p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.stickyTextSize(it)) } },
@@ -310,15 +310,15 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsSegmentedRow("Undo and redo", UndoButtons.entries.map { it to it.label }, options.undo,
             { p.write { putString(AppPrefs.TOOLBAR_UNDO, it.name) } })
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_COLOUR_DOTS, true, "Colour dots", "The pen and highlighter buttons show the colour each will draw in.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_COLOUR_DOTS, true, "Colour dots", "Preview the current ink colour on the pen and highlighter buttons.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_PINNED_PRESETS, true, "Pinned presets", "Show presets you have pinned beside the tools. Turning this off keeps them pinned.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_PINNED_PRESETS, true, "Pinned presets", "Show pinned presets beside the tools. Hiding them keeps your pins saved.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show the exam timer and Focal chips beside the tools when there is room.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show exam and Focal timers beside the tools when space allows.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false, "Start with ink options open", "Widths and colours appear under the toolbar as soon as a notebook opens.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false, "Start with ink options open", "Show widths and colours below the toolbar when a notebook opens.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents as tabs above the tools. Off: a back button joins the bar.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents above the toolbar. Turn off to show a back button in the toolbar instead.")
     }
     if (editTools) ToolbarEditPanel(layouts, presets.presets, onDismiss = { editTools = false })
 }
@@ -395,17 +395,17 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
         )
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN, "Fast pan", "Finger and two-finger drags move the page further than your fingers travel, and flings carry faster.")
+        SettingsPrefSwitch(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN, "Fast pan", "Move further with finger drags, two-finger drags and flings.")
         if (fastPan) {
             SettingsSliderRow(
                 "Pan speed", "%.2g×".format(panMultiplier), panMultiplier, AppPrefs.FAST_PAN_MIN..AppPrefs.FAST_PAN_MAX,
                 { p.write { putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.fastPanMultiplier((it * 4).roundToInt() / 4f)) } },
-                subtitle = "Multiplier on pan speed. 1× is normal.",
+                subtitle = "Choose how far a drag moves the page. 1× follows your finger.",
                 onReset = if (panMultiplier != AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER) ({ p.write { putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER) } }) else null,
             )
         }
         SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap to undo", "Two fingers undo, three redo, on the page canvas. Stylus and palm input never trigger it.")
+        SettingsPrefSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap to undo", "Tap the canvas with two fingers to undo or three to redo. Pen and palm touches do not trigger these gestures.")
     }
 }
 
@@ -413,11 +413,11 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
 
 @Composable internal fun ErasingPage() {
     SettingsGroup("Eraser") {
-        SettingsPrefSwitch(EditorQuickPrefs.ERASER_PRESSURE, true, "Pressure-sensitive", "Grows slightly with stronger pressure (about ±12%).")
+        SettingsPrefSwitch(EditorQuickPrefs.ERASER_PRESSURE, true, "Pressure-sensitive", "Adjust the eraser size with pen pressure (about ±12%).")
         SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.ERASER_SINGLE_STROKE, false, "Single stroke", "Return to the previous tool after one eraser stroke.")
+        SettingsPrefSwitch(EditorQuickPrefs.ERASER_SINGLE_STROKE, false, "Return after erasing", "Return to the previous tool after one eraser stroke.")
         SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.ERASER_WHOLE_STROKE, false, "Whole stroke", "Remove an entire stroke when touching any part of it.")
+        SettingsPrefSwitch(EditorQuickPrefs.ERASER_WHOLE_STROKE, false, "Erase whole strokes", "Touch any part of a stroke to erase the entire stroke.")
     }
     SettingsGroup("Scribble to erase") {
         SettingsBlock { ScribbleSettingsSection(showPracticeInitially = false) }
@@ -437,7 +437,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     val paper by rememberPref(p, AppPrefs.DEFAULT_PAPER) { AppPrefs.defaultPaper(it.getString(AppPrefs.DEFAULT_PAPER, null)) }
     val cover by rememberPref(p, AppPrefs.DEFAULT_COVER) { AppPrefs.defaultCover(it.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { _ -> it.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX) }
     val pageCover by rememberPref(p, AppPrefs.DEFAULT_PAGE_COVER) { it.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED) }
-    SettingsGroup("Shelf", footer = "These are also saved whenever you change sorting or view on the shelf itself.") {
+    SettingsGroup("Shelf", footer = "Sorting, filters and layout also update when you change them in the Library.") {
         SettingsChipRow("Sort by", LibrarySort.entries.map { it to it.label }, sort, { p.write { putString(AppPrefs.LIB_SORT, it.name) } })
         SettingsDivider()
         SettingsChipRow("Show", LibraryKind.entries.map { it to it.label }, kind, { p.write { putString(AppPrefs.LIB_KIND, it.name) } })
@@ -672,7 +672,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         SettingsLinkRow("Page review & account", onClick = a.onChatGpt)
     }
     SettingsGroup("Updates", footer = "Your notebooks stay on this device. Use Backup & restore to save or restore the whole library.") {
-        SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Check the selected source for a newer signed build.")
+        SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version from the selected update source when Folio opens.")
         SettingsDivider()
         SettingsSwitchRow("Enable experimental builds", "Get experimental builds from folio.flandolf.me. These may be less stable. Experimental builds are checked automatically when enabled.",
             experimental, { prefs.write { putBoolean(AppPrefs.EXPERIMENTAL_UPDATES, it) } }, enabled = !a.updateBusy)

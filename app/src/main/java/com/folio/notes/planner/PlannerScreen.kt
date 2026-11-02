@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
@@ -245,18 +247,18 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     subtitle = "Weighted by each SAC's weighting", maximum = 100.0, icon = Icons.Rounded.BarChart) }
             }
             if (next.isNotEmpty()) {
-                item { Text("Upcoming", style = MaterialTheme.typography.titleMedium) }
+                item { Text("Upcoming", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
                 items(next, key = { "up:" + it.optString("id") }) { sac ->
                     val days = ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(sac.optString("scheduledAt").take(10)))
                     SacRow(sac, if (days == 0L) "Today" else if (days == 1L) "Tomorrow" else "$days days") { editing = sac }
                 }
             }
-            item { Text("Subjects", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Subjects", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
             items(bySubject, key = { "sub:" + it.subject }) { s ->
                 ListItem(headlineContent = { Text(s.subject) }, supportingContent = { Text("${s.completed} completed · ${s.upcoming} upcoming") },
                     trailingContent = { Text(pct(s.average), style = MaterialTheme.typography.titleMedium) })
             }
-            item { Text("All SACs", style = MaterialTheme.typography.titleMedium) }
+            item { Text("All SACs", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
             items(sacs.sortedByDescending { it.optString("scheduledAt") }, key = { it.optString("id") }) { sac ->
                 SacRow(sac, Planner.percentage(sac)?.let { pct(it) } ?: if (sac.optString("scheduledAt") >= LocalDate.now().toString()) "Upcoming" else "No mark yet") { editing = sac }
             }
@@ -435,7 +437,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         OutlinedButton({ scope.launch { clipboard.setClipEntry(androidx.compose.ui.platform.ClipEntry(ClipData.newPlainText("Stoplight prompt", Planner.importPrompt(subject.trim())))); copied = true } },
             enabled = subject.isNotBlank()) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
-        OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Chatbot reply (JSON)") }, minLines = 4, maxLines = 10)
+        OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Chatbot reply (JSON)") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false), minLines = 4, maxLines = 10)
     }
 }
 
@@ -488,7 +490,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             }
         }
         if (archived.isNotEmpty()) {
-            item { Text("Archived", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Archived", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
             items(archived, key = { "a:" + it.optString("id") }) { goal ->
                 ListItem(headlineContent = { Text("${goal.optString("subject").let { if (it.isEmpty()) "" else "$it · " }}${Planner.kindLabel(goal.optString("kind"))}") },
                     supportingContent = { Text("Target ${mark(goal.getDouble("target"))}") },
@@ -553,7 +555,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         if (subjects.isEmpty()) item { EmptyHint("Log an exam in Progress to estimate a study score. Predictions use the VCAA grade distribution for each paper.") }
         else {
-            item { Text("Study score", style = MaterialTheme.typography.titleLarge) }
+            item { Text("Study score", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
             item { ChoiceField("Subject", subject, subjects, { picked = it }) }
             item { Row2 {
                 Field("SAC percentile (optional)", sacText, Modifier.weight(1f), true) { sacText = it }
@@ -613,7 +615,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
     }
     val estimate = remember(results, year) { StudyScore.estimateAtar(results, year, data) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        Text("ATAR estimate", style = MaterialTheme.typography.titleLarge)
+        Text("ATAR estimate", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
         Text("Add at least four Unit 3/4 studies including an English-group study. Predicted raw scores are used when you have them; otherwise enter one.", style = MaterialTheme.typography.bodySmall)
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
@@ -649,7 +651,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
         if (saved.isNotEmpty()) {
             val history = saved.reversed().mapNotNull { s -> s.optString("atarLabel").toDoubleOrNull()?.let { "${s.optString("savedAt").take(10)} · ${s.optInt("year")} scaling" to it } }
             if (history.size >= 2) ScoreTrend("ATAR over time", history, "Your saved estimates, oldest first", icon = Icons.Rounded.ShowChart)
-            Text("Saved estimates", style = MaterialTheme.typography.titleMedium)
+            Text("Saved estimates", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
             saved.forEach { s -> ListItem(headlineContent = { Text("ATAR ${s.optString("atarLabel")} · ${s.optInt("year")}") },
                 supportingContent = { Text(s.optString("savedAt").take(10)) },
                 trailingContent = { TextButton({ scope.launch { save(saved.filter { it.optString("id") != s.optString("id") }) } }, enabled = enabled) { Text("Delete") } }) }

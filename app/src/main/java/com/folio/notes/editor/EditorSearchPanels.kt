@@ -97,7 +97,7 @@ import kotlinx.coroutines.withContext
             OutlinedTextField(noteQuery, { noteQuery = it }, Modifier.fillMaxWidth().focusRequester(searchFocus), label = { Text("PDF, typed notes and indexed handwriting") }, singleLine = true,
                 trailingIcon = { if (noteQuery.isNotEmpty()) TextButton({ noteQuery = "" }) { Text("Clear") } })
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(handwriting, { prefs.write { putBoolean(AppPrefs.UX_SEARCH_HANDWRITING, it) } })
+                Checkbox(handwriting, { prefs.write { putBoolean(AppPrefs.UX_SEARCH_HANDWRITING, it) } }, modifier = Modifier.semanticsLabel("Search handwriting"))
                 Text("Search handwriting on this device", style = MaterialTheme.typography.bodyMedium)
             }
             if (indexProgress != null) Text(indexProgress!!, style = MaterialTheme.typography.bodySmall)

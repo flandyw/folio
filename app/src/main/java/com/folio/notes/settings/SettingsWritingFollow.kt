@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
     val text = f.mode == FollowMode.TEXT
 
     SettingsGroup("Start here", footer = "The view stays still while your pen is down. Touch down during a glide to stop it. Infinite canvases only follow after you choose Write a response; its first stroke sets the column's margin.") {
-        SettingsPrefSwitch("writingFollow", false, "Follow on pages", "Keep following enabled when writing on notebook and PDF pages.")
+        SettingsPrefSwitch("writingFollow", false, "Follow on pages", "Automatically move the view as you write on notebook and PDF pages.")
         SettingsDivider()
         SettingsSegmentedRow("What you write", listOf(FollowMode.TEXT to "Text", FollowMode.MATH to "Maths"), f.mode, { change(f.copy(mode = it)) })
         SettingsBlock { SettingsBlockHint(if (text) "Text can follow sideways and down, then return to the start of the next line."
@@ -39,7 +39,7 @@ import kotlin.math.roundToInt
         SettingsSegmentedRow("Writing direction", listOf(WritingDirection.LTR to "Left → right", WritingDirection.RTL to "Right → left"), f.direction, { change(f.copy(direction = it)) })
         SettingsDivider()
         SettingsSegmentedRow("Hand holding the pen", listOf(WritingHand.RIGHT to "Right", WritingHand.LEFT to "Left"), hand, { p.write { putString("writingHand", it.name) } })
-        SettingsBlock { SettingsBlockHint("Leaves a little more room on the side where your palm rests.") }
+        SettingsBlock { SettingsBlockHint("Leave extra room on the side where your writing hand rests.") }
     }
     // Three independent knobs: when it moves (pause), where it moves (room), how it moves (speed).
     // A preset only sets these three, so tuning one never silently changes another.
@@ -48,7 +48,7 @@ import kotlin.math.roundToInt
     val widestStrip = (f.maximumEdgeStripWidth(hand) * 100).roundToInt()
     SettingsGroup("Feel", footer = "A starting point sets the three controls below; adjust any of them afterwards. Your hand, direction, writing position, line settings and automatic-return choice are kept.") {
         SettingsChipRow<FollowFeel?>("Start from", FollowFeel.entries.map { it to it.label }, feel, { it?.apply(f)?.let(change) },
-            subtitle = if (feel == null) "Custom · your own mix of the controls below." else null)
+            subtitle = if (feel == null) "Custom · adjust the controls below to change the feel." else null)
         SettingsDivider()
         SettingsSliderRow("Pause before moving", FollowPreferences.returnDelayLabel(f.returnDelayMs), f.returnDelayMs / 1000f, .3f..2f,
             { change(f.copy(returnDelayMs = ((it * 20).roundToInt() * 50).coerceIn(300, 2000))) }, steps = 33,
@@ -66,7 +66,7 @@ import kotlin.math.roundToInt
         SettingsDivider()
         SettingsSliderRow("Movement speed", FollowPreferences.paceLabel(f.pace), f.pace, 0f..1f,
             { change(f.copy(pace = (it * 20).roundToInt() / 20f)) }, steps = 19,
-            subtitle = "How quickly the view glides, both sideways and to the next line. Reduced motion in Android settings skips the glide.",
+            subtitle = "Set the glide speed for sideways movement and line returns. Android’s reduced-motion setting skips the glide.",
             onReset = if (f.pace != balanced.pace) ({ change(f.copy(pace = balanced.pace)) }) else null,
             lowLabel = "Gentler", highLabel = "Snappier")
         SettingsBlock { FollowTimingPreview(f) }
@@ -74,30 +74,30 @@ import kotlin.math.roundToInt
     SettingsGroup("Where your writing sits", footer = "Room before moving controls the edge strip's width. It disappears when the answer area's final edge is already visible. Touch down during a glide to stop it.") {
         SettingsBlock { FollowPreview(f, hand) }
         SettingsSliderRow("Writing height", "${f.positionPercent}% down", f.position, .35f.. .7f, { change(f.copy(position = it)) },
-            subtitle = "Where the line sits after the view moves. 55% is just below the middle.", lowLabel = "Higher", highLabel = "Lower")
+            subtitle = "Set the line’s height after the view moves. 55% places it just below the centre.", lowLabel = "Higher", highLabel = "Lower")
         SettingsDivider()
         SettingsSliderRow("Position after a sideways move", "${f.horizontalPercent}% across", f.horizontalPosition, .35f.. .65f, { change(f.copy(horizontalPosition = it)) },
-            subtitle = "Where the end of your writing lands. Next line still returns to the answer margin.", enabled = text,
+            subtitle = "Position the end of your writing after a sideways move. Next line returns to the answer margin.", enabled = text,
             lowLabel = "Further left", highLabel = "Further right")
         SettingsDivider()
         SettingsSliderRow("Edge strip visibility", if (f.edgeStripOpacity == 0f) "Hidden" else "${(f.edgeStripOpacity * 100).roundToInt()}% opacity",
             f.edgeStripOpacity, 0f.. .5f, { change(f.copy(edgeStripOpacity = AppPrefs.followEdgeStripOpacity((it * 100).roundToInt() / 100f))) }, steps = 49,
-            subtitle = "A stronger tint makes the movement zone easier to see. Hiding it keeps the same trigger. Ink remains visible through it.",
+            subtitle = "Make the movement zone easier to see with a stronger tint. Hidden zones still trigger movement; ink stays visible through the tint.",
             onReset = if (f.edgeStripOpacity != AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_OPACITY) ({ change(f.copy(edgeStripOpacity = AppPrefs.DEFAULT_FOLLOW_EDGE_STRIP_OPACITY)) }) else null,
             enabled = text, lowLabel = "Hidden", highLabel = "Stronger")
         SettingsBlock { FollowEdgeStripPreview(f, hand) }
     }
     SettingsGroup("Next line", footer = "Printed lines take priority over spacing. Spacing applies where the page has no printed lines.") {
         SettingsSwitchRow("Automatic line return", if (text) "Write across the line, then pause near the answer margin to return. Touch down to stop."
-            else "Available in Text mode. In Maths, use the Next line button.", f.automaticReturn, { change(f.copy(automaticReturn = it)) }, enabled = text)
+            else "Choose Text mode for automatic returns. In Maths mode, tap Next line.", f.automaticReturn, { change(f.copy(automaticReturn = it)) }, enabled = text)
         SettingsDivider()
         SettingsSliderRow("Line-end zone", "Last ${(f.endMargin * 100).roundToInt()}% of area", f.endMargin, .02f.. .2f, { change(f.copy(endMargin = it)) },
             subtitle = "How close to the answer margin your lines usually end. Widen it if you leave a gap at the end of lines.", enabled = text,
             lowLabel = "Right to the margin", highLabel = "Earlier")
         SettingsDivider()
-        SettingsSwitchRow("Show where the next line lands", "A dot and dashed line mark a pending return.", f.showLandingGuide, { change(f.copy(showLandingGuide = it)) })
+        SettingsSwitchRow("Show where the next line lands", "Preview the next line with a dot and dashed guide before the view returns.", f.showLandingGuide, { change(f.copy(showLandingGuide = it)) })
         SettingsDivider()
-        SettingsSwitchRow("Learn my line spacing", "After two natural line breaks, use the spacing you write with.", f.adaptiveSpacing, { change(f.copy(adaptiveSpacing = it)) }, enabled = text)
+        SettingsSwitchRow("Learn my line spacing", "Match your handwriting’s line spacing after two natural line breaks.", f.adaptiveSpacing, { change(f.copy(adaptiveSpacing = it)) }, enabled = text)
         SettingsDivider()
         SettingsSliderRow(if (f.adaptiveSpacing && text) "Starting line spacing" else "Line spacing", "${"%.1f".format(f.spacingMm)} mm", f.spacingMm, 4f..24f,
             { change(f.copy(spacing = FollowPreferences.fromMm(it))) }, steps = 19, subtitle = "7 mm resembles ruled paper; 8 mm gives a little more room. Measured on an A4 page.", lowLabel = "Closer", highLabel = "Further apart")
@@ -117,7 +117,7 @@ import kotlin.math.roundToInt
     SettingsGroup("Answer areas", footer = "Use the editor's Answer areas menu to select, detect or clear the area on the current page. A canvas response keeps the column you explicitly started.") {
         SettingsPrefSwitch("follow.autoDetectAnswerAreas", false, "Detect answer areas automatically", "Look for answer lines on the current PDF page while following is on, in scrolling or one-page view.")
         SettingsDivider()
-        SettingsPrefSwitch("follow.showAnswerAreas", true, "Show answer area outlines", "Make the active writing area's boundaries visible.")
+        SettingsPrefSwitch("follow.showAnswerAreas", true, "Show answer area outlines", "Outline the active writing area so you can see its boundaries.")
         SettingsDivider()
         SettingsSwitchRow("Switch to the area I write in", "Follow another detected area when you begin writing there. Turn off to keep the current area selected.", f.autoSwitchAreas, { change(f.copy(autoSwitchAreas = it)) })
     }
@@ -126,7 +126,7 @@ import kotlin.math.roundToInt
             { p.write { putFloat(AppPrefs.ZOOM_PANE_HEIGHT, AppPrefs.zoomPaneHeight(it)) } },
             subtitle = "Starting height of the enlarged writing pane. You can also drag its divider; smaller windows cap its height to leave room for the page.", lowLabel = "Shorter", highLabel = "Taller")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.AUTO_PEEK, false, "Use the whole page for auto peek", "Show the page overview in peek without pinning a view. Applies to finite pages.")
+        SettingsPrefSwitch(AppPrefs.AUTO_PEEK, false, "Use the whole page for auto peek", "Show a whole-page overview in peek without pinning a view. Available on finite pages.")
     }
     SettingsGroup("Reset") {
         SettingsBlock {

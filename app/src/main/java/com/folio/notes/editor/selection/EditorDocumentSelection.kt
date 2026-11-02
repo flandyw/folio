@@ -98,7 +98,7 @@ import kotlinx.coroutines.launch
     if (resizing) FolioPanel("Resize document selection", { resizing = false }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${(resizeFactor * 100).toInt()}%")
-            Slider(resizeFactor, { resizeFactor = it }, valueRange = .2f..3f)
+            Slider(resizeFactor, { resizeFactor = it }, valueRange = .2f..3f, modifier = Modifier.semanticsLabel("Selection size"))
             FilledTonalButton({ if (input.transformSelection(resizeFactor, 0f)) resizing = false }, Modifier.fillMaxWidth()) { Text("Apply") }
         }
     }

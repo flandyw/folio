@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.displayTitle
@@ -22,7 +23,7 @@ import com.folio.notes.ui.FolioPanel
             Text("${ids.size} selected. Move is one undo step; duplicates and deletions are undone page by page.")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton({ selected = note.pages.map { it.id }.toSet() }) { Text("Select all") }
-                TextButton({ selected = emptySet() }) { Text("Clear") }
+                TextButton({ selected = emptySet() }) { Text("Clear selection") }
                 TextButton({
                     ids.forEach { id -> model.state.value.active?.pages?.indexOfFirst { it.id == id }?.takeIf { it >= 0 }?.let(model::duplicatePage) }
                     onDismiss()
@@ -31,7 +32,7 @@ import com.folio.notes.ui.FolioPanel
                 TextButton({ ids.asReversed().forEach { id -> model.state.value.active?.pages?.indexOfFirst { it.id == id }?.takeIf { it >= 0 }?.let(model::deletePage) }; model.reportNotice("${com.folio.notes.model.countOf(ids.size, "page")} deleted · Undo brings ${if (ids.size == 1) "it" else "them"} back"); onDismiss() }, enabled = ids.isNotEmpty() && ids.size < note.pages.size) { Text("Delete") }
             }
             Row {
-                OutlinedTextField(target, { target = it.filter(Char::isDigit).take(8) }, Modifier.weight(1f), label = { Text("Move block to position") }, singleLine = true)
+                OutlinedTextField(target, { target = it.filter(Char::isDigit).take(8) }, Modifier.weight(1f), label = { Text("Destination page position") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), singleLine = true)
                 TextButton({
                     val position = target.toIntOrNull()?.minus(1) ?: return@TextButton
                     model.movePages(note.id, ids.toSet(), position)
@@ -40,7 +41,7 @@ import com.folio.notes.ui.FolioPanel
             }
             LazyColumn(Modifier.weight(1f, false), contentPadding = PaddingValues(vertical = 8.dp)) {
                 itemsIndexed(note.pages, key = { _, page -> page.id }) { index, page ->
-                    Row { Checkbox(page.id in selected, { checked -> selected = if (checked) selected + page.id else selected - page.id }); TextButton({ selected = if (page.id in selected) selected - page.id else selected + page.id }) { Text(page.displayTitle(index)) } }
+                    Row { Checkbox(page.id in selected, { checked -> selected = if (checked) selected + page.id else selected - page.id }, modifier = Modifier.semanticsLabel("Select ${page.displayTitle(index)}")); TextButton({ selected = if (page.id in selected) selected - page.id else selected + page.id }) { Text(page.displayTitle(index)) } }
                 }
             }
         }

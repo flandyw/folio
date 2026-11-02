@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -113,7 +114,7 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
                     .sortedBy { focalPlannedSlots(it).firstOrNull()?.startAt ?: Long.MAX_VALUE }
             }
             if (planned.isNotEmpty()) {
-                Text("Planned study", style = MaterialTheme.typography.titleMedium)
+                Text("Planned study", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 planned.take(3).forEach { entry ->
                     PlannedStudyCard(entry, state.subjects, scheme.surfaceContainerHighest, now,
                         enabled = blocked == null && state.canStartFocus && !(entry.synced && entry.planDraft != null),

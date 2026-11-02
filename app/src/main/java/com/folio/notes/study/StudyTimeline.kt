@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.FolioApplication
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
@@ -864,7 +865,7 @@ internal fun StudyTimeline(
                         FocalSubjectPicker(subjects, subjectId) { subjectId = it }
                         } }) { modifier -> Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                         if (finished) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(done, { doneOverride = it })
+                            Checkbox(done, { doneOverride = it }, modifier = Modifier.semanticsLabel("Study completed"))
                             Text("Done", style = MaterialTheme.typography.bodyMedium)
                         }
                         OutlinedTextField(title, { title = it.take(512) }, Modifier.fillMaxWidth(), singleLine = true,

@@ -147,7 +147,7 @@ import java.util.UUID
     LaunchedEffect(Unit) { refresh() }
     FolioPanel("Reusable snippets", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Name this selection") }, singleLine = true)
+            OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Name this selection") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), singleLine = true)
             Button({ busy = true; scope.launch {
                 try {
                     val images = selection.images.map { it to (model.repository.loadImageBytes(note.id, it.id) ?: error("Selected picture is unavailable")) }

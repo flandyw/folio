@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.folio.notes.library.semanticsLabel
 import com.folio.notes.editor.toolbar.EditorGlassSurface
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.ui.FolioExpand
@@ -104,7 +105,7 @@ import kotlinx.coroutines.withContext
                                     }
                                 }
                                 if (source.pages > 2) Slider(previewPage.toFloat(), { preview(it.roundToIntSafe()) }, valueRange = 0f..(source.pages - 1).toFloat(),
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8))
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8).semanticsLabel("PDF preview page"))
                                 // A filmstrip of every page, so a range can be built by tapping pages rather
                                 // than counting them: the active part's pages read as included.
                                 instruments.getOrNull(activePart)?.let {
@@ -164,7 +165,7 @@ import kotlinx.coroutines.withContext
                                         // The whole header toggles the part, not just the checkbox.
                                         Row(Modifier.clickable(enabled = !busy) { checked = checked.toMutableList().also { it[index] = !on }; if (!on) activePart = index },
                                             verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(on, { value -> checked = checked.toMutableList().also { it[index] = value }; if (value) activePart = index }, enabled = !busy)
+                                            Checkbox(on, { value -> checked = checked.toMutableList().also { it[index] = value }; if (value) activePart = index }, enabled = !busy, modifier = Modifier.semanticsLabel("Include ${instruments[index].ifBlank { "custom part" }}"))
                                             Column(Modifier.weight(1f)) {
                                                 Text(instruments[index].ifBlank { "Custom part" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 Text(parsed[index].getOrNull()?.let { "Pages ${ranges[index]} · ${it.size} ${if (it.size == 1) "page" else "pages"}" } ?: "Choose pages",

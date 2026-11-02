@@ -118,7 +118,7 @@ object EditorQuickPrefs {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked, onChange, enabled = enabled)
+            Switch(checked, onChange, enabled = enabled, modifier = Modifier.semanticsLabel(label))
         }
         if (hint != null) Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -317,7 +317,7 @@ object EditorQuickPrefs {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Square diagram", Modifier.weight(1f))
-            Switch(style.square, { update(style.copy(square = it)) })
+            Switch(style.square, modifier = Modifier.semanticsLabel("Square diagram"), onCheckedChange = { update(style.copy(square = it)) })
         }
         Text("Squares the drag to the shorter side, the way exam graphs are usually drawn.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -333,7 +333,7 @@ object EditorQuickPrefs {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Square grid cells", Modifier.weight(1f))
-            Switch(style.squareCells, { update(style.copy(squareCells = it)) }, enabled = style.divisions > 0)
+            Switch(style.squareCells, modifier = Modifier.semanticsLabel("Square grid cells"), onCheckedChange = { update(style.copy(squareCells = it)) }, enabled = style.divisions > 0)
         }
         if (style.numbers) {
             Text(if (style.piDen > 0) "x axis counts in multiples of" else "Units per division", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -351,11 +351,11 @@ object EditorQuickPrefs {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("x axis in π (trigonometry)", Modifier.weight(1f))
-                Switch(style.piDen > 0, { update(style.copy(piDen = if (it) 2 else 0)) })
+                Switch(style.piDen > 0, modifier = Modifier.semanticsLabel("Use pi units on the x axis"), onCheckedChange = { update(style.copy(piDen = if (it) 2 else 0)) })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Different units on y", Modifier.weight(1f))
-                Switch(style.stepY > 0.0, { update(style.copy(stepY = if (it) style.step else 0.0)) })
+                Switch(style.stepY > 0.0, modifier = Modifier.semanticsLabel("Use different units on the y axis"), onCheckedChange = { update(style.copy(stepY = if (it) style.step else 0.0)) })
             }
             if (style.stepY > 0.0) {
                 Text("y units per division", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -368,29 +368,29 @@ object EditorQuickPrefs {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Grid lines", Modifier.weight(1f))
-            Switch(style.grid, { update(style.copy(grid = it)) }, enabled = style.divisions > 0)
+            Switch(style.grid, modifier = Modifier.semanticsLabel("Grid lines"), onCheckedChange = { update(style.copy(grid = it)) }, enabled = style.divisions > 0)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Tick marks", Modifier.weight(1f))
-            Switch(style.ticks, { update(style.copy(ticks = it)) }, enabled = style.divisions > 0)
+            Switch(style.ticks, modifier = Modifier.semanticsLabel("Tick marks"), onCheckedChange = { update(style.copy(ticks = it)) }, enabled = style.divisions > 0)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Numbers on the axes", Modifier.weight(1f))
-            Switch(style.numbers, { update(style.copy(numbers = it)) }, enabled = style.divisions > 0)
+            Switch(style.numbers, modifier = Modifier.semanticsLabel("Numbers on the axes"), onCheckedChange = { update(style.copy(numbers = it)) }, enabled = style.divisions > 0)
         }
         if (style.numbers) Text("Counts outwards from the origin, so the units above set what each division is worth.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("x and y labels", Modifier.weight(1f))
-            Switch(style.letters, { update(style.copy(letters = it)) })
+            Switch(style.letters, modifier = Modifier.semanticsLabel("x and y labels"), onCheckedChange = { update(style.copy(letters = it)) })
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Label the origin O", Modifier.weight(1f))
-            Switch(style.originLabel, { update(style.copy(originLabel = it)) })
+            Switch(style.originLabel, modifier = Modifier.semanticsLabel("Label the origin O"), onCheckedChange = { update(style.copy(originLabel = it)) })
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Arrowheads", Modifier.weight(1f))
-            Switch(style.arrows, { update(style.copy(arrows = it)) })
+            Switch(style.arrows, modifier = Modifier.semanticsLabel("Arrowheads"), onCheckedChange = { update(style.copy(arrows = it)) })
         }
         TextButton({ update(GraphStyle.DEFAULT) }, shapes = ButtonDefaults.shapes()) { Text("Reset graph settings") }
     }

@@ -48,7 +48,7 @@ import com.folio.notes.ui.FolioSpacing
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             if (visible.isEmpty()) item {
-                Text(if (folders.isEmpty()) "Create a folder below to organise these notebooks." else "No folders match.",
+                Text(if (folders.isEmpty()) "Create a folder below to organise these notebooks." else "No folders match your search. Try a different name.",
                     Modifier.padding(vertical = FolioSpacing.dp12), style = MaterialTheme.typography.bodySmall)
             }
             items(visible, key = { it.id }) { folder ->

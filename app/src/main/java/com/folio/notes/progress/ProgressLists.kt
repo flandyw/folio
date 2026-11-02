@@ -16,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.folio.notes.mistakes.isoTime
@@ -203,7 +205,7 @@ private const val FORM_ADD = -1
             AnimatedVisibility(importOpen) {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Text("Import Focal progression", style = MaterialTheme.typography.titleMedium)
+                        Text("Import Focal progression", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                         Text("Paste a Focal list with version, name, and exams. Each exam has subject, provider, examYear, paper, marks and optional phase.", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(importText, { importText = it }, Modifier.fillMaxWidth(), label = { Text("Progression JSON") }, minLines = 4)
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -311,7 +313,7 @@ private const val FORM_ADD = -1
                     }
                 }
             }
-            if (papers.isNotEmpty() && indexed.isEmpty()) EmptyHint("No papers match.")
+            if (papers.isNotEmpty() && indexed.isEmpty()) EmptyHint("No papers match your search. Try a subject, paper or year.")
             Spacer(Modifier.height(FolioSpacing.dp4))
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.End) {

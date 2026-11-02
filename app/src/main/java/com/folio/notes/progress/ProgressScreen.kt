@@ -23,6 +23,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -460,7 +462,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     onLog: () -> Unit, onLogMistake: (String) -> Unit, onMistakes: () -> Unit, onDestination: (String) -> Unit) {
     ProgressHero {
         if (exams.isEmpty()) {
-            Text("Your progress starts here", style = MaterialTheme.typography.headlineSmall)
+            Text("Your progress starts here", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
             Text("Log a completed practice paper to see your average, trends and what to work on next.", style = MaterialTheme.typography.bodyLarge)
             Button(onLog, enabled = enabled, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Log first exam")

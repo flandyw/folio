@@ -45,18 +45,18 @@ internal fun Modifier.settingsTarget(title: String): Modifier = composed {
 
 @Composable internal fun UxAppearanceSettings() {
     SettingsGroup("Controls and discovery") {
-        SettingsPrefSwitch(AppPrefs.UX_LABELS, false, "Show tool names", "Show names beside the active tool and pinned presets.")
-        SettingsPrefSwitch(AppPrefs.UX_LARGE_CONTROLS, false, "Larger controls", "Use larger editor controls and selection actions.")
-        SettingsPrefSwitch(AppPrefs.UX_HINTS, true, "Shortcut hints", "Show a dismissible shortcut tip in the editor and library.")
+        SettingsPrefSwitch(AppPrefs.UX_LABELS, false, "Show tool names", "Label the active tool and pinned presets in the editor.")
+        SettingsPrefSwitch(AppPrefs.UX_LARGE_CONTROLS, false, "Larger controls", "Make editor buttons and selection actions easier to tap.")
+        SettingsPrefSwitch(AppPrefs.UX_HINTS, true, "Shortcut hints", "Show shortcut tips in the editor and Library. Dismiss a tip when you no longer need it.")
     }
 }
 
 @Composable internal fun UxWritingSettings() {
     SettingsGroup("Keyboard and object placement") {
         ToolKeySettings()
-        SettingsPrefSwitch(AppPrefs.UX_TOOL_KEYS, true, "Tool letter shortcuts", "P pen, E eraser, H highlighter, L lasso, V hand, T text. Only on the canvas.")
-        SettingsPrefSwitch(AppPrefs.UX_SNAP, false, "Snap moved selections", "Snap selections to 12-unit spacing and page margins. Hold Shift to bypass snapping.")
-        SettingsPrefSwitch(AppPrefs.UX_LOCAL_TOOLS, false, "Remember tools per notebook", "Restore this notebook’s last tool and preset. Turn off to use global defaults.")
+        SettingsPrefSwitch(AppPrefs.UX_TOOL_KEYS, true, "Tool letter shortcuts", "Use letter keys to switch tools while the canvas has focus. Customise the keys above.")
+        SettingsPrefSwitch(AppPrefs.UX_SNAP, false, "Snap moved selections", "Align moved selections to 12-unit spacing and page margins. Hold Shift to move freely.")
+        SettingsPrefSwitch(AppPrefs.UX_LOCAL_TOOLS, false, "Remember tools per notebook", "Reopen each notebook with its last tool and preset. Turn off to use the app defaults.")
     }
 }
 
@@ -73,7 +73,7 @@ internal fun Modifier.settingsTarget(title: String): Modifier = composed {
 
 @Composable internal fun UxStylusPractice(action: StylusShortcut) {
     var guide by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf("Double-tap your pencil in this area, or double-tap the practice pad.") }
+    var result by remember { mutableStateOf("Double-tap your pencil, or double-tap this practice area, to try the shortcut.") }
     var current by remember { mutableStateOf(Tool.PEN) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = remember(context) { StylusShortcutManager(context) }
@@ -82,10 +82,10 @@ internal fun Modifier.settingsTarget(title: String): Modifier = composed {
         if (effect is StylusShortcutEffect.SwitchTool) current = effect.tool
         result = when (effect) {
             is StylusShortcutEffect.SwitchTool -> "Selected ${toolLabel(current)}"
-            StylusShortcutEffect.OpenPalette -> "Colour palette would open"
-            StylusShortcutEffect.Undo -> "The last action would be undone"
+            StylusShortcutEffect.OpenPalette -> "Practice: open the colour palette"
+            StylusShortcutEffect.Undo -> "Practice: undo the last action"
             StylusShortcutEffect.NextLine -> "The next writing line would open when writing follow is active"
-            StylusShortcutEffect.None -> "Pencil shortcut is disabled"
+            StylusShortcutEffect.None -> "No pencil shortcut selected"
         }
     }
     DisposableEffect(manager) { manager.start { run() }; onDispose { manager.stop() } }
@@ -115,7 +115,7 @@ internal fun Modifier.settingsTarget(title: String): Modifier = composed {
         val valid = fields.size == 6 && fields.values.all { it.length == 1 && it[0] in 'A'..'Z' } && fields.values.distinct().size == fields.size
         FolioPanel("Tool letter shortcuts", { editing = false }) {
             Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                fields.keys.toList().forEach { tool -> OutlinedTextField(fields[tool].orEmpty(), { fields[tool] = it.uppercase().filter { c -> c in 'A'..'Z' }.takeLast(1) }, Modifier.fillMaxWidth(), label = { Text(toolLabel(tool)) }, singleLine = true) }
+                fields.keys.toList().forEach { tool -> OutlinedTextField(fields[tool].orEmpty(), { fields[tool] = it.uppercase().filter { c -> c in 'A'..'Z' }.takeLast(1) }, Modifier.fillMaxWidth(), label = { Text(toolLabel(tool)) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false), singleLine = true) }
                 if (!valid) Text("Choose a unique letter A–Z for each tool.", color = MaterialTheme.colorScheme.error)
                 Row {
                     TextButton({ prefs.write { remove(AppPrefs.UX_TOOL_BINDINGS) }; editing = false }) { Text("Reset") }

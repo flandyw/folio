@@ -503,6 +503,6 @@ private const val CELL_LINES = 3
         OutlinedButton({ scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Timetable prompt", Calendar.SCREENSHOT_PROMPT))); copied = true } }) {
             Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
         DateField("Day 1 starts", day1) { day1 = it }
-        OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Timetable JSON") }, minLines = 4, maxLines = 10)
+        OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Timetable JSON") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false), minLines = 4, maxLines = 10)
     }
 }
