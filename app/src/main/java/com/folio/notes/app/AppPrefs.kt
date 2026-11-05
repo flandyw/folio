@@ -142,7 +142,7 @@ object AppPrefs {
         "eraser", "off" -> raw
         else -> DEFAULT_PEN_START_HOLD
     }
-    /** Draw the pen stroke in progress through a front-buffered layer (API 29+). Experimental; off by default. */
+    /** Draw the pen stroke in progress through a front-buffered layer (API 29+). On by default. Not yet device-verified. */
     const val LOW_LATENCY_INK = "input.lowLatencyInk"
     const val DEFAULT_LOW_LATENCY_INK = true
     /** Soft pen stroke ends (render-time only, 0 = off). */

@@ -18,7 +18,7 @@ import com.folio.notes.model.InkPoint
 import kotlin.math.hypot
 
 /**
- * An optional low-latency layer for the pen stroke in progress (Settings › Writing › Pen feel, off by default).
+ * A low-latency layer for the ballpoint stroke in progress (Settings › Writing › Pen feel, on by default).
  *
  * The page normally shows a live stroke after a full UI-thread frame. This puts one transparent
  * SurfaceView over the window and draws each new piece of the stroke straight into a front buffer, which

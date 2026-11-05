@@ -32,7 +32,7 @@ Set up JDK 25 and Android SDK 36 as described in the [project README](../../READ
 
 Run `./gradlew :app:testDebugUnitTest` for JVM tests; use `--tests` for a focused test. There are no instrumented tests. Focused Node smoke scripts live in `tools/`; many need `./gradlew :app:prepareBackupSmoke` and a populated Kotlin compiler cache. `node tools/katex-smoke.cjs` checks the offline KaTeX bundle. Feature guides list relevant smoke tests and manual device checks. Do not run `:app:lintDebug` as a routine check; it is slow and is reserved for explicit requests.
 
-For storage or journal changes, automated tests do not replace the [device round-trip](../document-transactions.md#required-device-round-trip). Input, rendering, performance, Android lifecycle and sync behaviour can also require real-device checks as described in each feature guide.
+For storage or journal changes, automated tests do not replace the [device round-trip](../document-transactions.md#required-device-round-trip). Input, rendering, performance, Android lifecycle and sync behaviour can also require real-device checks as described in each feature guide. The front-buffer ink path has its own manual plan and is not yet device-verified: [low-latency ink device checks](../low-latency-ink-device-checks.md).
 
 ## Releases and documentation
 

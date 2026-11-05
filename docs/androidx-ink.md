@@ -46,11 +46,14 @@ keep the same opacity at crossings; opaque strokes may use the faster mesh rende
 Cached thumbnail names include a renderer generation so old previews are regenerated.
 
 While writing, a brush stroke is only ever drawn by its own mesh. The front-buffer low-latency overlay and
-the Canvas prediction tail draw round ballpoint segments, so they serve the Ballpoint only; for other
-brushes the predicted pen path (`PenTipPrediction.ahead`: the motion predictor's tail, else the
-two-sample guess) is appended to the mesh's provisional input
-instead, so the prediction is drawn in the brush's own shape and replaced on the next frame. Navigation
-previews (`drawPreview`) also draw the cached meshes, so ink never changes look while panning or zooming.
+the Canvas prediction tail draw round ballpoint segments, so they serve the Ballpoint only. The overlay
+is on by default for an opaque ballpoint stylus stroke (`AppPrefs.DEFAULT_LOW_LATENCY_INK`); behaviour
+and the still-open device plan are in [pen feel](pen-feel.md) and
+[low-latency ink device checks](low-latency-ink-device-checks.md). For other brushes the predicted pen
+path (`PenTipPrediction.ahead`: the motion predictor's tail, else the two-sample guess) is appended to
+the mesh's provisional input instead, so the prediction is drawn in the brush's own shape and replaced
+on the next frame. Navigation previews (`drawPreview`) also draw the cached meshes, so ink keeps its
+look while panning or zooming.
 
 Live freehand builders expose their settled prefix. Only new settled points are
 appended to `InProgressStroke`; its predicted-input channel holds the replaceable
@@ -84,7 +87,9 @@ taper on/off, translucent pen self-crossings and highlighter overlaps. Exercise
 shape holds, solid and patterned shapes, sticky ink, split panes, cross-page writing,
 pinch/rotate, scrolling dense pages, lasso movement, erasing and undo/redo. Compare
 thumbnails and PDF/PNG exports with the editor at different zoom levels. Repeat with
-the optional low-latency overlay enabled; it still draws the leading edge separately.
+low-latency ink, which is on by default for opaque ballpoint stylus strokes and still draws that
+leading edge separately. That front-buffer path is not yet device-verified;
+[low-latency ink device checks](low-latency-ink-device-checks.md) is the plan.
 Check both a software bitmap export and a hardware Canvas (API 26–33 path fallback
 and API 34+ mesh rendering). This dependency is an alpha and visual/latency behavior
 must be checked on real digitizers before promoting the experimental build.

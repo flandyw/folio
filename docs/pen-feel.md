@@ -12,15 +12,35 @@ choosing the numbers that were always stored.
   *drawn* tip (the pen filter can hold that a pixel behind the real pen) and cuts it at 28 screen pixels.
   `PenTipPrediction.drawTail` paints it past the tip; it never enters the stroke. While the predictor has nothing
   yet (the first samples of a stroke) the old two-sample linear guess (`StrokePrediction.predict`) is used.
-- **Low-latency ink (on by default).** Settings › Writing › Pen feel. `LowLatencyInk` puts one
-  transparent `SurfaceView` over the window and draws each new piece of an opaque pen stroke straight into
-  an `androidx.graphics` `CanvasFrontBufferedRenderer` front buffer, skipping the app/compositor frame queue.
-  The predicted tail is drawn there too (otherwise the layer would show the real tip ahead of the page's guess and
-  hide it): each input event wipes the previous tail's box, redraws the stroke segments under it, then draws the new
-  tail, the same scheme androidx.ink's `InProgressStrokesView` uses. Widths match the page's live stroke (pressure
-  scale and start taper). The page keeps drawing the same stroke underneath, so a late or failed layer costs nothing
-  but a slightly heavier edge while writing; it is wiped ~48 ms after pen-up, and the tail is wiped by the lift
-  sample itself. Pen, on the page only (not notes, ruler, highlighter or translucent ink), API 29+.
+- **Low-latency ink (on by default; not yet device-verified).** `AppPrefs.LOW_LATENCY_INK`
+  (`input.lowLatencyInk`) reads `DEFAULT_LOW_LATENCY_INK`, which is `true`, so a missing preference is on.
+  Settings › Writing › Pen feel and the pen tool's Behaviour page both offer the switch, and only when
+  `SDK_INT` is at least 29. The preference is read in `InkView.startLowLatency` when a stroke begins.
+  Turning it off disposes the layer on the next contact that reaches that function. Eraser and laser
+  return earlier, so they leave an existing layer in place until the next pen or highlighter contact.
+  Turning it on creates the layer on the next qualifying ballpoint stylus stroke. `ready` stays false
+  until `surfaceCreated`, so that first stroke can still be drawn by the page alone.
+
+  `LowLatencyInk` keeps one transparent `SurfaceView` per window (`setZOrderOnTop`) and draws each new piece
+  of the stroke into an `androidx.graphics` `CanvasFrontBufferedRenderer` front buffer. The layer starts only
+  for a stylus `Tool.PEN` ballpoint (`draft.style.isBrush` is false) that begins on the page: `inkOpacity` at
+  least 0.99, `rulerEdge == 0`, not read-only, and `InkView.frontBuffer` still true. No host sets
+  `frontBuffer` false. The mistake-review exam sheet filters the printed paper and leaves the paperless ink
+  view on the default, so the overlay can run there in the selected ink colour. Highlighter, eraser, laser,
+  finger ink, translucent pen, fountain, pencil, marker, calligraphy, a ruler-locked stroke and a stroke that
+  starts on a sticky note stay on the page path. Below API 29, when `attach` throws, or while the surface is
+  not ready, the page draws the stroke alone. There is no error UI.
+
+  The overlay tail is `PenTipPrediction.tail` after `StrokePrediction.clip` (28 screen pixels). The two-sample
+  guess stays on the page canvas, and only while the predictor is idle. Each chunk clears the previous tail's
+  box, redraws the real segments under it, then draws the new tail at the tip width. Real samples use
+  `penPressureScale` and the start taper. The page draws the same stroke underneath. The lift sample clears
+  the tail; `end` wipes the layer about 48 ms later. `cancel` wipes immediately when a pen-down hold
+  borrows the highlighter or eraser, and on the next pointer event after a shape preview appears.
+  Hold-to-erase leaves the layer up until that wipe: the page tints the ink being deleted while the overlay
+  can still show the scrub. Nothing from the layer is stored or added to undo. Panes in one window share
+  the layer. The clip is the view's visible rect, intersected with the paper on a finite page. Notes and
+  floating chrome do not clip it. Manual plan: [low-latency ink device checks](low-latency-ink-device-checks.md).
 
 ## Smoothing
 
@@ -130,7 +150,7 @@ On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke t
 6. **Highlighter tilt:** upright vs. flat contact widths; the stroke width does not change mid-stroke.
 7. **Keep notebooks small:** write a page, close and reopen, undo/redo, export: it must look the same; compare the `.fps` size with the option off.
 8. **Tidy up handwriting:** lasso a few tilted lines with an underline and a highlighter; preview, apply, undo once; a locked layer is untouched.
-9. **Low-latency ink:** with it on (default), write fast loops and zigzags: the tail must track the tip with no stale spikes left behind mid-stroke or after lift; write on a finite page, a canvas, in split view and with a floating toolbar; look for flicker or a ghost at pen-up, a double-heavy edge while writing, anything left behind after undo, and rotation/multi-window behaviour. Turn it off again and confirm the overlay is gone. The front-buffer path (and its prediction) has not yet been verified on a device.
+9. **Low-latency ink:** on by default, and not yet device-verified. Run [low-latency ink device checks](low-latency-ink-device-checks.md) on a stylus tablet and a finger-only phone. This list item is not a completed device pass.
 10. **Start hold:** choose Highlighter, hold at pen-down, draw and hold again at the end with shape assist enabled. Check saved highlighter colour/width/opacity, straightening and adjustment, undo/redo, then write immediately: the next stroke is pen ink. Repeat with notebook-local tool settings, tilt and the ruler, on a canvas, in split/music/zoom layouts, across a page seam and on a sticky note. Choose Eraser; check its saved diameter, pressure, whole-stroke mode and undo, both on notes and across pages, with no initial pen dot. Quick dots, immediate writing, finger ink, the hardware eraser and eraser button must keep working. Move away and return to the start, pause at a pen stroke's end, cancel a contact, switch tools and leave the editor during the hold: none may trigger a late switch. Off disables the shortcut. Device verification remains required for the physical gesture and haptics.
 
 ## Writing feedback (OnePlus / OPPO Pencil Pro)
