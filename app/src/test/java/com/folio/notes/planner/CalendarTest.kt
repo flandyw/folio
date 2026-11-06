@@ -77,6 +77,33 @@ class CalendarTest {
         assertEquals(0, Calendar.eventsOn(listOf(multi), LocalDate.parse("2026-10-25")).size)
     }
 
+    @Test fun eventDaysExcludeOnlyTheExactMidnightBoundary() {
+        val first = LocalDate.parse("2026-10-22")
+        val next = first.plusDays(1)
+        for (end in listOf("00:00", "00:00:00.001", "00:00:30")) {
+            val event = Calendar.newEvent("Late event", "event", first, "23:00", end, next, "")
+            val touchesNextDay = end != "00:00"
+            assertEquals(end, first to if (touchesNextDay) next else first, Calendar.eventDays(event))
+            assertEquals(end, if (touchesNextDay) 1 else 0, Calendar.eventsOn(listOf(event), next).size)
+            assertEquals(end, if (touchesNextDay) 1 else 0, Calendar.dayPlan(next, Calendar.Sources(events = listOf(event))).items.size)
+        }
+    }
+
+    @Test fun eventEditRetainsMidnightEndDate() {
+        val first = LocalDate.parse("2026-10-22")
+        for (finish in listOf(first.plusDays(1), first.plusDays(2))) {
+            val event = Calendar.newEvent("Overnight", "event", first, "09:00", "00:00", finish, "")
+            val endIso = event.getString("endTime")
+            val endDate = Calendar.dateLabel(endIso)
+            assertEquals(finish.minusDays(1), Calendar.eventDays(event)!!.second)
+            assertEquals(finish.toString(), endDate)
+            assertNull(Calendar.validateEvent("Edited title", first.toString(), "09:00", Calendar.timeLabel(endIso), endDate))
+            assertEquals(endIso, Calendar.toIso(LocalDate.parse(endDate), Calendar.timeLabel(endIso)))
+        }
+        assertEquals("", Calendar.dateLabel(""))
+        assertEquals("", Calendar.dateLabel("invalid"))
+    }
+
     /** Focal rows carry `"deleted_at": null`; Android's optString reads that as "null", which once hid every event. */
     @Test fun nullDeletedAtStillShows() {
         val event = Calendar.newEvent("SAC", "sac", LocalDate.parse("2026-10-22"), "09:00", "10:00", null, "").put("deleted_at", JSONObject.NULL).put("location", JSONObject.NULL)

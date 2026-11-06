@@ -34,7 +34,7 @@ object Calendar {
     fun eventDays(event: JSONObject): Pair<LocalDate, LocalDate>? {
         val start = local(event.text("startTime")) ?: return null
         val end = local(event.text("endTime"))
-        val last = if (end != null && end.isAfter(start)) end.minusMinutes(1) else start
+        val last = if (end != null && end.isAfter(start)) end.minusNanos(1) else start
         return start.toLocalDate() to last.toLocalDate()
     }
 
@@ -42,6 +42,7 @@ object Calendar {
         e.text("deleted_at").isEmpty() && eventDays(e)?.let { (first, last) -> date >= first && date <= last } == true
     }.sortedBy { it.text("startTime") }
 
+    fun dateLabel(iso: String) = local(iso)?.toLocalDate()?.toString().orEmpty()
     fun timeLabel(iso: String) = local(iso)?.toLocalTime()?.toString().orEmpty()
 
     fun toIso(date: LocalDate, time: String): String = LocalDateTime.of(date, LocalTime.parse(time)).atZone(zone).toInstant().toString()

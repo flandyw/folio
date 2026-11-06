@@ -463,14 +463,15 @@ private const val CELL_LINES = 3
 
 @Composable internal fun EventDialog(source: JSONObject?, day: LocalDate, onDismiss: () -> Unit, onDelete: (() -> Unit)?,
     onSave: suspend (String, String, String, String, String, String, String) -> String?) {
-    val days = source?.let(Calendar::eventDays)
-    var title by rememberSaveable { mutableStateOf(source?.optString("title").orEmpty()) }
-    var type by rememberSaveable { mutableStateOf(source?.optString("eventType") ?: "event") }
-    var date by rememberSaveable { mutableStateOf(days?.first?.toString() ?: day.toString()) }
-    var start by rememberSaveable { mutableStateOf(source?.optString("startTime")?.let(Calendar::timeLabel) ?: "09:00") }
-    var end by rememberSaveable { mutableStateOf(source?.optString("endTime")?.takeIf { it.isNotEmpty() }?.let(Calendar::timeLabel) ?: "10:00") }
-    var endDate by rememberSaveable { mutableStateOf(days?.takeIf { it.first != it.second }?.second?.toString().orEmpty()) }
-    var location by rememberSaveable { mutableStateOf(source?.optString("location").orEmpty()) }
+    val startDate = source?.text("startTime")?.let(Calendar::dateLabel).orEmpty()
+    val finishDate = source?.text("endTime")?.let(Calendar::dateLabel).orEmpty()
+    var title by rememberSaveable { mutableStateOf(source?.text("title").orEmpty()) }
+    var type by rememberSaveable { mutableStateOf(source?.text("eventType").orEmpty().ifEmpty { "event" }) }
+    var date by rememberSaveable { mutableStateOf(startDate.ifEmpty { day.toString() }) }
+    var start by rememberSaveable { mutableStateOf(source?.text("startTime")?.let(Calendar::timeLabel) ?: "09:00") }
+    var end by rememberSaveable { mutableStateOf(source?.text("endTime")?.takeIf { it.isNotEmpty() }?.let(Calendar::timeLabel) ?: "10:00") }
+    var endDate by rememberSaveable { mutableStateOf(finishDate.takeIf { it != startDate }.orEmpty()) }
+    var location by rememberSaveable { mutableStateOf(source?.text("location").orEmpty()) }
     FormPanel(if (source == null) "Add event" else "Edit event", onDismiss, onSave = {
         Calendar.validateEvent(title, date.trim(), start.trim(), end.trim(), endDate.trim()) ?: onSave(title, type, date.trim(), start.trim(), end.trim(), endDate.trim(), location)
     }) {
