@@ -11,40 +11,36 @@ object NotebookTextSearch {
     data class Hit(val pageIndex: Int, val matchCount: Int, val snippet: String, val boxId: String)
 
     private const val SNIPPET_RADIUS = 42
-    private val whitespaceSplit = Regex("\\s+")
-    private val whitespaceCollapse = Regex("\\s+")
+    private val whitespace = Regex("[\\s\\p{Z}]+")
 
     fun search(pages: List<NotePage>, query: String): List<Hit> {
-        val terms = query.trim().split(whitespaceSplit).filter { it.isNotEmpty() }
+        val terms = query.trim().split(whitespace).filter { it.isNotEmpty() }
         if (terms.isEmpty()) return emptyList()
-        val loweredTerms = terms.map { it.lowercase() }
         val hits = mutableListOf<Hit>()
         pages.forEachIndexed { pageIndex, page ->
             if (!page.loaded && page.texts.isEmpty()) return@forEachIndexed
             if (page.texts.isEmpty()) return@forEachIndexed
-            // Lowercase once and reuse for both the page-level gate and per-box counting.
-            val loweredBoxes = page.texts.map { it.text.lowercase() to it }
             // Every term must appear somewhere on the page (across one or more boxes),
             // like a notebook search that narrows as words are added.
-            if (loweredTerms.any { term -> loweredBoxes.none { (lowered, _) -> lowered.contains(term) } }) return@forEachIndexed
+            if (terms.any { term -> page.texts.none { it.text.contains(term, ignoreCase = true) } }) return@forEachIndexed
             var count = 0
             var best: Hit? = null
             var bestScore = 0
-            loweredBoxes.forEach { (lowered, box) ->
-                if (lowered.isBlank()) return@forEach
+            page.texts.forEach { box ->
+                if (box.text.isBlank()) return@forEach
                 // Single pass: count every term once, tracking the strongest term for the snippet.
                 var boxCount = 0
                 var bestTerm: String? = null
                 var bestTermCount = 0
                 var bestAt = -1
-                for (term in loweredTerms) {
-                    val c = countOccurrences(lowered, term)
+                for (term in terms) {
+                    val c = countOccurrences(box.text, term)
                     if (c == 0) continue
                     boxCount += c
                     if (c > bestTermCount) {
                         bestTermCount = c
                         bestTerm = term
-                        bestAt = lowered.indexOf(term)
+                        bestAt = box.text.indexOf(term, ignoreCase = true)
                     }
                 }
                 if (boxCount == 0) return@forEach
@@ -65,7 +61,7 @@ object NotebookTextSearch {
         var count = 0
         var from = 0
         while (true) {
-            val at = haystack.indexOf(needle, from)
+            val at = haystack.indexOf(needle, from, ignoreCase = true)
             if (at < 0) return count
             count++
             from = at + needle.length
@@ -76,7 +72,7 @@ object NotebookTextSearch {
     internal fun excerpt(text: String, at: Int, length: Int): String {
         val start = (at - SNIPPET_RADIUS).coerceAtLeast(0)
         val end = (at + length + SNIPPET_RADIUS).coerceAtMost(text.length)
-        var snippet = text.substring(start, end).replace(whitespaceCollapse, " ").trim()
+        var snippet = text.substring(start, end).replace(whitespace, " ").trim()
         if (start > 0) snippet = "…$snippet"
         if (end < text.length) snippet = "$snippet…"
         return snippet.take(160)
