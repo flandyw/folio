@@ -239,19 +239,30 @@ Before answering, silently check that every endTime is later than its startTime 
         val text = raw.trim().replace(Regex("^```(?:json)?\\s*", RegexOption.IGNORE_CASE), "").replace(Regex("\\s*```$"), "")
         val root = try { JSONObject(text) } catch (_: Exception) { fail("the JSON is malformed.") }
         val cycle = root.optInt("cycleLength", 0)
-        if (cycle !in 1..60) fail("cycleLength must be a whole number from 1 to 60.")
-        val entries = root.optJSONArray("entries")?.objects()?.takeIf { it.isNotEmpty() } ?: fail("entries must contain at least one day.")
+        if (cycle !in 1..60 || root.number("cycleLength") != cycle.toDouble()) fail("cycleLength must be a whole number from 1 to 60.")
+        val entryRows = root.optJSONArray("entries") ?: fail("entries must contain at least one day.")
+        val entries = entryRows.objects()
+        if (entries.isEmpty()) fail("entries must contain at least one day.")
+        if (entries.size != entryRows.length()) fail("every entries item must be a day object.")
+        if (entries.any { day ->
+            val label = day.optInt("dayLabel", -1)
+            label !in 1..cycle || day.number("dayLabel") != label.toDouble()
+        }) fail("each dayLabel must be a whole number from 1 to $cycle.")
         val merged = (1..cycle).mapNotNull { label ->
             val days = entries.filter { it.optInt("dayLabel", -1) == label }
             val periods = days.flatMap { day ->
-                day.optJSONArray("periods")?.objects()?.takeIf { it.isNotEmpty() } ?: fail("Day $label must contain at least one period.") }
+                val rows = day.optJSONArray("periods") ?: fail("Day $label must contain at least one period.")
+                val objects = rows.objects()
+                if (objects.isEmpty()) fail("Day $label must contain at least one period.")
+                if (objects.size != rows.length()) fail("Day $label: every period must be an object.")
+                objects
+            }
             if (periods.isEmpty()) null else JSONObject().put("dayLabel", label).put("periods", JSONArray(periods.map { p ->
                 val fields = listOf("period", "subject", "location", "startTime", "endTime").associateWith { p.text(it).trim() }
                 periodError(fields.getValue("period"), fields.getValue("startTime"), fields.getValue("endTime"))?.let { fail("Day $label: $it") }
                 JSONObject(fields)
             }.sortedBy { minutes(it.getString("startTime")) }))
         }
-        if (entries.any { it.optInt("dayLabel", -1) !in 1..cycle }) fail("a dayLabel is outside 1-$cycle.")
         return JSONObject(current?.toString() ?: "{}").put("enabled", true).put("cycleLength", cycle).put("day1Starts", day1Starts)
             .apply { if (!has("holidays")) put("holidays", JSONArray()); remove("dayToWeekday"); put("currentDayOverride", JSONObject.NULL) }
             .put("entries", JSONArray(merged))

@@ -23,15 +23,48 @@ class CalendarTest {
 
     @Test fun importValidatesAndMergesDays() {
         val raw = """```json
-{"cycleLength":2,"entries":[{"dayLabel":1,"periods":[{"period":"P2","subject":"Maths","location":"","startTime":"10:00","endTime":"11:00"},
-{"period":"P1","subject":"English","location":"R1","startTime":"09:00","endTime":"10:00"}]}]}
+{"cycleLength":2,"entries":[{"dayLabel":1,"periods":[{"period":"P2","subject":"Maths","location":"","startTime":"10:00","endTime":"11:00"}]},
+{"dayLabel":1,"periods":[{"period":"P1","subject":"English","location":"R1","startTime":"09:00","endTime":"10:00"}]}]}
 ```"""
         val parsed = Calendar.parseTimetable(raw, JSONObject().put("holidays", JSONArray().put(JSONObject().put("name", "x"))), "2026-02-02")
         assertEquals(1, parsed.getJSONArray("entries").length())
+        assertEquals(2, parsed.getJSONArray("entries").getJSONObject(0).getJSONArray("periods").length())
         assertEquals("P1", parsed.getJSONArray("entries").getJSONObject(0).getJSONArray("periods").getJSONObject(0).getString("period"))
         assertEquals(1, parsed.getJSONArray("holidays").length())
         assertThrows(IllegalArgumentException::class.java) { Calendar.parseTimetable(raw.replace("11:00", "09:30"), null, "2026-02-02") }
         assertThrows(IllegalArgumentException::class.java) { Calendar.parseTimetable(raw.replace("\"dayLabel\":1", "\"dayLabel\":3"), null, "2026-02-02") }
+    }
+
+    @Test fun importRejectsMalformedArrayMembers() {
+        val period = JSONObject().put("period", "P1").put("subject", "Maths").put("location", "")
+            .put("startTime", "09:00").put("endTime", "10:00")
+        val day = JSONObject().put("dayLabel", 1).put("periods", JSONArray().put(period))
+        val current = config(10, false, true).put("entries", JSONArray().put(day))
+        val original = current.toString()
+        for (bad in listOf(JSONObject.NULL, "unreadable", 2, JSONArray())) {
+            val badDay = JSONObject().put("cycleLength", 2).put("entries", JSONArray().put(day).put(bad))
+            val badPeriod = JSONObject().put("cycleLength", 2).put("entries", JSONArray().put(
+                JSONObject(day.toString()).put("periods", JSONArray().put(period).put(bad))))
+            for (raw in listOf(badDay, badPeriod)) {
+                assertThrows(raw.toString(), IllegalArgumentException::class.java) {
+                    Calendar.parseTimetable(raw.toString(), current, "2026-02-02")
+                }
+                assertEquals(original, current.toString())
+            }
+        }
+    }
+
+    @Test fun importRequiresWholeNumericCycleAndDayLabels() {
+        val valid = """{"cycleLength":2,"entries":[{"dayLabel":1,"periods":[{"period":"P1","subject":"Maths","location":"","startTime":"09:00","endTime":"10:00"}]}]}"""
+        val wholeNumbers = JSONObject(valid).put("cycleLength", 2.0).apply { getJSONArray("entries").getJSONObject(0).put("dayLabel", 1.0) }
+        assertEquals(2, Calendar.parseTimetable(wholeNumbers.toString(), null, "2026-02-02").getInt("cycleLength"))
+        for (bad in listOf(1.5, "1", true, JSONObject.NULL, 0, 61, 4_294_967_297L)) {
+            val badCycle = JSONObject(valid).put("cycleLength", bad)
+            val badLabel = JSONObject(valid).apply { getJSONArray("entries").getJSONObject(0).put("dayLabel", bad) }
+            for (raw in listOf(badCycle, badLabel)) assertThrows(raw.toString(), IllegalArgumentException::class.java) {
+                Calendar.parseTimetable(raw.toString(), null, "2026-02-02")
+            }
+        }
     }
 
     @Test fun eventValidationAndDays() {
