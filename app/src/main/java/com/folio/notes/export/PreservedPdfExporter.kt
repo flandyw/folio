@@ -42,7 +42,6 @@ import java.io.OutputStream
 object PreservedPdfExporter {
     /** Overlay density: sharp handwriting and small exam text without extreme memory. */
     const val OVERLAY_SCALE = 2f
-    const val OVERLAY_MAX_DIMENSION = 2800f
 
     suspend fun write(
         output: OutputStream,
@@ -152,8 +151,7 @@ object PreservedPdfExporter {
 
     /** Transparent bitmap of Folio content only, in displayed orientation. */
     private suspend fun renderOverlay(noteId: String, page: NotePage, repository: NoteRepository): Bitmap {
-        val scale = minOf(OVERLAY_SCALE, OVERLAY_MAX_DIMENSION / page.width, OVERLAY_MAX_DIMENSION / page.height)
-            .coerceAtLeast(0.5f)
+        val scale = exportBitmapScale(page, OVERLAY_SCALE)
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -171,8 +169,7 @@ object PreservedPdfExporter {
     /** Opaque full-page bitmap for Folio-only pages and fallbacks. */
     private suspend fun renderFull(noteId: String, page: NotePage, repository: NoteRepository): Bitmap {
         // Native pages have no PDF background; paper + content render via the shared renderer.
-        val scale = minOf(OVERLAY_SCALE, OVERLAY_MAX_DIMENSION / page.width, OVERLAY_MAX_DIMENSION / page.height)
-            .coerceAtLeast(0.5f)
+        val scale = exportBitmapScale(page, OVERLAY_SCALE)
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

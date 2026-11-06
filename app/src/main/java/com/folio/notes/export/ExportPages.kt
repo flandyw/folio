@@ -48,6 +48,12 @@ fun shouldShowPdfQuality(note: Notebook): Boolean = hasPdfPages(note)
 fun pageHasAnnotations(page: NotePage): Boolean =
     page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.isSticky || it.text.isNotBlank() }
 
+internal const val EXPORT_MAX_DIMENSION = 2800f
+
+/** Bound both bitmap dimensions, including on long or widely spread infinite canvases. */
+internal fun exportBitmapScale(page: NotePage, preferred: Float): Float =
+    minOf(preferred, EXPORT_MAX_DIMENSION / page.width, EXPORT_MAX_DIMENSION / page.height)
+
 /**
  * True when the export is every notebook page in source order with no native pages,
  * so bookmarks and document structures can be carried over 1:1. Anything selective,

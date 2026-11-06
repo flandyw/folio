@@ -204,7 +204,7 @@ class NoteExporter(private val repository: NoteRepository) {
     private suspend fun renderPng(note: Notebook, page: NotePage, source: NotebookPdfs.PdfBackgrounds?, pngScale: Float, tight: Boolean = false): Bitmap {
         val prepared = InkRenderer.exportPage(content(note, page), tight)
         val scale = AppPrefs.pngScale(pngScale)
-        val factor = minOf(scale, 2800f / prepared.height, 2800f / prepared.width)
+        val factor = exportBitmapScale(prepared, scale)
         val bitmap = Bitmap.createBitmap((prepared.width * factor).toInt().coerceAtLeast(1), (prepared.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         val background = source?.render(prepared, bitmap.width)
         val images = repository.loadImages(note.id, prepared)
