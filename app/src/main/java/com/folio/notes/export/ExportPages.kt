@@ -46,7 +46,7 @@ fun shouldShowPdfQuality(note: Notebook): Boolean = hasPdfPages(note)
 
 /** True when the page carries visible Folio content worth overlaying. */
 fun pageHasAnnotations(page: NotePage): Boolean =
-    page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.text.isNotBlank() }
+    page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.isSticky || it.text.isNotBlank() }
 
 /**
  * True when the export is every notebook page in source order with no native pages,
