@@ -605,7 +605,7 @@ fun main() = runBlocking {
         val legacy = ByteArrayOutputStream().also { LibraryBackup.write(it, listOf(folder), listOf(note)) { n, out -> NotebookArchive.write(n, null, out) } }.toByteArray()
         ZipInputStream(legacy.inputStream()).use { zip ->
             zip.nextEntry; check(LibraryBackup.parseManifest(zip.readBytes().toString(Charsets.UTF_8)).version == 1)
-            zip.nextEntry; check(NotebookArchive.read(zip.readBytes().inputStream()).note == note)
+            zip.nextEntry; check(NotebookArchive.read(zip.readBytes().inputStream(), File(root, "legacy-decoded")).note == note)
         }
         val jsonFile = File(root, "portable.json").apply { writeText(NoteCodec.encode(note)) }
         val v2Payload = LibraryBackup.NotebookPayload(note.id, jsonFile, null, emptyMap())

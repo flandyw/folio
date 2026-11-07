@@ -731,7 +731,8 @@ class NoteRepository(private val context: Context) {
                     return@withContext importNativeLibrary(manifest, objects, emptyList(), folder, saveLibraryFolders = false).first.single()
                 }
             } } ?: error("This backup could not be opened")
-            val archived = context.contentResolver.openInputStream(uri)?.use { NotebookArchive.read(it) }
+            val job = currentCoroutineContext()
+            val archived = context.contentResolver.openInputStream(uri)?.use { NotebookArchive.read(it, File(staging, "legacy"), job::ensureActive) }
                 ?: error("This backup could not be opened")
             importArchived(archived, folder)
         } finally { staging.deleteRecursively() }
@@ -745,9 +746,9 @@ class NoteRepository(private val context: Context) {
             mistakeReviews = archived.note.mistakeReviews.map { it.copy(practiceNotebookId = newId) })
         val dir = directory(note.id)
         try {
-            archived.pdf?.let { File(dir, "source.pdf").writeBytes(it) }
-            archived.images.forEach { (id, bytes) ->
-                if (idPattern.matches(id)) imageFile(note.id, id).writeBytes(bytes)
+            archived.pdf?.copyTo(File(dir, "source.pdf"))
+            archived.images.forEach { (id, file) ->
+                if (idPattern.matches(id)) file.copyTo(imageFile(note.id, id))
             }
             saveAll(note)
         } catch (e: Exception) { dir.deleteRecursively(); throw e }
@@ -866,6 +867,7 @@ class NoteRepository(private val context: Context) {
     /** Validate every archive entry before adding anything to the existing library. */
     suspend fun importLibrary(uri: Uri, existingFolders: List<Folder>, backupTree: Uri? = null): Pair<List<Notebook>, List<Folder>> = withContext(Dispatchers.IO) {
         val staged = newBackupStaging("restore")
+        val job = currentCoroutineContext()
         val added = mutableListOf<Notebook>()
         try {
             var manifest: LibraryBackup.Manifest? = null
@@ -932,18 +934,23 @@ class NoteRepository(private val context: Context) {
             if (info.version == 1) {
                 // Decode every nested archive before the first write, catching damaged backups.
                 info.notebookIds.forEach { id ->
-                    val archived = legacyFiles.getValue(id).inputStream().use(NotebookArchive::read)
-                    require(archived.note.id == id &&
-                        (archived.note.folderId == null || archived.note.folderId in folderIds)) {
-                        "Notebook does not match the backup manifest"
+                    val decoded = File(staged, "decoded-$id")
+                    try {
+                        val archived = legacyFiles.getValue(id).inputStream().use { NotebookArchive.read(it, decoded, job::ensureActive) }
+                        require(archived.note.id == id &&
+                            (archived.note.folderId == null || archived.note.folderId in folderIds)) {
+                            "Notebook does not match the backup manifest"
+                        }
+                        require(archived.note.pages.flatMap { it.images }.all { it.id in archived.images }) {
+                            "Backup is missing an image"
+                        }
+                        require(archived.note.pages.none { it.pdfIndex != null } || archived.pdf != null) {
+                            "Backup is missing its source PDF"
+                        }
+                        legacyFolders[id] = archived.note.folderId
+                    } finally {
+                        decoded.deleteRecursively()
                     }
-                    require(archived.note.pages.flatMap { it.images }.all { it.id in archived.images }) {
-                        "Backup is missing an image"
-                    }
-                    require(archived.note.pages.none { it.pdfIndex != null } || archived.pdf != null) {
-                        "Backup is missing its source PDF"
-                    }
-                    legacyFolders[id] = archived.note.folderId
                 }
             } else {
                 val refs = info.assetsByNotebook
@@ -978,8 +985,13 @@ class NoteRepository(private val context: Context) {
                     else notebookFolders.getValue(id)
                 val mappedFolder = targetFolder?.let(folderMap::get)
                 added += if (info.version == 1) {
-                    val archived = legacyFiles.getValue(id).inputStream().use(NotebookArchive::read)
-                    importArchived(archived, mappedFolder)
+                    val decoded = File(staged, "decoded-$id")
+                    try {
+                        val archived = legacyFiles.getValue(id).inputStream().use { NotebookArchive.read(it, decoded, job::ensureActive) }
+                        importArchived(archived, mappedFolder)
+                    } finally {
+                        decoded.deleteRecursively()
+                    }
                 } else {
                     val note = NoteCodec.decode(noteFiles.getValue(id).readText(Charsets.UTF_8))
                     importLibraryNote(note, info.assetsByNotebook.getValue(id), assets, mappedFolder)
