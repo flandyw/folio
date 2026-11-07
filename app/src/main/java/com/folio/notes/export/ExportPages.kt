@@ -46,7 +46,13 @@ fun shouldShowPdfQuality(note: Notebook): Boolean = hasPdfPages(note)
 
 /** True when the page carries visible Folio content worth overlaying. */
 fun pageHasAnnotations(page: NotePage): Boolean =
-    page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.text.isNotBlank() }
+    page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.isSticky || it.text.isNotBlank() }
+
+/** Large canvases must shrink below half scale to keep PDF working bitmaps bounded. */
+internal fun pdfExportScale(page: NotePage, preferred: Float): Float {
+    require(page.width.isFinite() && page.height.isFinite() && page.width > 0f && page.height > 0f)
+    return minOf(preferred, 2800f / page.width, 2800f / page.height)
+}
 
 /**
  * True when the export is every notebook page in source order with no native pages,

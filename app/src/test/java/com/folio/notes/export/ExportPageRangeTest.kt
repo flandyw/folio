@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ExportPageRangeTest {
+    @Test fun stickyPaperAndHandwrittenNotesCountAsPdfAnnotations() {
+        val note = com.folio.notes.model.TextBox(x = 0f, y = 0f, stickyHeight = 120f)
+        assertTrue(pageHasAnnotations(com.folio.notes.model.NotePage(texts = listOf(note))))
+        assertFalse(pageHasAnnotations(com.folio.notes.model.NotePage(texts = listOf(note.copy(stickyHeight = 0f)))))
+    }
     @Test fun liveRangeCanClearThePreviousSelection() {
         var selected = parsePageRange("1-3", 6).toSet()
         assertEquals(setOf(0, 1, 2), selected)

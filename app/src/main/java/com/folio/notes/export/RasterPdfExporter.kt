@@ -31,7 +31,6 @@ import java.io.OutputStream
 object RasterPdfExporter {
     /** Render width for the flattened bitmap, balancing small exam text against memory. */
     const val TARGET_WIDTH = 1680
-    const val MAX_DIMENSION = 2800
 
     suspend fun write(
         output: OutputStream,
@@ -77,7 +76,7 @@ object RasterPdfExporter {
 
     /**
      * One flattened bitmap of the full visual page at [TARGET_WIDTH] px wide (capped at
-     * [MAX_DIMENSION]), reusing the editor renderer so the export matches the screen.
+     * 2800 pixels), reusing the editor renderer so the export matches the screen.
      */
     private suspend fun renderFlattened(
         noteId: String,
@@ -85,8 +84,7 @@ object RasterPdfExporter {
         source: NotebookPdfs.PdfBackgrounds?,
         repository: NoteRepository
     ): Bitmap {
-        val scale = minOf(TARGET_WIDTH / page.width, MAX_DIMENSION / page.width, MAX_DIMENSION / page.height)
-            .coerceAtLeast(0.5f)
+        val scale = pdfExportScale(page, TARGET_WIDTH / page.width)
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
