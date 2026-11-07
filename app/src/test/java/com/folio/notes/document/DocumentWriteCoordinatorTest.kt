@@ -21,9 +21,15 @@ class DocumentWriteCoordinatorTest {
         val batches = ArrayList<List<Int>>()
         var failGroup = false
         var cancelPage = false
+        var pageFailures = 0
         val committedGroups = HashSet<String>()
         override suspend fun appendPageTransactions(noteId: String, pageId: String, transactions: List<PageTransaction>) {
             if (cancelPage) throw CancellationException("Injected cancellation")
+            if (pageFailures > 0) {
+                pageFailures--
+                events += "page:$pageId:failed"
+                throw IOException("Injected page-write failure")
+            }
             events += "page:$pageId"
             batches += transactions.map { it.revision }
         }
@@ -80,6 +86,48 @@ class DocumentWriteCoordinatorTest {
             assertFalse(state.value.saveFailed); assertFalse(state.value.retryingSave)
             assertEquals(state.value.editGeneration, state.value.durableGeneration)
         } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
+    @Test fun repeatedRetryFailuresRetainEveryUnwrittenEditExactlyOnce() = runBlocking {
+        val state = DocumentStateStore(FolioState(loading = false))
+        val storage = Storage().also { it.pageFailures = 2 }
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val writer = DocumentWriteCoordinator(state, storage, scope, Mutex())
+        writer.start()
+        try {
+            writer.queue(page("a"))
+            writer.queue(page("b"))
+            assertTrue(withTimeout(5000) { runCatching { writer.awaitSaved() }.isFailure })
+            assertEquals(0L, state.value.durableGeneration)
+            writer.queue(page("c"))
+            writer.retrySave()
+            assertTrue(withTimeout(5000) { runCatching { writer.awaitSaved() }.isFailure })
+            assertTrue(state.value.saveFailed)
+            assertFalse(state.value.retryingSave)
+            writer.queue(page("d"))
+            writer.retrySave()
+            withTimeout(5000) { writer.awaitSaved() }
+            assertEquals(listOf("page:a:failed", "page:a:failed", "page:a", "page:b", "page:c", "page:d", "folders"),
+                storage.events.take(7))
+            assertFalse(state.value.saveFailed)
+            assertEquals(state.value.editGeneration, state.value.durableGeneration)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
+    @Test fun cancellationWhileWaitingForStorageReleasesTheActiveBarrier() = runBlocking {
+        val state = DocumentStateStore(FolioState(loading = false))
+        val storage = Storage()
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val gate = Mutex(locked = true)
+        val writer = DocumentWriteCoordinator(state, storage, scope, gate)
+        writer.start()
+        val barrier = CompletableDeferred<Unit>()
+        writer.queue(DocumentWriteOp.Barrier(barrier), scheduleAutoBackup = false)
+        yield() // Move the barrier from the channel into the active batch waiting for the gate.
+        scope.coroutineContext[Job]!!.cancelAndJoin()
+        assertTrue(barrier.isCancelled)
+        assertTrue(storage.events.isEmpty())
+        assertFalse(state.value.saveFailed)
     }
 
     @Test fun idleCheckpointUsesLatestNotebookAndDoesNotResurrectDeletion() = runBlocking {
@@ -146,6 +194,34 @@ class DocumentWriteCoordinatorTest {
             withTimeout(5000) { writer.awaitSaved() }
             assertFalse(storage.events.any { it.startsWith("index:") })
         } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
+    @Test fun cancellationBeforeWorkerStartsClosesAdmissionAndWakesQueuedBarriers() = runBlocking {
+        val state = DocumentStateStore(FolioState(loading = false))
+        val storage = Storage()
+        val job = SupervisorJob()
+        val scope = CoroutineScope(coroutineContext + job)
+        val writer = DocumentWriteCoordinator(state, storage, scope, Mutex())
+        val barrier = CompletableDeferred<Unit>()
+        writer.queue(page("a"))
+        writer.queue(DocumentWriteOp.Barrier(barrier), scheduleAutoBackup = false)
+        writer.start()
+        job.cancelAndJoin() // The launch has not had a chance to enter its body.
+        assertTrue("Queued save waiters must be released", barrier.isCancelled)
+        val generation = state.value.editGeneration
+        assertThrows(IllegalStateException::class.java) { writer.queue(page("b")) }
+        assertEquals(generation, state.value.editGeneration)
+        assertTrue(storage.events.isEmpty())
+        assertFalse(state.value.saveFailed)
+    }
+
+    @Test fun startingInAnAlreadyCancelledScopeClosesAdmission() = runBlocking<Unit> {
+        val state = DocumentStateStore(FolioState(loading = false))
+        val job = SupervisorJob().also { it.cancel() }
+        val writer = DocumentWriteCoordinator(state, Storage(), CoroutineScope(coroutineContext + job), Mutex())
+        writer.start()
+        yield() // Let the cancelled launch complete and run its completion handler.
+        assertThrows(IllegalStateException::class.java) { writer.queue(page("a")) }
     }
 
     @Test fun cancellationWakesBarriersWithoutReportingAStorageFailure() = runBlocking {
