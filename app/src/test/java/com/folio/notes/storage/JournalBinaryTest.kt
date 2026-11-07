@@ -24,6 +24,28 @@ class JournalBinaryTest {
         assertEquals(first.size, JournalBinary.completePrefixLength(first + torn))
     }
 
+    @Test fun everyTornTailPreservesOnlyTheCompletePrefix() {
+        val first = frame(1)
+        val second = frame(2)
+        for (size in second.indices) {
+            val journal = first + second.copyOf(size)
+            assertEquals("Tail length $size", listOf(1), JournalBinary.readAll(journal).map { it.seq })
+            assertEquals(first.size, JournalBinary.completePrefixLength(journal))
+        }
+        assertEquals(listOf(1, 2), JournalBinary.readAll(first + second).map { it.seq })
+    }
+
+    @Test fun checksumDamageStopsReplayWithoutSkippingToLaterRecords() {
+        val first = frame(1)
+        val second = frame(2)
+        for (at in 4 until second.size) {
+            val damaged = second.copyOf().also { it[at] = (it[at].toInt() xor 1).toByte() }
+            val journal = first + damaged + frame(3)
+            assertEquals(listOf(1), JournalBinary.readAll(journal).map { it.seq })
+            assertEquals(first.size, JournalBinary.completePrefixLength(journal))
+        }
+    }
+
     @Test fun intactFrameThatWillNotDecodeThrowsInsteadOfHidingLaterRecords() {
         val bad = frame(2)
         bad[8] = 99 // unknown record version, then re-checksum so only decoding can reject it
