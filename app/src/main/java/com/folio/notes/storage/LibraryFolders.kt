@@ -8,6 +8,15 @@ import java.util.UUID
 
 /** Forest rules shared by the explorer, destination pickers and backup restore. */
 object LibraryFolders {
+    fun nameError(folders: List<Folder>, name: String, parentId: String?, except: String? = null): String? = when {
+        name.isBlank() -> "Enter a folder name."
+        name.trim().length > 120 -> "Use 120 characters or fewer."
+        parentId != null && folders.none { it.id == parentId } -> "This folder no longer exists. Choose another location."
+        folders.any { it.id != except && it.parentId == parentId && it.name.equals(name.trim(), true) } ->
+            "A folder with that name already exists here."
+        else -> null
+    }
+
     fun path(folders: List<Folder>, id: String?): List<Folder> {
         val byId = folders.associateBy { it.id }
         val seen = mutableSetOf<String>()

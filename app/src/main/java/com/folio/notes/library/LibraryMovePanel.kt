@@ -33,6 +33,12 @@ import com.folio.notes.ui.FolioSpacing
     var query by rememberSaveable { mutableStateOf("") }
     var newFolder by rememberSaveable { mutableStateOf("") }
     var creating by rememberSaveable { mutableStateOf(false) }
+    val nameError = LibraryFolders.nameError(folders, newFolder, null)
+    var createFailed by remember { mutableStateOf(false) }
+    fun createAndMove() {
+        if (nameError != null) return
+        if (onCreateAndMove(newFolder.trim())) onDismiss() else createFailed = true
+    }
     val visible = remember(folders, query, excluded) { val words = query.trim().split(Regex("\\s+")); folders.filter { folder -> folder.id !in excluded && LibraryFolders.label(folders, folder.id).let { label -> words.all { label.contains(it, ignoreCase = true) } } }.sortedBy { LibraryFolders.label(folders, it.id).lowercase() } }
     FolioPanel(title, onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -65,12 +71,14 @@ import com.folio.notes.ui.FolioSpacing
             if (creating) {
                 val newFolderFocus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { newFolderFocus.requestFocus() }
-                OutlinedTextField(newFolder, { newFolder = it.take(120) }, Modifier.fillMaxWidth().focusRequester(newFolderFocus), singleLine = true, label = { Text("New folder name") }, supportingText = { Text("Create at the top level and move the selected notebooks into it.") },
+                OutlinedTextField(newFolder, { newFolder = it; createFailed = false }, Modifier.fillMaxWidth().focusRequester(newFolderFocus), singleLine = true, label = { Text("New folder name") }, isError = (nameError != null && newFolder.isNotEmpty()) || createFailed,
+                    supportingText = { Text(if (createFailed) "Could not create the folder. Your notebooks have not moved. Try again."
+                        else nameError?.takeIf { newFolder.isNotEmpty() } ?: "Create at the top level and move the selected notebooks into it.") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { if (newFolder.isNotBlank() && onCreateAndMove(newFolder.trim())) onDismiss() }))
+                    keyboardActions = KeyboardActions(onDone = { createAndMove() }))
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                    TextButton({ creating = false; newFolder = "" }) { Text("Cancel new folder") }
-                    Button({ if (onCreateAndMove(newFolder.trim())) onDismiss() }, enabled = newFolder.isNotBlank()) { Text("Create & move") }
+                    TextButton({ creating = false; newFolder = ""; createFailed = false }) { Text("Cancel new folder") }
+                    Button({ createAndMove() }, enabled = nameError == null) { Text("Create & move") }
                 }
             } else TextButton({ creating = true }) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
         }

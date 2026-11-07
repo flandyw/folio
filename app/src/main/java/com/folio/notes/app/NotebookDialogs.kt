@@ -31,26 +31,31 @@ import com.folio.notes.model.Paper
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
 
-@Composable fun NameDialog(title: String, subtitle: String, initial: String, action: String, dismiss: () -> Unit, submit: (String) -> Unit) {
+@Composable fun NameDialog(title: String, subtitle: String, initial: String, action: String, dismiss: () -> Unit, validate: (String) -> String? = { null }, submit: (String) -> Unit) {
     var text by rememberSaveable(initial, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(initial, selection = TextRange(0, initial.length)))
     }
     val focusRequester = remember { FocusRequester() }
+    val error = when {
+        text.text.isBlank() -> "Enter a name."
+        text.text.trim().length > 120 -> "Use 120 characters or fewer."
+        else -> validate(text.text.trim())
+    }
     // Keeping the name is an answer too: Done closes the dialog rather than doing nothing.
-    fun save() { if (text.text.isNotBlank()) { if (text.text.trim() == initial.trim()) dismiss() else submit(text.text.trim()) } }
+    fun save() { if (error == null) { if (text.text.trim() == initial.trim()) dismiss() else submit(text.text.trim()) } }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             if (subtitle.isNotBlank()) Text(subtitle)
-            OutlinedTextField(text, { if (it.text.length <= 120) text = it },
+            OutlinedTextField(text, { text = it },
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-                singleLine = true, label = { Text("Name") },
+                singleLine = true, label = { Text("Name") }, isError = error != null && text.text.isNotEmpty(),
                 keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
                 trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue(""); focusRequester.requestFocus() }) { Icon(Icons.Rounded.Close, "Clear name") } },
-                supportingText = { if (text.text.length >= 90) Text("${text.text.length}/120") })
+                supportingText = { if (error != null) Text(error) else if (text.text.length >= 90) Text("${text.text.trim().length}/120") })
         }
-    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = text.text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
+    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = error == null, shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
 @Composable internal fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {
@@ -64,6 +69,17 @@ import com.folio.notes.ui.FolioSpacing
     var infinite by rememberSaveable { mutableStateOf(false) }
     var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
     var pageCover by rememberSaveable { mutableStateOf(dialogPrefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)) }
+    val initialCover by rememberSaveable { mutableIntStateOf(cover) }
+    val initialPaper by rememberSaveable { mutableStateOf(paper) }
+    val initialPageCover by rememberSaveable { mutableStateOf(pageCover) }
+    var discard by rememberSaveable { mutableStateOf(false) }
+    val edited = title.isNotBlank() || cover != initialCover || paper != initialPaper ||
+        pageCover != initialPageCover || template != null || pageCount != 1 || infinite
+    fun canDismiss(): Boolean {
+        if (edited) discard = true
+        return !edited
+    }
+    fun dismiss() { if (canDismiss()) onDismiss() }
     fun chooseTemplate(item: NotebookTemplate) {
         infinite = false
         template = item.id
@@ -75,7 +91,7 @@ import com.folio.notes.ui.FolioSpacing
         val name = title.trim().ifBlank { "Notebook · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}" }
         onCreate(name, cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover)
     }
-    FolioPanel(title = "New notebook", onDismissRequest = onDismiss) {
+    FolioPanel(title = "New notebook", onDismissRequest = onDismiss, canDismiss = ::canDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, top = FolioSpacing.dp8, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(),
@@ -138,7 +154,7 @@ import com.folio.notes.ui.FolioSpacing
             }
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                TextButton(::dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button(
                     ::createNotebook,
                     shapes = ButtonDefaults.shapes()
@@ -146,4 +162,12 @@ import com.folio.notes.ui.FolioSpacing
             }
         }
     }
+    if (discard) AlertDialog(
+        onDismissRequest = { discard = false },
+        title = { Text("Discard this notebook draft?") },
+        text = { Text("Your name, paper and cover choices have not been saved.") },
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } }
+    )
+
 }
