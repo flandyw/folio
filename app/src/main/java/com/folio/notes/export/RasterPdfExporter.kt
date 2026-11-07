@@ -78,7 +78,7 @@ object RasterPdfExporter {
      * One flattened bitmap of the full visual page at [TARGET_WIDTH] px wide (capped at
      * 2800 pixels), reusing the editor renderer so the export matches the screen.
      */
-    private suspend fun renderFlattened(
+    internal suspend fun renderFlattened(
         noteId: String,
         page: NotePage,
         source: NotebookPdfs.PdfBackgrounds?,
@@ -88,20 +88,21 @@ object RasterPdfExporter {
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val background = source?.render(page, width)
-        val images = repository.loadImages(noteId, page)
+        var background: Bitmap? = null
+        var images = emptyMap<String, Bitmap>()
         try {
+            background = source?.render(page, width)
+            images = repository.loadImages(noteId, page)
             val canvas = Canvas(bitmap)
             canvas.scale(scale, scale)
             InkRenderer.page(canvas, page, background, images = images)
-        } catch (e: Exception) {
+            return bitmap
+        } catch (error: Throwable) {
+            bitmap.recycle()
+            throw error
+        } finally {
             background?.recycle()
             images.values.forEach { it.recycle() }
-            bitmap.recycle()
-            throw e
         }
-        background?.recycle()
-        images.values.forEach { it.recycle() }
-        return bitmap
     }
 }

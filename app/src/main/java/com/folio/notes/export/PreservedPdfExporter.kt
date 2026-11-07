@@ -18,6 +18,9 @@ import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionGoTo
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.OutputStream
 
 /**
@@ -73,14 +76,10 @@ object PreservedPdfExporter {
                     dstInfo.creator = srcInfo.creator
                 } catch (_: Exception) { }
                 selected.forEach { pageIndex ->
+                    currentCoroutineContext().ensureActive()
                     val summary = note.pages.getOrNull(pageIndex) ?: return@forEach
                     val loaded = InkRenderer.exportPage(content(note, repository, summary))
-                    try {
-                        writeOnePage(out, source, note, repository, loaded)
-                    } catch (_: Exception) {
-                        // Never fail an export on one awkward page: flatten it instead.
-                        writeFlattenedFallback(out, note, repository, loaded)
-                    }
+                    writeOnePage(out, source, note, repository, loaded)
                 }
                 // Bookmarks only when the export is the whole document in source order;
                 // anything selective or reordered skips them rather than mis-pointing.
@@ -109,22 +108,36 @@ object PreservedPdfExporter {
             writeFlattenedFallback(out, note, repository, page)
             return
         }
-        val imported = out.importPage(source.getPage(pdfIndex))
-        if (!pageHasAnnotations(page)) return
-        val overlay = renderOverlay(note.id, page, repository)
-        try {
-            val rotated = applySourceRotation(overlay, imported.rotation)
+        writePageWithFallback(out, preserve = {
+            val imported = out.importPage(source.getPage(pdfIndex))
+            if (!pageHasAnnotations(page)) return@writePageWithFallback
+            val overlay = renderOverlay(note.id, page, repository)
             try {
-                val image = LosslessFactory.createFromImage(out, rotated)
-                val box = imported.cropBox ?: imported.mediaBox ?: PDRectangle.A4
-                PDPageContentStream(out, imported, PDPageContentStream.AppendMode.APPEND, true, true).use { stream ->
-                    stream.drawImage(image, box.lowerLeftX, box.lowerLeftY, box.width, box.height)
+                val rotated = applySourceRotation(overlay, imported.rotation)
+                try {
+                    val image = LosslessFactory.createFromImage(out, rotated)
+                    val box = imported.cropBox ?: imported.mediaBox ?: PDRectangle.A4
+                    PDPageContentStream(out, imported, PDPageContentStream.AppendMode.APPEND, true, true).use { stream ->
+                        stream.drawImage(image, box.lowerLeftX, box.lowerLeftY, box.width, box.height)
+                    }
+                } finally {
+                    if (rotated !== overlay) rotated.recycle()
                 }
             } finally {
-                if (rotated !== overlay) rotated.recycle()
+                overlay.recycle()
             }
-        } finally {
-            overlay.recycle()
+        }, flatten = { writeFlattenedFallback(out, note, repository, page) })
+    }
+
+    /** Discard a partly imported page before replacing it, keeping page numbers and bookmarks aligned. */
+    internal suspend fun writePageWithFallback(out: PDDocument, preserve: suspend () -> Unit, flatten: suspend () -> Unit) {
+        val before = out.numberOfPages
+        try {
+            preserve()
+        } catch (e: Exception) {
+            while (out.numberOfPages > before) out.removePage(before)
+            if (e is CancellationException) throw e
+            flatten()
         }
     }
 
@@ -134,16 +147,19 @@ object PreservedPdfExporter {
         repository: NoteRepository,
         page: NotePage
     ) {
-        val bitmap = renderFull(note.id, page, repository)
+        val bitmap = repository.pdfs.openPdf(note.id).use { source ->
+            RasterPdfExporter.renderFlattened(note.id, page, source, repository)
+        }
         try {
-            val width = page.width.coerceIn(1f, 14400f)
-            val height = page.height.coerceIn(1f, 14400f)
+            val factor = minOf(1f, 14400f / page.width, 14400f / page.height)
+            val width = (page.width * factor).coerceAtLeast(1f)
+            val height = (page.height * factor).coerceAtLeast(1f)
             val pdPage = PDPage(PDRectangle(width, height))
-            out.addPage(pdPage)
             val image = LosslessFactory.createFromImage(out, bitmap)
             PDPageContentStream(out, pdPage, PDPageContentStream.AppendMode.OVERWRITE, false).use { stream ->
                 stream.drawImage(image, 0f, 0f, width, height)
             }
+            out.addPage(pdPage)
         } finally {
             bitmap.recycle()
         }
@@ -155,33 +171,20 @@ object PreservedPdfExporter {
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val images = repository.loadImages(noteId, page)
         try {
-            val canvas = Canvas(bitmap)
-            canvas.scale(scale, scale)
-            InkRenderer.overlay(canvas, page, images = images)
-        } finally {
-            images.values.forEach { it.recycle() }
+            val images = repository.loadImages(noteId, page)
+            try {
+                val canvas = Canvas(bitmap)
+                canvas.scale(scale, scale)
+                InkRenderer.overlay(canvas, page, images = images)
+            } finally {
+                images.values.forEach { it.recycle() }
+            }
+            return bitmap
+        } catch (error: Throwable) {
+            bitmap.recycle()
+            throw error
         }
-        return bitmap
-    }
-
-    /** Opaque full-page bitmap for Folio-only pages and fallbacks. */
-    private suspend fun renderFull(noteId: String, page: NotePage, repository: NoteRepository): Bitmap {
-        // Native pages have no PDF background; paper + content render via the shared renderer.
-        val scale = exportBitmapScale(page, OVERLAY_SCALE)
-        val width = (page.width * scale).toInt().coerceAtLeast(1)
-        val height = (page.height * scale).toInt().coerceAtLeast(1)
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val images = repository.loadImages(noteId, page)
-        try {
-            val canvas = Canvas(bitmap)
-            canvas.scale(scale, scale)
-            InkRenderer.page(canvas, page, background = null, images = images)
-        } finally {
-            images.values.forEach { it.recycle() }
-        }
-        return bitmap
     }
 
     /**

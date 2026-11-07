@@ -24,6 +24,12 @@ and scoped `PdfBackgrounds.render` return fresh, caller-owned images for paths t
 working bitmaps. `closePdf` drops both the named parsed document and its cached backgrounds.
 The original render dimensions, white background and PDF display mode are preserved.
 
+Preserved PDF export removes a partial page import before falling back to the raster renderer.
+The fallback includes the original PDF background and keeps the page's aspect ratio, so a failed
+annotation overlay cannot duplicate a question or replace it with a blank sheet. Cancellation
+stops the export rather than starting a fallback. Export-owned bitmaps are recycled even when
+loading the background or placed images fails.
+
 ## Verification
 
 ```sh
@@ -36,6 +42,9 @@ requests across two documents open two documents; an editor render followed by t
 preview requests draws once. They also cover native serialization, cache hits during another
 render, request coalescing, cancellation, byte-budget/LRU eviction, resource closing, invalidation,
 owned/shared bitmap isolation, missing sources and failed-render retries.
+
+`PreservedPdfFallbackTest` exercises actual PDFBox page imports, rollback, cancellation, fallback
+failure and a serialized PDF round trip. Source-background pixels still require a device check.
 
 These counts establish work avoided, not device timing. On the same tablet and PDFs, compare:
 
