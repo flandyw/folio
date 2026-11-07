@@ -26,6 +26,10 @@ features Folio did not have. Everything lives in rows Focal already syncs, edite
 - Read event/timetable fields with `JSONObject.text`, never `optString`: Focal rows carry `"deleted_at": null`, which Android's
   `optString` returns as `"null"` (the JVM tests' org.json returns ""), and that once hid every event. `ExamProgressManager`'s
   `FEED_VERSION` makes an older cache re-read the feed once; bump it whenever `SYNCED_ENTITIES` grows.
+- Timetable import rejects malformed day/period array members and non-integer cycle/day numbers before replacing the current
+  timetable. Repeated day labels still merge their periods in time order, and existing holidays and view settings are kept.
+- Calendar event spans exclude an exact midnight end from the next day's display. The edit form uses the actual stored end
+  date instead of the last displayed day, so editing an overnight or multi-day event preserves its finish.
 - Checked by `PlannerTest`, `StudyScoreTest`, `CalendarTest` (`./gradlew :app:testDebugUnitTest --tests 'com.folio.notes.planner.*'`).
   Expected values in `StudyScoreTest` / `CalendarTest` were produced by running Focal's own TypeScript (`bun`) on the same input.
 
