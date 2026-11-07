@@ -981,6 +981,7 @@ class NoteRepository(private val context: Context) {
             }
             val (folders, folderMap) = LibraryFolders.remap(info.folders)
             info.notebookIds.forEach { id ->
+                job.ensureActive()
                 val targetFolder = if (info.version == 1) legacyFolders.getValue(id)
                     else notebookFolders.getValue(id)
                 val mappedFolder = targetFolder?.let(folderMap::get)
@@ -999,9 +1000,8 @@ class NoteRepository(private val context: Context) {
             }
             saveFolders(existingFolders + folders)
             added.toList() to folders
-        } catch (e: Exception) {
-            added.forEach { runCatching { delete(it.id) } }
-            throw e
+        } catch (e: Throwable) {
+            rollbackLibraryRestore(added, e, ::delete)
         } finally { staged.deleteRecursively() }
     }
 
@@ -1109,9 +1109,7 @@ class NoteRepository(private val context: Context) {
             if (saveLibraryFolders) saveFolders(existingFolders + folders)
             return added.toList() to folders
         } catch (e: Throwable) {
-            // Cleanup also runs on coroutine cancellation.
-            added.forEach { storedDirectory(it.id).deleteRecursively() }
-            throw e
+            rollbackLibraryRestore(added, e, ::delete)
         }
     }
 
