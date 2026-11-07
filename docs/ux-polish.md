@@ -53,3 +53,16 @@ Keep editing preserves every choice; Create still submits directly.
 - Keep editing, rotate, and verify the choices and confirmation state survive.
 - Revert all choices and cancel: no confirmation. Expanding cover options alone
   also needs no confirmation. Create: exactly one notebook, no discard prompt.
+
+## Verification and remaining work
+
+- The full `:app:testDebugUnitTest` suite passes with
+  `-Pkotlin.compiler.execution.strategy=in-process`; this also compiles the UI.
+  The first attempt lost its Kotlin daemon; the in-process rerun completed.
+- `./build.sh -p` stops at preflight because this worktree lacks the signing
+  keystore and password. No experimental APK was published.
+- Device checks above remain outstanding, especially landscape with the
+  keyboard open, large text and TalkBack announcements.
+- Follow-up: show destination conflicts inline when moving an existing folder
+  onto a parent that already contains a folder with that name. Creation and
+  renaming now show these conflicts inline; moving still uses the shared error.

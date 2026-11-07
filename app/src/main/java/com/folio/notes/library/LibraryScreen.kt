@@ -643,7 +643,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                                     welcoming -> "Create a notebook for handwriting, or import a PDF to annotate. No account is needed."
                                     else -> "Create a notebook or import a PDF to get started."
                                 }, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.Center)) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.CenterHorizontally)) {
                                     if (searchActive && (located || filtersActive)) FilledTonalButton({
                                         kind = LibraryKind.ALL; model.setExamFilter(ExamFilter()); goHome(); focusManager.clearFocus()
                                     }, shapes = ButtonDefaults.shapes()) { Text("Search all notebooks") }
