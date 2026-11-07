@@ -12,18 +12,22 @@ import java.io.File
 
 /** Disposable, revision-keyed OCR cache. Notebook source and storage versions are untouched. */
 internal object NotebookSearchIndex {
+    // Version 1 could index a text-only projection of an unopened page as empty handwriting.
+    private const val VERSION = 2
+
     suspend fun handwriting(context: Context, noteId: String, page: NotePage): String = withContext(Dispatchers.IO) {
         val directory = File(context.cacheDir, "handwriting-index/$noteId").apply { mkdirs() }
         val file = AtomicFile(File(directory, "${page.id}.json"))
         runCatching { JSONObject(file.openRead().bufferedReader().use { it.readText() }) }.getOrNull()?.let { cached ->
-            if (cached.optInt("revision", -1) == page.revision) return@withContext cached.optString("text")
+            if (cached.optInt("version") == VERSION && cached.optInt("revision", -1) == page.revision)
+                return@withContext cached.optString("text")
         }
         val text = buildList {
             InkToText.recognise(page.strokes.filter { it.tool != Tool.HIGHLIGHTER })?.text?.let(::add)
             page.texts.filter { it.stickyInk.isNotEmpty() }.forEach { box -> InkToText.recognise(box.stickyInk)?.text?.let(::add) }
         }.joinToString("\n")
         val stream = file.startWrite()
-        try { stream.write(JSONObject().put("revision", page.revision).put("text", text).toString().toByteArray()); file.finishWrite(stream) }
+        try { stream.write(JSONObject().put("version", VERSION).put("revision", page.revision).put("text", text).toString().toByteArray()); file.finishWrite(stream) }
         catch (e: Exception) { file.failWrite(stream); throw e }
         text
     }

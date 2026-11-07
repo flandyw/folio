@@ -35,6 +35,7 @@ import com.folio.notes.storage.PageEdit
 import com.folio.notes.storage.PageJournal
 import com.folio.notes.storage.PageTransaction
 import com.folio.notes.storage.StrokesEdit
+import com.folio.notes.storage.NotebookTextSearch
 import com.folio.notes.storage.content
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -532,13 +533,7 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
     suspend fun pagesForSearch(notebookId: String): List<NotePage> {
         with(runtime) {
             val note = _state.value.notes.notebook(notebookId) ?: return emptyList()
-            return note.pages.map { summary ->
-                currentCoroutineContext().ensureActive()
-                if (summary.loaded) summary else try {
-                    summary.withLoadedContent(repository.loadPage(note.id, summary)).copy(strokes = emptyList(), images = emptyList())
-                } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { summary }
-            }
+            return NotebookTextSearch.loadPages(note.pages) { repository.loadPage(note.id, it) }
         }
     }
 

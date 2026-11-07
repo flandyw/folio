@@ -1,6 +1,10 @@
 package com.folio.notes.storage
 
 import com.folio.notes.model.NotePage
+import com.folio.notes.model.withLoadedContent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Search over a notebook's own typed text boxes, mirroring the PDF search experience for
@@ -14,37 +18,44 @@ object NotebookTextSearch {
     private val whitespaceSplit = Regex("\\s+")
     private val whitespaceCollapse = Regex("\\s+")
 
+    /** OCR and annotated-page selection need the ink and pictures as well as typed words. */
+    internal suspend fun loadPages(pages: List<NotePage>, load: suspend (NotePage) -> NotePage): List<NotePage> =
+        pages.map { summary ->
+            currentCoroutineContext().ensureActive()
+            if (summary.loaded) summary else try {
+                summary.withLoadedContent(load(summary))
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { summary }
+        }
+
     fun search(pages: List<NotePage>, query: String): List<Hit> {
         val terms = query.trim().split(whitespaceSplit).filter { it.isNotEmpty() }
         if (terms.isEmpty()) return emptyList()
-        val loweredTerms = terms.map { it.lowercase() }
         val hits = mutableListOf<Hit>()
         pages.forEachIndexed { pageIndex, page ->
             if (!page.loaded && page.texts.isEmpty()) return@forEachIndexed
             if (page.texts.isEmpty()) return@forEachIndexed
-            // Lowercase once and reuse for both the page-level gate and per-box counting.
-            val loweredBoxes = page.texts.map { it.text.lowercase() to it }
             // Every term must appear somewhere on the page (across one or more boxes),
             // like a notebook search that narrows as words are added.
-            if (loweredTerms.any { term -> loweredBoxes.none { (lowered, _) -> lowered.contains(term) } }) return@forEachIndexed
+            if (terms.any { term -> page.texts.none { it.text.contains(term, ignoreCase = true) } }) return@forEachIndexed
             var count = 0
             var best: Hit? = null
             var bestScore = 0
-            loweredBoxes.forEach { (lowered, box) ->
-                if (lowered.isBlank()) return@forEach
+            page.texts.forEach { box ->
+                if (box.text.isBlank()) return@forEach
                 // Single pass: count every term once, tracking the strongest term for the snippet.
                 var boxCount = 0
                 var bestTerm: String? = null
                 var bestTermCount = 0
                 var bestAt = -1
-                for (term in loweredTerms) {
-                    val c = countOccurrences(lowered, term)
+                for (term in terms) {
+                    val c = countOccurrences(box.text, term)
                     if (c == 0) continue
                     boxCount += c
                     if (c > bestTermCount) {
                         bestTermCount = c
                         bestTerm = term
-                        bestAt = lowered.indexOf(term)
+                        bestAt = box.text.indexOf(term, ignoreCase = true)
                     }
                 }
                 if (boxCount == 0) return@forEach
@@ -65,7 +76,7 @@ object NotebookTextSearch {
         var count = 0
         var from = 0
         while (true) {
-            val at = haystack.indexOf(needle, from)
+            val at = haystack.indexOf(needle, from, ignoreCase = true)
             if (at < 0) return count
             count++
             from = at + needle.length
