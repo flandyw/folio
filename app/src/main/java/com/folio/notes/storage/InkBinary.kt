@@ -79,6 +79,10 @@ internal class BinWriter(private val out: OutputStream) {
 
 /** Bounds-checked little-endian reader; every shortfall is a [BinaryFormatException], never a crash. */
 internal class BinReader(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset) {
+    init {
+        if (offset < 0 || length < 0 || offset > bytes.size || length > bytes.size - offset)
+            throw BinaryFormatException("invalid slice")
+    }
     private val buf: ByteBuffer = ByteBuffer.wrap(bytes, offset, length).slice().order(ByteOrder.LITTLE_ENDIAN)
     val remaining: Int get() = buf.remaining()
 
@@ -89,6 +93,7 @@ internal class BinReader(bytes: ByteArray, offset: Int = 0, length: Int = bytes.
         var result = 0
         while (true) {
             val b = u8()
+            if (shift == 28 && b > 7) throw BinaryFormatException("varint")
             result = result or ((b and 0x7F) shl shift)
             if (b < 0x80) { if (result < 0) throw BinaryFormatException("varint"); return result }
             shift += 7
@@ -109,6 +114,7 @@ internal class BinReader(bytes: ByteArray, offset: Int = 0, length: Int = bytes.
         return String(encoded, Charsets.UTF_8)
     }
     fun floats(n: Int): FloatArray {
+        if (n < 0 || n > remaining / 4) throw BinaryFormatException("float count")
         need(n * 4)
         val out = FloatArray(n)
         buf.asFloatBuffer().get(out)

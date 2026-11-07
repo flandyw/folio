@@ -193,18 +193,19 @@ internal class DocumentWriteCoordinator(
     private var worker: Job? = null
     internal fun start() {
         check(worker == null) { "The document writer is already running" }
+        var activeBatch: List<WriteOp> = emptyList()
         worker = scope.launch {
-            var activeBatch: List<WriteOp> = emptyList()
-            try {
-                for (first in writes) {
-                    val batch = ArrayList<WriteOp>()
-                    batch.add(first)
-                    activeBatch = batch
-                    collectWrites(batch)
-                    runWrites(batch)
-                    activeBatch = emptyList()
-                }
-            } finally {
+            for (first in writes) {
+                val batch = ArrayList<WriteOp>()
+                batch.add(first)
+                activeBatch = batch
+                collectWrites(batch)
+                runWrites(batch)
+                activeBatch = emptyList()
+            }
+        }.also { job ->
+            // Completion also runs when cancellation prevents the launch body from starting.
+            job.invokeOnCompletion {
                 // No caller should wait forever, or admit more ink, after this worker has stopped.
                 writes.close()
                 val cancelled = CancellationException("Document writer stopped")
