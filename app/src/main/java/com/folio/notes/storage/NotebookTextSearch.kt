@@ -15,8 +15,7 @@ object NotebookTextSearch {
     data class Hit(val pageIndex: Int, val matchCount: Int, val snippet: String, val boxId: String)
 
     private const val SNIPPET_RADIUS = 42
-    private val whitespaceSplit = Regex("\\s+")
-    private val whitespaceCollapse = Regex("\\s+")
+    private val whitespace = Regex("[\\s\\p{Z}]+")
 
     /** OCR and annotated-page selection need the ink and pictures as well as typed words. */
     internal suspend fun loadPages(pages: List<NotePage>, load: suspend (NotePage) -> NotePage): List<NotePage> =
@@ -29,7 +28,7 @@ object NotebookTextSearch {
         }
 
     fun search(pages: List<NotePage>, query: String): List<Hit> {
-        val terms = query.trim().split(whitespaceSplit).filter { it.isNotEmpty() }
+        val terms = query.trim().split(whitespace).filter { it.isNotEmpty() }
         if (terms.isEmpty()) return emptyList()
         val hits = mutableListOf<Hit>()
         pages.forEachIndexed { pageIndex, page ->
@@ -87,7 +86,7 @@ object NotebookTextSearch {
     internal fun excerpt(text: String, at: Int, length: Int): String {
         val start = (at - SNIPPET_RADIUS).coerceAtLeast(0)
         val end = (at + length + SNIPPET_RADIUS).coerceAtMost(text.length)
-        var snippet = text.substring(start, end).replace(whitespaceCollapse, " ").trim()
+        var snippet = text.substring(start, end).replace(whitespace, " ").trim()
         if (start > 0) snippet = "…$snippet"
         if (end < text.length) snippet = "$snippet…"
         return snippet.take(160)

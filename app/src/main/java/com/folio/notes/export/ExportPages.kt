@@ -49,7 +49,7 @@ fun pageHasAnnotations(page: NotePage): Boolean =
     page.strokes.isNotEmpty() || page.images.isNotEmpty() || page.texts.any { it.isSticky || it.text.isNotBlank() }
 
 /** Large canvases must shrink below half scale to keep PDF working bitmaps bounded. */
-internal fun pdfExportScale(page: NotePage, preferred: Float): Float {
+internal fun exportBitmapScale(page: NotePage, preferred: Float): Float {
     require(page.width.isFinite() && page.height.isFinite() && page.width > 0f && page.height > 0f)
     return minOf(preferred, 2800f / page.width, 2800f / page.height)
 }

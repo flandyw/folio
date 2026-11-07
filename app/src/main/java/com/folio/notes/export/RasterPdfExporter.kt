@@ -84,7 +84,7 @@ object RasterPdfExporter {
         source: NotebookPdfs.PdfBackgrounds?,
         repository: NoteRepository
     ): Bitmap {
-        val scale = pdfExportScale(page, TARGET_WIDTH / page.width)
+        val scale = exportBitmapScale(page, TARGET_WIDTH / page.width)
         val width = (page.width * scale).toInt().coerceAtLeast(1)
         val height = (page.height * scale).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
