@@ -16,5 +16,6 @@ fun organizePages(pages: List<NotePage>, query: String = "", filter: PageFilter 
 
 /** A disk read supplies content only; organisation may have changed while it was in flight. */
 fun NotePage.withLoadedContent(content: NotePage): NotePage = copy(
-    strokes = content.strokes, texts = content.texts, images = content.images, layers = content.layers, loaded = true
+    strokes = content.strokes, texts = content.texts, images = content.images, layers = content.layers,
+    revision = maxOf(revision, content.revision), loaded = true
 )
