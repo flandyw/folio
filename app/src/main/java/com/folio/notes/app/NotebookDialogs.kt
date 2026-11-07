@@ -69,6 +69,17 @@ import com.folio.notes.ui.FolioSpacing
     var infinite by rememberSaveable { mutableStateOf(false) }
     var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
     var pageCover by rememberSaveable { mutableStateOf(dialogPrefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED)) }
+    val initialCover by rememberSaveable { mutableIntStateOf(cover) }
+    val initialPaper by rememberSaveable { mutableStateOf(paper) }
+    val initialPageCover by rememberSaveable { mutableStateOf(pageCover) }
+    var discard by rememberSaveable { mutableStateOf(false) }
+    val edited = title.isNotBlank() || cover != initialCover || paper != initialPaper ||
+        pageCover != initialPageCover || template != null || pageCount != 1 || infinite
+    fun canDismiss(): Boolean {
+        if (edited) discard = true
+        return !edited
+    }
+    fun dismiss() { if (canDismiss()) onDismiss() }
     fun chooseTemplate(item: NotebookTemplate) {
         infinite = false
         template = item.id
@@ -80,7 +91,7 @@ import com.folio.notes.ui.FolioSpacing
         val name = title.trim().ifBlank { "Notebook · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}" }
         onCreate(name, cover, paper, chosen?.tags(null, "") ?: ExamTags(), pageCount, infinite, pageCover)
     }
-    FolioPanel(title = "New notebook", onDismissRequest = onDismiss) {
+    FolioPanel(title = "New notebook", onDismissRequest = onDismiss, canDismiss = ::canDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, top = FolioSpacing.dp8, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             OutlinedTextField(title, { title = it.take(120) }, modifier = Modifier.fillMaxWidth(),
@@ -143,7 +154,7 @@ import com.folio.notes.ui.FolioSpacing
             }
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                TextButton(::dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button(
                     ::createNotebook,
                     shapes = ButtonDefaults.shapes()
@@ -151,4 +162,12 @@ import com.folio.notes.ui.FolioSpacing
             }
         }
     }
+    if (discard) AlertDialog(
+        onDismissRequest = { discard = false },
+        title = { Text("Discard this notebook draft?") },
+        text = { Text("Your name, paper and cover choices have not been saved.") },
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } }
+    )
+
 }

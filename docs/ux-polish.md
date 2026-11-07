@@ -41,3 +41,15 @@ Create & move keeps the form open with a retry message.
   should be visible inside the dialog, not only in a snackbar behind it.
 
 `LibraryFolderNameTest` checks shared validation, rename exclusions and limits.
+
+## Notebook drafts
+
+Closing the new-notebook form with Back, Close or Cancel asks before discarding
+changed names, templates, pages, paper or cover choices. Untouched forms close
+immediately, and reverting to the initial choices removes the confirmation.
+Keep editing preserves every choice; Create still submits directly.
+
+- Edit each choice independently, then test Back, Close and Cancel.
+- Keep editing, rotate, and verify the choices and confirmation state survive.
+- Revert all choices and cancel: no confirmation. Expanding cover options alone
+  also needs no confirmation. Create: exactly one notebook, no discard prompt.
