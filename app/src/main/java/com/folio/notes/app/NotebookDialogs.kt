@@ -31,26 +31,31 @@ import com.folio.notes.model.Paper
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
 
-@Composable fun NameDialog(title: String, subtitle: String, initial: String, action: String, dismiss: () -> Unit, submit: (String) -> Unit) {
+@Composable fun NameDialog(title: String, subtitle: String, initial: String, action: String, dismiss: () -> Unit, validate: (String) -> String? = { null }, submit: (String) -> Unit) {
     var text by rememberSaveable(initial, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(initial, selection = TextRange(0, initial.length)))
     }
     val focusRequester = remember { FocusRequester() }
+    val error = when {
+        text.text.isBlank() -> "Enter a name."
+        text.text.trim().length > 120 -> "Use 120 characters or fewer."
+        else -> validate(text.text.trim())
+    }
     // Keeping the name is an answer too: Done closes the dialog rather than doing nothing.
-    fun save() { if (text.text.isNotBlank()) { if (text.text.trim() == initial.trim()) dismiss() else submit(text.text.trim()) } }
+    fun save() { if (error == null) { if (text.text.trim() == initial.trim()) dismiss() else submit(text.text.trim()) } }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = dismiss, title = { Text(title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             if (subtitle.isNotBlank()) Text(subtitle)
-            OutlinedTextField(text, { if (it.text.length <= 120) text = it },
+            OutlinedTextField(text, { text = it },
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-                singleLine = true, label = { Text("Name") },
+                singleLine = true, label = { Text("Name") }, isError = error != null && text.text.isNotEmpty(),
                 keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
                 trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue(""); focusRequester.requestFocus() }) { Icon(Icons.Rounded.Close, "Clear name") } },
-                supportingText = { if (text.text.length >= 90) Text("${text.text.length}/120") })
+                supportingText = { if (error != null) Text(error) else if (text.text.length >= 90) Text("${text.text.trim().length}/120") })
         }
-    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = text.text.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text(action) } })
+    }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = error == null, shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
 @Composable internal fun NewNotebookDialog(onDismiss: () -> Unit, onCreate: (String, Int, Paper, ExamTags, Int, Boolean, Boolean) -> Unit) {

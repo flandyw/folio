@@ -68,10 +68,8 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
 
     internal fun validFolderName(name: String, parentId: String?, except: String? = null): Boolean {
         with(runtime) {
-            val folders = _state.value.folders
-            if (name.isBlank() || (parentId != null && folders.none { it.id == parentId })) return false
-            if (folders.any { it.id != except && it.parentId == parentId && it.name.equals(name.trim().take(120), true) }) {
-                reportError("A folder with that name already exists here")
+            LibraryFolders.nameError(_state.value.folders, name, parentId, except)?.let {
+                reportError(it)
                 return false
             }
             return true

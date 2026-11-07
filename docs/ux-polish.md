@@ -24,3 +24,20 @@ the current location. Show all notebooks still clears the whole scope.
   actions. Check narrow widths and large fonts for wrapping of recovery buttons.
 
 `LibraryBrowseTest` covers the scope rules used by these recovery actions.
+
+## Folder names
+
+New folder, Rename folder and Create & move use the same name rules as the
+catalog. Duplicate sibling names, missing parents and overlong names show an
+inline explanation and disable submission, including keyboard Done. Pasted
+names remain editable instead of being silently dropped or truncated. A failed
+Create & move keeps the form open with a retry message.
+
+- Try a duplicate with changed case and surrounding spaces; then correct it.
+- Rename a folder without changing its name, and reuse a name in another parent.
+- Paste more than 120 characters in a name dialog or Create & move; shorten it
+  and submit with the keyboard. Confirm the complete corrected name is kept.
+- Check duplicate-name feedback with the keyboard open in landscape: the reason
+  should be visible inside the dialog, not only in a snackbar behind it.
+
+`LibraryFolderNameTest` checks shared validation, rename exclusions and limits.

@@ -884,7 +884,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
         },
         confirmButton = { TextButton({ bulkCover = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }
     )
-    if (newFolder) NameDialog("New folder", state.folders.find { it.id == newFolderParent }?.let { "Inside ${it.name}" }.orEmpty(), "", "Create folder", { newFolder = false }) { name ->
+    if (newFolder) NameDialog("New folder", state.folders.find { it.id == newFolderParent }?.let { "Inside ${it.name}" }.orEmpty(), "", "Create folder", { newFolder = false },
+        validate = { LibraryFolders.nameError(state.folders, it, newFolderParent) }) { name ->
         if (model.createFolder(name, newFolderParent)) {
             newFolder = false
             newFolderParent?.let { if (it !in expandedFolders) expandedFolders = expandedFolders + it }
@@ -895,7 +896,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
         rootLabel = "Library", allowCreate = false, excluded = LibraryFolders.descendants(state.folders, folder.id)) }
     rename?.let { note -> NameDialog("Rename notebook", "", note.title, "Save", { rename = null }) { model.rename(note, it); rename = null } }
     colourFolder?.let { stale -> state.folders.find { it.id == stale.id }?.let { folder -> FolderColourDialog(folder, { model.recolorFolder(folder.id, it) }, { colourFolder = null }) } }
-    renameFolder?.let { folder -> NameDialog("Rename folder", "", folder.name, "Save", { renameFolder = null }) { if (model.renameFolder(folder, it)) renameFolder = null } }
+    renameFolder?.let { folder -> NameDialog("Rename folder", "", folder.name, "Save", { renameFolder = null },
+        validate = { LibraryFolders.nameError(state.folders, it, folder.parentId, folder.id) }) { if (model.renameFolder(folder, it)) renameFolder = null } }
     deleteFolder?.let { folder -> AlertDialog(properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false), modifier = Modifier.guardUiTouches(), onDismissRequest = { deleteFolder = null }, title = { Text("Remove “${folder.name}”?") }, text = { Text("Its notebooks and subfolders move to ${LibraryFolders.label(state.folders, folder.parentId).ifEmpty { "Library" }}. Your notebooks will be kept.") }, dismissButton = { TextButton({ deleteFolder = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { TextButton({ model.deleteFolder(folder); deleteFolder = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text("Remove folder") } }) }
     move?.let { note -> LibraryMovePanel("Move ${note.title}", state.folders, note.folderId, single = true,
         onMove = { moveWithUndo(setOf(note.id), it); move = null },
