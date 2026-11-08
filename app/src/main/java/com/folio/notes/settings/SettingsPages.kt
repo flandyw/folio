@@ -241,7 +241,7 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         SettingsDivider()
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             SettingsPrefSwitch(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK, "Low-latency ink",
-                "Draws the pen's newest ink through a direct display layer so it follows the tip more closely. The page still draws the stroke underneath. Opaque pen ink only; turn it off if ink looks heavier while writing or flickers when you lift.")
+                "Draws an opaque ballpoint stylus stroke through a direct display layer so it follows the tip more closely. The page still draws the stroke underneath. Turn it off if ink looks heavier while writing or flickers when you lift.")
             SettingsDivider()
         }
         SettingsPrefSwitch(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES, "Keep notebooks small",

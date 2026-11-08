@@ -6,7 +6,7 @@
 
 The toolbar offers pen, highlighter, eraser, lines, shapes, graph, text, lasso, hand, sticky note, PDF mark area and laser. Tool options include colours, widths and presets. Customize the toolbar order and quick colours; tools that do not fit remain in the overflow menu. Some tools are omitted on surfaces where they do not apply.
 
-Pen strokes support pressure and smoothing. Prediction is temporary drawing feedback, not saved ink. Folio rejects palms while allowing deliberate navigation gestures; Android-cancelled contacts are respected. Finger drawing can be controlled in settings. Hardware behaviour varies: see [palm rejection](../palm-rejection.md) and [pen feel](../pen-feel.md) for device checks.
+Pen strokes support pressure and smoothing. Prediction is temporary drawing feedback and is not saved. On API 29 and later, an opaque ballpoint stylus stroke also draws its leading edge through a front-buffer layer. That setting (`input.lowLatencyInk`) is on by default. Finger ink, other tools, other brushes, translucent ink, ruler-locked strokes and ink that starts on a sticky note stay on the page path. The front-buffer path has not yet been checked on a device. Folio rejects palms while allowing deliberate navigation gestures; Android-cancelled contacts are respected. Finger drawing can be controlled in settings. Hardware behaviour varies: see [palm rejection](../palm-rejection.md), [pen feel](../pen-feel.md) and [low-latency ink device checks](../low-latency-ink-device-checks.md).
 
 The laser is a presentation tool: its coloured trail fades and is not saved or added to undo history. The ruler is a toolbar switch; slide it with one finger or rotate it with two. Pen or highlighter strokes started on or near its edge follow that edge.
 
