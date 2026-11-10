@@ -258,7 +258,14 @@ class FocalStudyManager(context: Context) {
             remoteSubjectsRevision = data.optLong("remoteSubjectsRevision").coerceAtLeast(0L),
             remoteSubjectsUser = data.optString("remoteSubjectsUser").ifBlank { null },
             )
-    }.getOrDefault(FocalStudyState())
+    }.getOrElse {
+        // The next persist would overwrite an unreadable file and lose unsynced study, so keep a copy first.
+        val kept = runCatching {
+            file.baseFile.copyTo(File(file.baseFile.path + ".unreadable-" + System.currentTimeMillis()))
+        }.isSuccess
+        FocalStudyState(error = if (kept) "Saved study sessions could not be read; a copy was kept on this device."
+            else "Saved study sessions could not be read.")
+    }
 
     @Synchronized private fun persist(): Boolean {
         // Every write is a heartbeat, including sync receipts and unrelated entry changes.
