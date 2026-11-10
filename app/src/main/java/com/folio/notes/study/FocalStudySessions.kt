@@ -78,8 +78,7 @@ internal fun focalAppendExamBoundaries(entry: FocalStudyEntry, events: List<Trip
     var lastAt = entry.examLastBoundaryAt ?: entry.remotePayload?.let { raw -> runCatching {
         val canonical = JSONObject(raw)
         val stamp = canonical.optString("timing_at").takeIf { it.isNotBlank() && it != "null" }
-            ?: canonical.optString("segment_started_at").takeIf { it.isNotBlank() && it != "null" }
-            ?: canonical.optString("paused_at").takeIf { it.isNotBlank() && it != "null" }
+            ?: focalSegmentStartedAt(canonical) ?: focalPausedAt(canonical)
         stamp?.let { Instant.parse(it).toEpochMilli() }
     }.getOrNull() }
     val added = events.map { (action, phase, at) ->
