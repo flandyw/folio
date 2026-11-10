@@ -512,8 +512,8 @@ class FocalStudyManager(context: Context) {
         val canonical = entry.remotePayload?.let { runCatching { JSONObject(it) }.getOrNull() }
         val remoteBoundary = canonical?.optString("timing_at")?.takeIf { it.isNotBlank() }
             ?: when (canonical?.let(::focalStateOf)) {
-                "running" -> canonical.optString("segment_started_at").takeIf { it.isNotBlank() }
-                "paused" -> canonical.optString("paused_at").takeIf { it.isNotBlank() }
+                "running" -> focalSegmentStartedAt(canonical)
+                "paused" -> focalPausedAt(canonical)
                 else -> null
             }
         val recoveredRunningFocus = _state.value.focus?.let { it.sessionId == entry.id && it.resumedAt == null } == true &&
@@ -543,7 +543,7 @@ class FocalStudyManager(context: Context) {
             }
             if (action !in setOf("start", "pause", "resume", "phase_change", "complete", "cancel")) return@focalCommandsFor null
             val fallbackElapsed = when {
-                recoveredRunningFocus -> focalRecoveryElapsed(entry.activeMillis, canonical?.optLong("accumulated_active_ms") ?: 0L)
+                recoveredRunningFocus -> focalRecoveryElapsed(entry.activeMillis, canonical?.let(::focalAccumulatedActiveMs) ?: 0L)
                 serverElapsed != null -> serverElapsed
                 action in setOf("pause", "complete") && entry.remotePayload == null -> entry.activeMillis
                 else -> 0L

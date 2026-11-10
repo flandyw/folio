@@ -294,6 +294,40 @@ internal fun focalStudyCommand(
 
 private fun JSONObject.focalStamp(key: String): String? = optString(key).takeIf { it.isNotBlank() && it != "null" }
 
+/*
+ * Focal may stop storing a session's timer stamps and derive them from `segments` instead.
+ * A key that is present (even null) is today's shape and is read as-is; only an absent key is
+ * derived, so both shapes read the same. A row without `started_at` is a plan: its segments are
+ * the planned slot, never timer time.
+ */
+private fun JSONObject.focalTimed(): Boolean =
+    focalStamp("started_at") != null && !optBoolean("completed") && focalStamp("cancelled_at") == null
+
+private fun JSONObject.focalSegmentStamps(): List<Pair<String, String?>> {
+    val segments = optJSONArray("segments") ?: return emptyList()
+    return (0 until segments.length()).mapNotNull { index ->
+        val segment = segments.optJSONObject(index) ?: return@mapNotNull null
+        segment.focalStamp("started_at")?.let { it to segment.focalStamp("ended_at") }
+    }
+}
+
+internal fun focalSegmentStartedAt(value: JSONObject): String? =
+    if (value.has("segment_started_at")) value.focalStamp("segment_started_at")
+    else if (!value.focalTimed()) null
+    else value.focalSegmentStamps().lastOrNull()?.takeIf { it.second == null }?.first
+
+internal fun focalPausedAt(value: JSONObject): String? =
+    if (value.has("paused_at")) value.focalStamp("paused_at")
+    else if (!value.focalTimed() || focalSegmentStartedAt(value) != null) null
+    else value.focalSegmentStamps().lastOrNull()?.second ?: value.focalStamp("started_at")
+
+internal fun focalAccumulatedActiveMs(value: JSONObject): Long? =
+    if (value.has("accumulated_active_ms")) value.optLong("accumulated_active_ms").coerceAtLeast(0L)
+    else if (value.focalStamp("started_at") == null) null
+    else value.focalSegmentStamps().ifEmpty { return null }.sumOf { (start, end) -> runCatching {
+        if (end == null) 0L else (Instant.parse(end).toEpochMilli() - Instant.parse(start).toEpochMilli()).coerceAtLeast(0L)
+    }.getOrDefault(0L) }
+
 /**
  * The lifecycle word for a canonical session row. Rows no longer store a state: they carry a
  * `completed` flag, and running, paused and scheduled ("planned") are derived from the open
@@ -304,8 +338,8 @@ internal fun focalStateOf(value: JSONObject): String? = value.focalStamp("state"
     !value.has("completed") -> null
     value.focalStamp("cancelled_at") != null -> "cancelled"
     value.optBoolean("completed") -> "completed"
-    value.focalStamp("segment_started_at") != null -> "running"
-    value.focalStamp("paused_at") != null -> "paused"
+    focalSegmentStartedAt(value) != null -> "running"
+    focalPausedAt(value) != null -> "paused"
     else -> "planned"
 }
 
@@ -401,7 +435,7 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
             ?.let { Instant.parse(it).toEpochMilli() })
     }.getOrNull() }
         .let { parsed ->
-            val runningStart = epoch("segment_started_at")
+            val runningStart = focalSegmentStartedAt(payload)?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
             if (state == "running" && runningStart != null && parsed.none { it.endAt == null })
                 parsed + FocalStudyInterval(runningStart, null)
             // A scheduled session's segment is its planned slot, not time that was studied.
@@ -411,14 +445,15 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
     val reflection = metadata.optJSONObject("reflection") ?: legacy?.optJSONObject("reflection")
     val phase = payload.optString("phase").takeIf { it in setOf("reading", "writing") }
     val started = epoch("started_at") ?: epoch("created_at") ?: 0L
-    val ended = epoch("completed_at") ?: epoch("cancelled_at") ?: epoch("paused_at") ?: epoch("updated_at") ?: started
+    val ended = epoch("completed_at") ?: epoch("cancelled_at") ?:
+        focalPausedAt(payload)?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: epoch("updated_at") ?: started
     val examtrack = legacy?.optJSONObject("integrations")?.optJSONObject("examtrack")
     FocalStudyEntry(
         id = id, changeId = changeId, notebookId = folio?.optString("notebook_id")?.takeIf { it.isNotBlank() && it != "null" },
         title = payload.optString("title", "Study session"), subjectId = payload.optString("subject_id").takeIf { it.isNotBlank() && it != "null" },
         kind = if (kind in setOf("exam", "sac")) "exam" else "study", startedAt = started, endedAt = ended,
-        activeMillis = payload.optLong("accumulated_active_ms",
-            folio?.optLong("reported_active_ms", 0L) ?: 0L).coerceAtLeast(0L),
+        activeMillis = (focalAccumulatedActiveMs(payload)
+            ?: folio?.optLong("reported_active_ms", 0L) ?: 0L).coerceAtLeast(0L),
         notes = reflection?.optString("notes").orEmpty(), confidence = reflection?.optInt("confidence")?.takeIf { it in 1..5 },
         userId = user, synced = true, revision = payload.optLong("revision"), completed = state == "completed",
         planned = state == "planned", deleted = state == "cancelled", paused = state == "paused",
