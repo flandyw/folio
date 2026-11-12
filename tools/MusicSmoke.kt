@@ -80,13 +80,19 @@ fun main() {
         check(metronomeClick(voice, 0).all { it == 0.toShort() })
         check(strong.sumOf { it.toDouble() * it } > metronomeClick(voice, 1).sumOf { it.toDouble() * it })
         check(metronomeClick(voice, 1).sumOf { it.toDouble() * it } > metronomeClick(voice, 3).sumOf { it.toDouble() * it })
-        val whole = ShortArray(60000).also { MetronomePcm(rhythm, voice).fill(it) }
+        val whole = ShortArray(200000).also { MetronomePcm(rhythm, voice).fill(it) }
         val renderer = MetronomePcm(rhythm, voice)
-        val split = ShortArray(60000)
+        val split = ShortArray(200000)
         for (offset in split.indices step 257) {
             val block = ShortArray(minOf(257, split.size - offset)); renderer.fill(block); block.copyInto(split, offset)
         }
         check(whole.contentEquals(split)) { "Audio buffer boundaries moved the clicks" }
+        check((rhythm.frame(21).toInt() until rhythm.frame(24).toInt()).all { whole[it] == 0.toShort() }) { "PCM renderer sounded a muted beat" }
+    }
+    for (bpm in listOf(30, 240)) for (subdivision in listOf(0, 2, 3, 4)) {
+        val boundary = MetronomeRhythm(bpm, 12, subdivision)
+        check(boundary.frame(boundary.steps.toLong()) == 60L * 48000 / bpm)
+        check(boundary.position(boundary.frame(12L * boundary.steps)) == MetronomePosition(1))
     }
     val taps = MetronomeTaps()
     check(taps.tap(1000) == null && taps.tap(1490) == 122 && taps.tap(2010) == 119 && taps.tap(2500) == 120)
