@@ -1,0 +1,5 @@
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/folio_tile" />
+    <foreground android:drawable="@drawable/ic_folio_mark" />
+    <monochrome android:drawable="@drawable/ic_folio_mono" />
+</adaptive-icon>

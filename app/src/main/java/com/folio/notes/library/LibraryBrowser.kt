@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.MenuOpen
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -33,6 +32,7 @@ import com.folio.notes.model.Notebook
 import com.folio.notes.ui.FolioActionPopover
 import com.folio.notes.ui.FolioDestinationVerticalInset
 import com.folio.notes.ui.FolioHeadingHeight
+import com.folio.notes.ui.FolioLogo
 import com.folio.notes.ui.LocalDestinationTopGap
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
@@ -94,9 +94,7 @@ internal val LibraryNavWidth = 280.dp
             // The same top gap and row height as a destination heading, so the wordmark sits on the title's line.
             Row(Modifier.padding(top = LocalDestinationTopGap.current + FolioDestinationVerticalInset, bottom = FolioDestinationVerticalInset).height(FolioHeadingHeight).padding(start = FolioSpacing.dp4),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primary) {
-                    Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(FolioSpacing.dp8).size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                }
+                FolioLogo(Modifier.size(36.dp))
                 Text("Folio", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 IconButton(onCollapse, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuOpen, "Fold sidebar") }
             }

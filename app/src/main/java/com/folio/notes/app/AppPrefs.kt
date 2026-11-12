@@ -10,6 +10,7 @@ import com.folio.notes.library.CoverStyle
 import com.folio.notes.library.LibraryKind
 import com.folio.notes.library.LibrarySort
 import com.folio.notes.library.files.FileSort
+import com.folio.notes.music.MetronomeVoice
 import com.folio.notes.model.Folder
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.Paper
@@ -107,6 +108,9 @@ object AppPrefs {
     const val MUSIC_SUBDIVISION = "music.subdivision"
     /** One bar of clicks before the metronome starts, so there is time to join in. */
     const val MUSIC_COUNT_IN = "music.countIn"
+    const val MUSIC_COUNT_IN_BARS = "music.countInBars"
+    const val MUSIC_VOICE = "music.voice"
+    const val MUSIC_VOLUME = "music.volume"
     const val DEFAULT_TOOL = "editor.defaultTool"
     const val DEFAULT_PAPER = "notebook.defaultPaper"
     /** Paper new mistake-practice pages start on; they are always infinite canvases. */
@@ -248,7 +252,10 @@ object AppPrefs {
     const val DEFAULT_MUSIC_DIM = 0f
     const val MUSIC_DIM_MAX = 0.7f
     const val DEFAULT_MUSIC_TOOLBAR = true
-    const val DEFAULT_MUSIC_CLICK = false
+    const val DEFAULT_MUSIC_CLICK = true
+    const val DEFAULT_MUSIC_COUNT_IN_BARS = 0
+    const val DEFAULT_MUSIC_VOICE = "WOOD"
+    const val DEFAULT_MUSIC_VOLUME = .7f
     const val DEFAULT_MUSIC_ACCENT = true
     const val DEFAULT_MUSIC_SUBDIVISION = 0
     const val MUSIC_SUBDIVISION_MAX = 4
@@ -356,6 +363,11 @@ object AppPrefs {
     /** Reader dimming, from untouched to as dark as a score stays legible (70%). */
     fun musicDim(value: Float?): Float =
         if (value == null || !value.isFinite()) DEFAULT_MUSIC_DIM else value.coerceIn(0f, MUSIC_DIM_MAX)
+
+    fun musicVolume(value: Float?): Float =
+        if (value == null || !value.isFinite()) DEFAULT_MUSIC_VOLUME else value.coerceIn(0f, 1f)
+    fun musicCountInBars(value: Int?): Int = (value ?: DEFAULT_MUSIC_COUNT_IN_BARS).coerceIn(0, 4)
+    internal fun musicVoice(value: String?): MetronomeVoice = MetronomeVoice.decode(value)
 
     /** Metronome subdivision: 0 = off, otherwise the ticks inside each beat. */
     fun musicSubdivision(value: Int?): Int = (value ?: DEFAULT_MUSIC_SUBDIVISION).coerceIn(0, MUSIC_SUBDIVISION_MAX)

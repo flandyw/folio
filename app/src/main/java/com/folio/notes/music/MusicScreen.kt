@@ -63,6 +63,8 @@ import com.folio.notes.ui.FolioSpacing
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("preferences", 0) }
+    var readerStart by rememberSaveable { mutableIntStateOf(0) }
+    var performing by rememberSaveable { mutableStateOf(false) }
     var activeId by rememberSaveable { mutableStateOf<String?>(null) }
     var playingSet by rememberSaveable { mutableStateOf<String?>(null) }
     var setId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -125,7 +127,11 @@ import com.folio.notes.ui.FolioSpacing
         }
         context.startActivity(android.content.Intent.createChooser(share, "Share running order"))
     }
-    fun open(score: MusicScore, set: String?) { activeId = score.id; playingSet = set; model.opened(score.id) }
+    fun open(score: MusicScore, set: String?, fromStart: Boolean = false) {
+        readerStart = if (fromStart) 0 else score.page
+        if (fromStart) model.score(score.id) { it.copy(page = 0) }
+        activeId = score.id; playingSet = set; model.opened(score.id)
+    }
     fun clearScope() { query = ""; favorites = false; annotatedOnly = false; unfinishedOnly = false; composer = null; setId = null; folderId = null; focusManager.clearFocus() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); model.clearMessage() } }
     val active = library.scores.find { it.id == activeId }
@@ -147,12 +153,15 @@ import com.folio.notes.ui.FolioSpacing
     Box(Modifier.fillMaxSize()) {
         if (active != null) {
             val set = library.sets.find { it.id == playingSet }
-            val position = set?.scores?.indexOf(active.id) ?: -1
-            val next = set?.scores?.getOrNull(position + 1)?.let { id -> library.scores.find { it.id == id } }
+            val order = set?.scoresIn(library).orEmpty()
+            val position = order.indexOfFirst { it.id == active.id }
+            val next = order.getOrNull(position + 1).takeIf { position >= 0 }
             key(active.id) { MusicReader(active, model, folio, folioState, finger, haptics, shapeRecognition,
-                onBack = { activeId = null; playingSet = null },
-                setLabel = set?.let { "${it.name} · ${position + 1} of ${it.scores.size}" },
-                next = next, onNextScore = { next?.let { open(it, set.id) } },
+                initialPage = readerStart, performance = performing, onPerformance = { performing = it },
+                onBack = { activeId = null; playingSet = null; performing = false },
+                setLabel = set?.let { "${it.name} · ${position + 1} of ${order.size}" },
+                runningOrder = order, onChooseScore = { open(it, set?.id, fromStart = true) },
+                next = next, onNextScore = { next?.let { open(it, set?.id, fromStart = true) } },
                 onDetails = { details = active.id }, onExport = { exportScore(active) },
                 onExtract = { model.reviewExisting(active.id) }, onSettings = onSettings) }
         } else BoxWithConstraints(Modifier.fillMaxSize().guardUiTouches()) {

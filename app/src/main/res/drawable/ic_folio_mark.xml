@@ -1,0 +1,14 @@
+<!-- The Folio mark in adaptive-icon space (art inside the central 72 of 108). Mirrors docs/brand/folio-icon.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <group android:rotation="-11" android:pivotX="50.6" android:pivotY="56.3">
+        <path android:fillColor="#467D8B" android:pathData="M38.2,37.3 h24.8 a4.6,4.6 0 0 1 4.6,4.6 v28.8 a4.6,4.6 0 0 1 -4.6,4.6 h-24.8 a4.6,4.6 0 0 1 -4.6,-4.6 v-28.8 a4.6,4.6 0 0 1 4.6,-4.6 z"/>
+    </group>
+    <group android:rotation="8" android:pivotX="51.2" android:pivotY="53.9">
+        <path android:fillColor="#1F3A44" android:fillAlpha="0.14" android:pathData="M38.3,35.7 h24.8 a4.6,4.6 0 0 1 4.6,4.6 v28.8 a4.6,4.6 0 0 1 -4.6,4.6 h-24.8 a4.6,4.6 0 0 1 -4.6,-4.6 v-28.8 a4.6,4.6 0 0 1 4.6,-4.6 z"/>
+        <path android:fillColor="#F1E0CD" android:pathData="M38.8,34.9 h24.8 a4.6,4.6 0 0 1 4.6,4.6 v28.8 a4.6,4.6 0 0 1 -4.6,4.6 h-24.8 a4.6,4.6 0 0 1 -4.6,-4.6 v-28.8 a4.6,4.6 0 0 1 4.6,-4.6 z"/>
+    </group>
+    <path android:fillColor="#1F3A44" android:fillAlpha="0.14" android:pathData="M44.5,33.4 h24.8 a4.6,4.6 0 0 1 4.6,4.6 v28.8 a4.6,4.6 0 0 1 -4.6,4.6 h-24.8 a4.6,4.6 0 0 1 -4.6,-4.6 v-28.8 a4.6,4.6 0 0 1 4.6,-4.6 z"/>
+    <path android:fillColor="#FBF8F3" android:pathData="M45.1,32.5 h24.8 a4.6,4.6 0 0 1 4.6,4.6 v28.8 a4.6,4.6 0 0 1 -4.6,4.6 h-24.8 a4.6,4.6 0 0 1 -4.6,-4.6 v-28.8 a4.6,4.6 0 0 1 4.6,-4.6 z"/>
+    <path android:fillColor="#AD4B2D" android:pathData="M45.1,32.5 H52.5 V38.5 A2,2 0 0 1 50.5,40.5 H40.5 V37.1 A4.6,4.6 0 0 1 45.1,32.5 Z"/>
+    <path android:fillColor="#8BA8B0" android:pathData="M45.6,46.2 h23.8 a1.1,1.1 0 0 1 1.1,1.1 v0 a1.1,1.1 0 0 1 -1.1,1.1 h-23.8 a1.1,1.1 0 0 1 -1.1,-1.1 v-0 a1.1,1.1 0 0 1 1.1,-1.1 z M45.6,53.1 h23.8 a1.1,1.1 0 0 1 1.1,1.1 v0 a1.1,1.1 0 0 1 -1.1,1.1 h-23.8 a1.1,1.1 0 0 1 -1.1,-1.1 v-0 a1.1,1.1 0 0 1 1.1,-1.1 z M45.6,60 h15.8 a1.1,1.1 0 0 1 1.1,1.1 v0 a1.1,1.1 0 0 1 -1.1,1.1 h-15.8 a1.1,1.1 0 0 1 -1.1,-1.1 v-0 a1.1,1.1 0 0 1 1.1,-1.1 z"/>
+</vector>

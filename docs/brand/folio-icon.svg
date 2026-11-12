@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="18 18 72 72" role="img" aria-labelledby="title desc">
+  <title id="title">Folio</title>
+  <desc id="desc">Three fanned note pages on a powder-blue rounded square, with a terracotta corner tab and three handwriting lines.</desc>
+  <!-- Drawn in Android's 108-unit adaptive-icon space; the tile is the central 72. Mirrors res/drawable/ic_folio_mark.xml. -->
+  <rect x="18" y="18" width="72" height="72" rx="18" fill="#B6D0DE"/>
+  <!-- Back sheet -->
+  <rect x="33.6" y="37.3" width="34" height="38" rx="4.6" fill="#467D8B" transform="rotate(-11 50.6 56.3)"/>
+  <!-- Middle sheet and its shadow -->
+  <rect x="33.7" y="35.7" width="34" height="38" rx="4.6" fill="#1F3A44" fill-opacity=".14" transform="rotate(8 51.2 53.9)"/>
+  <rect x="34.2" y="34.9" width="34" height="38" rx="4.6" fill="#F1E0CD" transform="rotate(8 51.2 53.9)"/>
+  <!-- Front page and its shadow -->
+  <rect x="39.9" y="33.4" width="34" height="38" rx="4.6" fill="#1F3A44" fill-opacity=".14"/>
+  <rect x="40.5" y="32.5" width="34" height="38" rx="4.6" fill="#FBF8F3"/>
+  <!-- Corner tab -->
+  <path d="M45.1 32.5H52.5V38.5A2 2 0 0 1 50.5 40.5H40.5V37.1A4.6 4.6 0 0 1 45.1 32.5Z" fill="#AD4B2D"/>
+  <!-- Writing lines -->
+  <g fill="#8BA8B0">
+    <rect x="44.5" y="46.2" width="26" height="2.2" rx="1.1"/>
+    <rect x="44.5" y="53.1" width="26" height="2.2" rx="1.1"/>
+    <rect x="44.5" y="60" width="18" height="2.2" rx="1.1"/>
+  </g>
+</svg>

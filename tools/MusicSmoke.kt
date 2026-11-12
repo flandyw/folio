@@ -11,6 +11,87 @@ fun main() {
     val library = MusicLibrary(listOf(first, second), listOf(MusicSet("concert", "Concert", listOf(second.id, first.id))))
     check(MusicCodec.decode(MusicCodec.encode(library)) == library) { "Music round trip lost score or performance data" }
     check(MusicCodec.decode(MusicCodec.encode(MusicLibrary())) == MusicLibrary())
+    val jumping = first.copy(jumps = listOf(MusicJump(5, 0, "D.C."), MusicJump(4, 5, "Coda")))
+    check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(jumping)))).scores.single() == jumping) { "Page shortcuts lost on reload" }
+    check(!MusicCodec.encode(library).contains("jumps")) { "Unused shortcuts changed the index shape" }
+    val badJumps = JSONObject(MusicCodec.encode(MusicLibrary(listOf(jumping))))
+    badJumps.getJSONArray("scores").getJSONObject(0).getJSONArray("jumps").getJSONObject(0).put("to", 99)
+    check(MusicCodec.decode(badJumps.toString()).scores.single().jumps == jumping.jumps.drop(1)) { "Out-of-range shortcut accepted" }
+    for (invalid in listOf(MusicJump(-1, 0, "Repeat"), MusicJump(0, 7, "Coda"), MusicJump(1, 1, "Same page"), MusicJump(0, 1, " "))) {
+        check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(first.copy(jumps = listOf(invalid)))))).scores.single().jumps.isEmpty()) { "Invalid shortcut accepted: $invalid" }
+    }
+    val cut = MusicParts.extracted(jumping, second.id, MusicPartRequest("Coda", "", listOf(4, 5)))
+    check(cut.jumps == listOf(MusicJump(0, 1, "Coda"))) { "Part extraction kept a missing destination or failed to remap pages" }
+    for (pages in 1..8) for (step in 1..2) {
+        val last = maxOf(0, pages - step)
+        for (start in 0..last) {
+            val forward = musicTurnTarget(start, pages, step, true)
+            check(if (start == last) forward == null else forward == minOf(start + step, last))
+            check(musicTurnTarget(start, pages, step, false) == maxOf(0, start - step))
+        }
+    }
+    val reading = first.copy(twoUp = false, overlapTurns = true, turnSeconds = 45)
+    check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(reading)))).scores.single() == reading) { "Reading choices lost on reload" }
+    val oldReading = MusicCodec.decode(MusicCodec.encode(library)).scores.first()
+    check(oldReading.twoUp && !oldReading.overlapTurns && oldReading.turnSeconds == 20) { "Legacy reader defaults changed" }
+    check(listOf("twoUp", "overlapTurns", "turnSeconds").none { it in MusicCodec.encode(library) }) { "Default reading settings changed the index shape" }
+    for ((stored, expected) in listOf(-1 to 5, 1 to 5, 20 to 20, 999 to 300)) {
+        val json = JSONObject(MusicCodec.encode(library))
+        json.getJSONArray("scores").getJSONObject(0).put("turnSeconds", stored)
+        check(MusicCodec.decode(json.toString()).scores.first().turnSeconds == expected) { "Unsafe page-turn interval accepted" }
+    }
+    check(MusicParts.extracted(reading, second.id, MusicPartRequest("Part", "", listOf(0, 1))).let {
+        !it.twoUp && it.overlapTurns && it.turnSeconds == 45
+    }) { "Extracting a part lost its reading settings" }
+    for (pages in 1..8) for (step in 1..2) {
+        val last = maxOf(0, pages - step)
+        for (start in 0..last) {
+            val forward = musicTurnTarget(start, pages, step, true, overlap = true)
+            check(if (start == last) forward == null else forward == start + 1) { "Overlapping turn skipped or repeated a page" }
+            check(musicTurnTarget(start, pages, step, false, overlap = true) == maxOf(0, start - 1))
+        }
+    }
+    check(listOf(0L, 1L, 999L, 1000L, 1001L, 19999L, 20000L, 21000L).map { musicTurnCountdown(20000L, it) } ==
+        listOf(20, 20, 20, 19, 19, 1, 0, 0)) { "Timed-turn countdown expired early or ran past its deadline" }
+    val patterned = first.copy(beatAccents = listOf(2, 0, 1))
+    check(MusicCodec.decode(MusicCodec.encode(MusicLibrary(listOf(patterned)))).scores.single() == patterned) { "Beat pattern lost on reload" }
+    check(!MusicCodec.encode(library).contains("beatAccents")) { "Default metronome pattern changed the index" }
+    for (pattern in listOf(listOf(2, 1), listOf(2, -1, 1), listOf(2, 3, 1))) {
+        val json = JSONObject(MusicCodec.encode(MusicLibrary(listOf(first.copy(beatAccents = pattern)))))
+        check(MusicCodec.decode(json.toString()).scores.single().beatAccents.isEmpty()) { "Invalid beat pattern accepted" }
+    }
+    check(MusicParts.extracted(patterned, second.id, MusicPartRequest("Part", "", listOf(0))).beatAccents == patterned.beatAccents)
+    val rhythm = MetronomeRhythm(137, 3, 3, 2, listOf(2, 0, 1))
+    for (tick in 1L..10000L) {
+        check(rhythm.tickAt(rhythm.frame(tick)) == tick) { "Sample rounding lost a tick" }
+        check(rhythm.tickAt(rhythm.frame(tick) - 1) == tick - 1) { "Tick fired early" }
+    }
+    check(kotlin.math.abs(rhythm.frame(10000) - 10000 * 60.0 * 48000 / (137 * 3)) <= .5) { "Metronome accumulated tempo drift" }
+    check(rhythm.position(0) == MetronomePosition(1, 2))
+    check(rhythm.position(rhythm.frame(9)) == MetronomePosition(1, 1))
+    check(rhythm.position(rhythm.frame(18)) == MetronomePosition(1, 0))
+    check((0L..8L).map(rhythm::strength) == listOf(2, 0, 0, 1, 0, 0, 1, 0, 0)) { "Count-in used subdivisions or a muted practice beat" }
+    check((18L..26L).map(rhythm::strength) == listOf(2, 3, 3, 0, 0, 0, 1, 3, 3)) { "Muted beat leaked subdivisions" }
+    check(MetronomeRhythm(60, 4, 0, accentFirst = false).strength(0) == 1)
+    for (voice in MetronomeVoice.entries) {
+        val strong = metronomeClick(voice, 2)
+        check(strong.first() == 0.toShort() && kotlin.math.abs(strong.last().toInt()) < 5) { "Click has an abrupt envelope" }
+        check(strong.maxOf { kotlin.math.abs(it.toInt()) } in 1000..30000) { "Click is inaudible or clips" }
+        check(metronomeClick(voice, 0).all { it == 0.toShort() })
+        check(strong.sumOf { it.toDouble() * it } > metronomeClick(voice, 1).sumOf { it.toDouble() * it })
+        check(metronomeClick(voice, 1).sumOf { it.toDouble() * it } > metronomeClick(voice, 3).sumOf { it.toDouble() * it })
+        val whole = ShortArray(60000).also { MetronomePcm(rhythm, voice).fill(it) }
+        val renderer = MetronomePcm(rhythm, voice)
+        val split = ShortArray(60000)
+        for (offset in split.indices step 257) {
+            val block = ShortArray(minOf(257, split.size - offset)); renderer.fill(block); block.copyInto(split, offset)
+        }
+        check(whole.contentEquals(split)) { "Audio buffer boundaries moved the clicks" }
+    }
+    val taps = MetronomeTaps()
+    check(taps.tap(1000) == null && taps.tap(1490) == 122 && taps.tap(2010) == 119 && taps.tap(2500) == 120)
+    check(taps.tap(6000) == null && taps.tap(7000) == 60) { "Tap tempo retained stale taps after a pause" }
+    check(MetronomeVoice.decode("unknown") == MetronomeVoice.WOOD)
     val filed = MusicLibrary(listOf(MusicScore("11111111-1111-4111-8111-111111111111", "A", 2, folder = "f1"),
         MusicScore("22222222-2222-4222-8222-222222222222", "B", 2)), folders = listOf(MusicFolder("f1", "Choir")))
     check(MusicCodec.decode(MusicCodec.encode(filed)) == filed) { "Folders lost on reload" }
@@ -158,5 +239,5 @@ fun main() {
     check(MusicParts.merged(emptyList()) == null && MusicParts.merged(listOf(MusicPartRequest("A", "", emptyList()))) == null) { "Merging nothing should be null" }
     val mergedPart = MusicParts.merged(listOf(MusicPartRequest("A", "Flute", listOf(2, 3)), MusicPartRequest("B", "Oboe", listOf(1, 3))))
     check(mergedPart != null && mergedPart.title == "A" && mergedPart.pages == listOf(1, 2, 3) && mergedPart.instrument == "Flute, Oboe") { "Merged part wrong: $mergedPart" }
-    println("Music smoke passed: persistence, part detection, ambiguous/scanned pages, strict page ranges, extracted annotation mapping, shelf ordering, shelf sorts and filters, set-list totals, tempo names and the new selection and merge helpers")
+    println("Music smoke passed: persistence, part detection, ambiguous/scanned pages, strict page ranges, extracted annotation mapping, shelf ordering, shelf sorts and filters, set-list totals, tempo names, selection and merge helpers, repeat shortcuts, overlapping page turns, saved reading choices, timed-turn countdowns, sample-clock metronome timing, click envelopes, beat patterns, count-in and averaged tap tempo")
 }

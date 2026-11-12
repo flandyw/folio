@@ -4,6 +4,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
+internal data class MusicJump(val from: Int, val to: Int, val name: String)
+
 internal data class MusicMark(val page: Int, val name: String)
 internal data class MusicPoint(val x: Float, val y: Float)
 
@@ -59,6 +61,14 @@ internal data class MusicScore(
     val seed: MusicSeed? = null,
     /** The shelf folder this score is filed in; null = unfiled. Only written when set. */
     val folder: String? = null,
+    /** Explicit page shortcuts for repeats, D.S. and codas; never automatic page turns. */
+    val jumps: List<MusicJump> = emptyList(),
+    /** Landscape layout and turns are kept with the piece, including copies and extracted parts. */
+    val twoUp: Boolean = true, val overlapTurns: Boolean = false,
+    /** Delay between timed page turns; starting the timer is always a session-only action. */
+    val turnSeconds: Int = 20,
+    /** 0 = silent, 1 = normal, 2 = strong; empty uses the default downbeat accent. */
+    val beatAccents: List<Int> = emptyList(),
 )
 /** Copy [pages] (indexes into the source score, in order) from the source score's notebook. */
 internal data class MusicSeed(val from: String, val pages: List<Int>)
@@ -83,11 +93,20 @@ internal object MusicCodec {
             val id = s.getString("id")
             require(validMusicId(id)) { "Invalid score ID" }
             val pages = s.getInt("pages").also { require(it > 0) }
+            val beats = s.optInt("beats", 4).coerceIn(1, 12)
             MusicScore(id = id, title = s.getString("title"), pages = pages,
                 composer = s.optString("composer"), part = s.optString("part"),
                 notes = s.optString("notes"), starred = s.optBoolean("starred"),
                 page = s.optInt("page").coerceIn(0, pages - 1),
-                bpm = s.optInt("bpm", 80).coerceIn(30, 240), beats = s.optInt("beats", 4).coerceIn(1, 12),
+                bpm = s.optInt("bpm", 80).coerceIn(30, 240), beats = beats,
+                beatAccents = s.optJSONArray("beatAccents")?.takeIf { it.length() == beats }?.let { a ->
+                    (0 until beats).map { a.optInt(it, -1) }.takeIf { values -> values.all { it in 0..2 } }
+                } ?: emptyList(),
+                twoUp = s.optBoolean("twoUp", true), overlapTurns = s.optBoolean("overlapTurns"),
+                turnSeconds = musicTurnSeconds(s.optInt("turnSeconds", 20)),
+                jumps = s.optJSONArray("jumps").objects().map {
+                    MusicJump(it.getInt("from"), it.getInt("to"), it.getString("name"))
+                }.filter { it.from in 0 until pages && it.to in 0 until pages && it.from != it.to && it.name.isNotBlank() },
                 marks = s.optJSONArray("marks").objects().map { MusicMark(it.getInt("page"), it.getString("name")) }.filter { it.page in 0 until pages },
                 ink = s.optJSONArray("ink").objects().map { stroke ->
                     val points = stroke.getJSONArray("points")
@@ -131,6 +150,13 @@ internal object MusicCodec {
                 // Only scores that carry labels mention them, so untouched indexes keep their shape.
                 .apply { if (s.texts.isNotEmpty()) put("texts", JSONArray(s.texts.map { textJson(it) })) }
                 .apply { if (s.pencil.any { it > 0 }) put("pencil", JSONArray(s.pencil)) }
+                .apply { if (s.beatAccents.isNotEmpty()) put("beatAccents", JSONArray(s.beatAccents)) }
+                .apply { if (!s.twoUp) put("twoUp", false) }
+                .apply { if (s.overlapTurns) put("overlapTurns", true) }
+                .apply { if (s.turnSeconds != 20) put("turnSeconds", musicTurnSeconds(s.turnSeconds)) }
+                .apply { if (s.jumps.isNotEmpty()) put("jumps", JSONArray(s.jumps.map {
+                    JSONObject().put("from", it.from).put("to", it.to).put("name", it.name)
+                })) }
                 .apply { s.folder?.let { put("folder", it) } }
                 .apply { s.seed?.let { put("seed", JSONObject().put("from", it.from).put("pages", JSONArray(it.pages))) } }
         })).put("sets", JSONArray(library.sets.map {
