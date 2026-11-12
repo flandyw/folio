@@ -1754,7 +1754,7 @@ class InkView(context: Context) : View(context) {
     private var taperVersion = InkTaper.version
     private val boundsCache = IdentityCache<Stroke, FloatArray>(MAX_CACHED_STROKES)
     private fun renderedOf(stroke: Stroke): InkRenderer.RenderedStroke =
-        renderCache.getOrPut(stroke) { InkRenderer.rendered(stroke) }
+        renderCache.getOrPut(stroke) { InkRenderer.shared(stroke) }
     private fun boundsOf(stroke: Stroke): FloatArray =
         boundsCache.getOrPut(stroke) { InkRenderer.rawBounds(stroke) }
     /** Reused base page (page minus selection) so a selection drag reuses the retained layer. */
@@ -1887,8 +1887,8 @@ class InkView(context: Context) : View(context) {
         if (content.infinite) canvas.getClipBounds(requiredInkBounds)
         else requiredInkBounds.set(0, 0, ceil(content.width).toInt(), ceil(content.height).toInt())
         // A whole-page writing bitmap already contains everything a finite-page pinch can reveal.
-        if (committedInk.drawSnapshot(canvas, content.strokes, requiredInkBounds) ||
-            navigationInk.drawSnapshot(canvas, content.strokes, requiredInkBounds)) return
+        if (committedInk.drawSnapshot(canvas, content.strokes, requiredInkBounds, ::boundsOf, ::renderedOf) ||
+            navigationInk.drawSnapshot(canvas, content.strokes, requiredInkBounds, ::boundsOf, ::renderedOf)) return
         navigationBounds.set(requiredInkBounds)
         if (content.infinite) {
             // Overscan reduces rebuilds when panning or zooming out on an unbounded canvas.
@@ -2961,13 +2961,13 @@ class InkView(context: Context) : View(context) {
                 // Not when the ballpoint's ends are tapered: the live pass can't know where the stroke ends.
                 // Brushes taper inside AndroidX Ink, which finishes the end itself.
                 val geometry = draftGeometry(draft!!)
-                renderCache.getOrPut(drawn) {
+                renderCache.getOrPut(drawn) { InkRenderer.shared(drawn) {
                     // Detach from the live builder so cached ink does not retain its scratch buffers.
                     geometry.copy(centre = geometry.centre.toList(),
                         widths = geometry.widths?.copyOf(geometry.centre.size))
                         // Same prefix, so the live mesh only appends its tail and finishes instead of retessellating.
                         .also { it.ink = geometry.ink }
-                }
+                } }
             }
             page = page.copy(strokes = strokes!!)
         }

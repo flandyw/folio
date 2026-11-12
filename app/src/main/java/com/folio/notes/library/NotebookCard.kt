@@ -36,7 +36,7 @@ import com.folio.notes.ui.folioSelected
 @Composable internal fun NotebookCard(note: Notebook, thumbnails: PageThumbnailCache, folder: String?, open: () -> Unit, star: () -> Unit, rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: (() -> Unit)? = null, selecting: Boolean = false, redoCount: Int = 0, selected: Boolean = false, onLongPress: () -> Unit = {}, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     Column(modifier) {
         Box {
-            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
+            NotebookFace(note, thumbnails, Modifier.fillMaxWidth().then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, FolioShapes.medium) else Modifier).combinedClickable(onClickLabel = if (selecting) "Toggle selection for ${note.title}" else "Open ${note.title}", onClick = open, onLongClick = onLongPress))
             if (pinned) Surface(
                 modifier = Modifier.align(Alignment.BottomStart).padding(FolioSpacing.dp8),
                 shape = FolioShapes.small,
@@ -55,23 +55,21 @@ import com.folio.notes.ui.folioSelected
                         if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
-            } else {
-                IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp2), shapes = IconButtonDefaults.shapes()) {
-                    Icon(
-                        if (note.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
-                        if (note.starred) "Remove from favorites" else "Add to favorites",
-                        tint = if (note.starred) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .85f),
-                        modifier = Modifier.size(21.dp).folioSelected(note.starred)
-                    )
+            } else if (note.starred) {
+                // Covers stay clean: only a favorite wears its star, and tapping it takes it off again.
+                IconButton(star, modifier = Modifier.align(Alignment.TopEnd), shapes = IconButtonDefaults.shapes()) {
+                    Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
+                        Icon(Icons.Rounded.Star, "Remove from favorites", Modifier.padding(FolioSpacing.dp4).size(16.dp))
+                    }
                 }
             }
         }
-        Row(Modifier.padding(top = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(top = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f).combinedClickable(onClick = open, onLongClick = onLongPress)) {
                                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull("${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", folder, libraryLastEditedLabel(note.updated)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = pinned, pin = pin, createLike = createLike)
+            if (!selecting) NotebookMenu(rename, move, delete, examDetails, recordMark, duplicate, backupExcluded, onBackupToggle, onChangeCover, onTags, title = note.title, pinned = pinned, pin = pin, createLike = createLike, starred = note.starred, star = star)
         }
         if (note.tags.isNotEmpty()) Text(note.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (backupExcluded) Text("Excluded from library backups", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -79,7 +77,7 @@ import com.folio.notes.ui.folioSelected
     }
 }
 
-@Composable internal fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: (() -> Unit)? = null, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null) {
+@Composable internal fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: (() -> Unit)? = null, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null, starred: Boolean = false, star: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
@@ -90,6 +88,7 @@ import com.folio.notes.ui.folioSelected
                 PopoverTile(Icons.Rounded.FolderOpen, "Move", Modifier.weight(1f)) { run(move) }
                 PopoverTile(Icons.Rounded.ContentCopy, "Duplicate", Modifier.weight(1f)) { run(duplicate) }
             }
+            star?.let { action -> PopoverRow(if (starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (starred) "Remove from favorites" else "Add to favorites") { run(action) } }
             createLike?.let { action -> PopoverRow(Icons.AutoMirrored.Rounded.NoteAdd, "Create another like this") { run(action) } }
             pin?.let { action ->
                 PopoverRow(Icons.Rounded.PushPin, if (pinned) "Unpin" else "Pin to top") { run(action) }

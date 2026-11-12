@@ -41,7 +41,6 @@ object AppPrefs {
     const val UX_TOOL_BINDINGS = "ux.toolBindings"
     const val UX_SEARCH_HANDWRITING = "ux.searchHandwriting"
     const val UX_EDITOR_HINT_DISMISSED = "ux.editorHintDismissed"
-    const val UX_LIBRARY_HINT_DISMISSED = "ux.libraryHintDismissed"
     const val UX_TOOL_KEYS = "ux.toolKeys"
     const val UX_SNAP = "ux.snapObjects"
     const val UX_REVIEW_CONFIRM = "ux.reviewConfirm"
@@ -81,6 +80,8 @@ object AppPrefs {
     const val LIB_SORT = "library.sort"
     const val LIB_KIND = "library.kind"
     const val LIB_LIST = "library.listView"
+    /** Whether the wide library sidebar is unfolded; absent until the user chooses, so the window width decides. */
+    const val LIB_SIDEBAR = "library.sidebar"
     /** Only explicitly connected device folders; an empty set is the default. */
     const val EXPLORER_LOCATIONS = "explorer.locations"
     fun explorerLocations(value: Set<String>?): Set<String> = value.orEmpty().filter { it.startsWith("content://") }.take(32).toSet()

@@ -74,7 +74,7 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
     }
 }
 
-@Composable internal fun ContinueWorkingCard(notes: List<Notebook>, thumbnails: PageThumbnailCache, onOpen: (String) -> Unit) {
+@Composable internal fun ContinueWorkingCard(notes: List<Notebook>, thumbnails: PageThumbnailCache, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
     val note = remember(notes) { notes.filterNot { it.hiddenFromLibrary }.maxByOrNull { it.updated } } ?: return
     val context = androidx.compose.ui.platform.LocalContext.current
     // The page the notebook was left on, from the per-notebook position store the editor writes.
@@ -88,16 +88,16 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
     LaunchedEffect(note.id, page?.id, page?.revision) { page?.let { preview = thumbnails.thumbnail(note.id, it, widthPx) } }
     val image = remember(preview) { preview?.asImageBitmap() }
     val progress = if (note.pages.isEmpty()) 0f else (index + 1f) / note.pages.size
-    ElevatedCard({ onOpen(note.id) }, Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Surface({ onOpen(note.id) }, modifier, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
+        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(72.dp).height(96.dp).clip(FolioShapes.small).background(Color.White).border(1.dp, MaterialTheme.colorScheme.outlineVariant, FolioShapes.small), contentAlignment = Alignment.Center) {
                 if (image != null) Image(image, "Preview of page ${index + 1} of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 else Icon(Icons.AutoMirrored.Rounded.MenuBook, null)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Continue working", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text("Continue", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("Page ${index + 1} of ${note.pages.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Page ${index + 1} of ${note.pages.size} · ${libraryLastEditedLabel(note.updated)}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 LinearProgressIndicator({ progress }, Modifier.fillMaxWidth().padding(top = 4.dp))
             }
         }
@@ -132,12 +132,3 @@ internal fun uxExamFilter(item: JSONObject): ExamFilter = ExamFilter(
     subject = VceSubject.entries.find { it.name == item.optString("subject") }, year = item.optInt("year").takeIf { item.has("year") }, company = item.optString("company").takeIf { it.isNotBlank() },
     type = ExamType.entries.find { it.name == item.optString("type") }, unit = item.optInt("unit").takeIf { item.has("unit") }, status = ExamStatus.entries.find { it.name == item.optString("status") },
     belowShare = item.optDouble("below").toFloat().takeIf { it.isFinite() }, needsRedo = item.optBoolean("redo"), incomplete = item.optBoolean("incomplete"))
-
-@Composable internal fun LibraryShortcutHint() {
-    val prefs = rememberPrefs()
-    val show by rememberPref(prefs, AppPrefs.UX_HINTS, AppPrefs.UX_LIBRARY_HINT_DISMISSED) { it.getBoolean(AppPrefs.UX_HINTS, AppPrefs.DEFAULT_UX_HINTS) && !it.getBoolean(AppPrefs.UX_LIBRARY_HINT_DISMISSED, false) }
-    if (show) Row(Modifier.fillMaxWidth()) {
-        Text("List view supports custom swipe actions. In Select mode, drag across cards to select a range.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        TextButton({ prefs.write { putBoolean(AppPrefs.UX_LIBRARY_HINT_DISMISSED, true) } }) { Text("Dismiss") }
-    }
-}

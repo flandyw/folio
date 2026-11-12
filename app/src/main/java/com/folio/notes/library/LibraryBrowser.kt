@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.MenuOpen
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,13 +24,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.input.FolioTouch
 import com.folio.notes.model.Folder
 import com.folio.notes.model.Notebook
 import com.folio.notes.ui.FolioActionPopover
-import com.folio.notes.ui.FolioDestinationInset
+import com.folio.notes.ui.FolioDestinationVerticalInset
+import com.folio.notes.ui.FolioHeadingHeight
+import com.folio.notes.ui.LocalDestinationTopGap
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import com.folio.notes.ui.PopoverRow
@@ -62,11 +67,18 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
     LibraryPlace.UNFILED -> NotebookDropDestination.Folder(null, "Unfiled")
 }
 
+/** One destination in the library's navigation: the sidebar, the folded rail and the phone's bottom bar share them. */
+internal class NavDestination(val label: String, val icon: ImageVector, val selected: Boolean, val onClick: () -> Unit)
+
+internal val LibraryNavWidth = 280.dp
+
 /**
- * The wide library's shared side panel: Tablet files, notebook places, folders and tags.
- * Folder rows accept notebook drops and expand on hover without replacing the source grid.
+ * The wide layout's one sidebar: the app's destinations, then (while [browsing] the library) its
+ * places, folder tree and tags, with [footer] pinned underneath. Folder rows accept notebook drops
+ * and expand on hover without replacing the source grid.
  */
-@Composable internal fun LibrarySidebar(
+@Composable internal fun LibraryNavPanel(
+    destinations: List<NavDestination>, footer: List<NavDestination>, onCollapse: () -> Unit, create: @Composable () -> Unit, browsing: Boolean,
     folders: List<Folder>, openFolder: String?, place: LibraryPlace, tag: String?, tags: List<String>,
     expanded: Set<String>, counts: LibraryCounts, drag: NotebookDragState?,
     onPlace: (LibraryPlace) -> Unit, onFolder: (String) -> Unit, onExpand: (String) -> Unit, onTag: (String) -> Unit,
@@ -77,69 +89,95 @@ internal fun LibraryPlace.drop(): NotebookDropDestination? = when (this) {
     val rows = remember(folders, expanded) { LibraryBrowse.tree(folders, expanded) }
     val parents = remember(folders) { folders.mapNotNull { it.parentId }.toSet() }
     val home = !filesActive && openFolder == null && tag == null
-    Surface(modifier.width(288.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12),
-        shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        LazyColumn(Modifier.then(if (drag != null) Modifier.notebookDragScroll(drag) { list.scrollBy(it) } else Modifier),
-            state = list, contentPadding = PaddingValues(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-            if (onFiles != null) {
-                item(key = "files") { LibrarySidebarRow("Tablet files", Icons.Rounded.TabletAndroid, filesActive, onClick = onFiles) }
-                item(key = "files-divider") { HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8, horizontal = FolioSpacing.dp8)) }
+    Surface(modifier.width(LibraryNavWidth).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(horizontal = FolioSpacing.dp12)) {
+            // The same top gap and row height as a destination heading, so the wordmark sits on the title's line.
+            Row(Modifier.padding(top = LocalDestinationTopGap.current + FolioDestinationVerticalInset, bottom = FolioDestinationVerticalInset).height(FolioHeadingHeight).padding(start = FolioSpacing.dp4),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primary) {
+                    Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(FolioSpacing.dp8).size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                }
+                Text("Folio", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                IconButton(onCollapse, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuOpen, "Fold sidebar") }
             }
-            items(LibraryPlace.entries, key = { "place:${it.name}" }) { item ->
-                LibrarySidebarRow(item.label, item.icon(), home && place == item,
-                    count = when (item) { LibraryPlace.ALL -> counts.all; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 },
-                    modifier = item.drop()?.let { Modifier.notebookDropTarget(drag, it, onHoverOpen = if (item == LibraryPlace.UNFILED) ({ onHoverOpen(null) }) else null) } ?: Modifier) { onPlace(item) }
-            }
-            item(key = "folders") {
-                LibrarySidebarHeading("Folders") {
-                    IconButton(onNewFolder, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+            create()
+            LazyColumn(Modifier.weight(1f).then(if (drag != null) Modifier.notebookDragScroll(drag) { list.scrollBy(it) } else Modifier),
+                state = list, contentPadding = PaddingValues(vertical = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                items(destinations, key = { "nav:${it.label}" }) { LibrarySidebarRow(it.label, it.icon, it.selected, strong = true, onClick = it.onClick) }
+                if (browsing) {
+                    item(key = "library-divider") { HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8, horizontal = FolioSpacing.dp8)) }
+                    items(LibraryPlace.entries, key = { "place:${it.name}" }) { item ->
+                        LibrarySidebarRow(item.label, item.icon(), home && place == item,
+                            count = when (item) { LibraryPlace.ALL -> counts.all; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 },
+                            modifier = item.drop()?.let { Modifier.notebookDropTarget(drag, it, onHoverOpen = if (item == LibraryPlace.UNFILED) ({ onHoverOpen(null) }) else null) } ?: Modifier) { onPlace(item) }
+                    }
+                    if (onFiles != null) item(key = "files") { LibrarySidebarRow("Tablet files", Icons.Rounded.TabletAndroid, filesActive, onClick = onFiles) }
+                    item(key = "folders") {
+                        LibrarySidebarHeading("Folders") {
+                            IconButton(onNewFolder, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+                        }
+                    }
+                    if (rows.isEmpty()) item(key = "no-folders") {
+                        Text("Group notebooks into folders, then drag them in.", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    items(rows, key = { "folder:${it.first.id}" }) { (folder, depth) ->
+                        LibrarySidebarRow(folder.name, if (openFolder == folder.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, !filesActive && openFolder == folder.id,
+                            count = counts.byFolder[folder.id] ?: 0, depth = depth, iconTint = FolderPalette.color(folder.color),
+                            expanded = if (folder.id in parents) folder.id in expanded else null, onExpand = { onExpand(folder.id) },
+                            modifier = Modifier.notebookDragSource(drag, onFinishDrag) { NotebookDragPayload.Folder(folder.id, folder.name) }
+                                .graphicsLayer { alpha = if ((drag?.payload as? NotebookDragPayload.Folder)?.id == folder.id) .45f else 1f }
+                                .notebookDropTarget(drag, NotebookDropDestination.Folder(folder.id, folder.name), onHoverOpen = { if (folder.id in parents && folder.id !in expanded) onExpand(folder.id) })) { onFolder(folder.id) }
+                    }
+                    if (tags.isNotEmpty()) {
+                        item(key = "tags") { LibrarySidebarHeading("Tags") }
+                        items(tags, key = { "tag:$it" }) { label ->
+                            LibrarySidebarRow(label, Icons.Rounded.Sell, !filesActive && tag.equals(label, true), count = counts.tag(label),
+                                modifier = Modifier.notebookDropTarget(drag, NotebookDropDestination.Tag(label))) { onTag(label) }
+                        }
+                    }
                 }
             }
-            if (rows.isEmpty()) item(key = "no-folders") {
-                Text("Group notebooks into folders, then drag them in.", Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.padding(bottom = FolioSpacing.dp8), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                footer.forEach { LibrarySidebarRow(it.label, it.icon, it.selected, Modifier.weight(1f), strong = true, onClick = it.onClick) }
             }
-            items(rows, key = { "folder:${it.first.id}" }) { (folder, depth) ->
-                LibrarySidebarRow(folder.name, if (openFolder == folder.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, !filesActive && openFolder == folder.id,
-                    count = counts.byFolder[folder.id] ?: 0, depth = depth, iconTint = FolderPalette.color(folder.color),
-                    expanded = if (folder.id in parents) folder.id in expanded else null, onExpand = { onExpand(folder.id) },
-                    modifier = Modifier.notebookDragSource(drag, onFinishDrag) { NotebookDragPayload.Folder(folder.id, folder.name) }
-                        .graphicsLayer { alpha = if ((drag?.payload as? NotebookDragPayload.Folder)?.id == folder.id) .45f else 1f }
-                        .notebookDropTarget(drag, NotebookDropDestination.Folder(folder.id, folder.name), onHoverOpen = { if (folder.id in parents && folder.id !in expanded) onExpand(folder.id) })) { onFolder(folder.id) }
-            }
-            if (tags.isNotEmpty()) {
-                item(key = "tags") { LibrarySidebarHeading("Tags") }
-                items(tags, key = { "tag:$it" }) { label ->
-                    LibrarySidebarRow(label, Icons.Rounded.Sell, !filesActive && tag.equals(label, true), count = counts.tag(label),
-                        modifier = Modifier.notebookDropTarget(drag, NotebookDropDestination.Tag(label))) { onTag(label) }
-                }
-            }
+        }
+    }
+}
+
+/** A one-tap way to start writing, beside the continue card at the top of the home shelf. */
+@Composable internal fun QuickStartTile(icon: ImageVector, label: String, detail: String, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(onClick, modifier, enabled = enabled, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            Icon(icon, null, Modifier.padding(bottom = FolioSpacing.dp4), tint = MaterialTheme.colorScheme.primary)
+            Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable private fun LibrarySidebarHeading(title: String, actions: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12).heightIn(min = FolioTouch.target), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         actions()
     }
 }
 
-/** One sidebar row; tree rows pass [depth] and, when they have children, [expanded]. */
+/** One sidebar row; tree rows pass [depth] and, when they have children, [expanded]. Destinations are [strong]; the place inside the library wears a quieter highlight. */
 @Composable internal fun LibrarySidebarRow(
     label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, count: Int? = null,
-    iconTint: Color? = null, depth: Int? = null, expanded: Boolean? = null, onExpand: () -> Unit = {}, onClick: () -> Unit,
+    iconTint: Color? = null, depth: Int? = null, expanded: Boolean? = null, strong: Boolean = false, onExpand: () -> Unit = {}, onClick: () -> Unit,
 ) {
     Surface(onClick = onClick, shape = FolioShapes.large,
-        color = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        color = if (!active) Color.Transparent else if (strong) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = if (active && strong) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         modifier = modifier.fillMaxWidth().semantics { selected = active }) {
-        Row(Modifier.heightIn(min = FolioTouch.row).padding(start = FolioSpacing.dp12 + FolioSpacing.dp16 * (depth ?: 0), end = if (expanded != null) FolioSpacing.dp4 else FolioSpacing.dp12),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        Row(Modifier.heightIn(min = FolioTouch.target).padding(start = FolioSpacing.dp12 + FolioSpacing.dp16 * (depth ?: 0), end = if (expanded != null) FolioSpacing.dp4 else FolioSpacing.dp12),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             if (iconTint != null) Icon(icon, null, Modifier.size(20.dp), tint = iconTint) else Icon(icon, null, Modifier.size(20.dp))
-            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, fontWeight = if (active) FontWeight.SemiBold else null, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (count != null && count > 0) Text("$count", style = MaterialTheme.typography.labelMedium,
-                color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (expanded != null) {
                 val turn by animateFloatAsState(if (expanded) 90f else 0f, folioSpring(), label = "folderDisclosure")
                 IconButton(onExpand, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) {

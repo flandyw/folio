@@ -18,6 +18,8 @@ internal class IdentityCache<K : Any, V : Any>(private val capacity: Int) {
 
     val size: Int get() = values.size
 
+    fun getIfPresent(key: K): V? = values[key]?.let { node -> moveToTail(node); node.value }
+
     fun getOrPut(key: K, create: () -> V): V {
         values[key]?.let { node ->
             moveToTail(node)

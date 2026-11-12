@@ -20,6 +20,20 @@ internal fun appendedInkStart(previous: List<Stroke>, current: List<Stroke>): In
     return previous.size
 }
 
+/** Appended strokes drawn as vectors over the raster before they are painted into it. */
+internal const val INK_TAIL_MAX = 16
+
+/**
+ * Where the vector tail starts when [current] is the rastered [previous] plus at most [limit] strokes;
+ * -1 when the raster itself has to be painted. Painting into the bitmap makes the GPU take the whole
+ * page-sized texture again, so doing it once per [limit] strokes instead of on every pen-up is what
+ * keeps the frame after a stroke lands cheap.
+ */
+internal fun vectorTailStart(previous: List<Stroke>, current: List<Stroke>, limit: Int = INK_TAIL_MAX): Int {
+    val start = appendedInkStart(previous, current)
+    return if (start == 0 || current.size - start > limit) -1 else start
+}
+
 /**
  * Screen-resolution, transparent ink for the current viewport. Stable writing frames cost one
  * bitmap draw, independent of page density; a commit paints only its appended strokes. Paper,
@@ -126,7 +140,7 @@ internal class CommittedInkCache(
                 for (stroke in next.strokes) {
                     if (next.cancelled) return@submit
                     if (InkRenderer.boundsVisible(InkRenderer.rawBounds(stroke), stroke.width, next.area)) {
-                        InkRenderer.drawRendered(canvas, stroke, InkRenderer.rendered(stroke))
+                        InkRenderer.drawRendered(canvas, stroke, InkRenderer.shared(stroke))
                     }
                 }
                 next.bitmap = layer
@@ -147,10 +161,15 @@ internal class CommittedInkCache(
     }
 
     /** Reproject existing pixels during navigation, without rasterizing or allocating. */
-    fun drawSnapshot(canvas: Canvas, current: List<Stroke>, required: Rect): Boolean {
+    fun drawSnapshot(
+        canvas: Canvas, current: List<Stroke>, required: Rect,
+        boundsOf: (Stroke) -> FloatArray, renderOf: (Stroke) -> InkRenderer.RenderedStroke
+    ): Boolean {
         val layer = bitmap ?: return false
-        if (strokes !== current || !viewport.contains(required)) return false
+        val tail = vectorTailStart(strokes, current)
+        if (tail < 0 || !viewport.contains(required)) return false
         canvas.drawBitmap(layer, null, destination, paint)
+        drawRange(canvas, current, tail, viewport, boundsOf, renderOf)
         return true
     }
 
@@ -220,8 +239,9 @@ internal class CommittedInkCache(
             layer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap = layer
         }
+        val tail = if (viewportChanged) -1 else vectorTailStart(strokes, current)
         val start = if (viewportChanged) 0 else appendedInkStart(strokes, current)
-        if (viewportChanged || strokes !== current) {
+        if (tail < 0) {
             if (start == 0) layer.eraseColor(Color.TRANSPARENT)
             val recording = Canvas(layer)
             recording.scale(pixelsPerUnit, pixelsPerUnit)
@@ -234,6 +254,7 @@ internal class CommittedInkCache(
         destination.set(clip.left.toFloat(), clip.top.toFloat(),
             clip.left + width / pixelsPerUnit, clip.top + height / pixelsPerUnit)
         canvas.drawBitmap(layer, null, destination, paint)
+        if (tail >= 0) drawRange(canvas, current, tail, clip, boundsOf, renderOf, fastPreview)
     }
 
     private fun drawRange(

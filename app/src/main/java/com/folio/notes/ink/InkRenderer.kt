@@ -439,6 +439,26 @@ object InkRenderer {
         return RenderedStroke(centre, taper, minX, minY, maxX, maxY, widths)
     }
 
+    /**
+     * [rendered] memoized by stroke identity for the whole process, so the raster worker, a page view
+     * that was recycled and the eraser's first frame reuse one stroke's spline and mesh instead of each
+     * rebuilding it. Bounded; cleared on memory pressure and when the stroke-end look changes.
+     */
+    private val sharedGeometry = com.folio.notes.storage.IdentityCache<Stroke, RenderedStroke>(8000)
+    private var sharedTaper = InkTaper.version
+    fun shared(stroke: Stroke, create: () -> RenderedStroke = { rendered(stroke) }): RenderedStroke {
+        val version = InkTaper.version
+        synchronized(sharedGeometry) {
+            if (sharedTaper != version) { sharedTaper = version; sharedGeometry.clear() }
+            sharedGeometry.getIfPresent(stroke)?.let { return it }
+        }
+        // Outside the lock: the UI thread never waits on the worker's spline math.
+        val built = create()
+        return synchronized(sharedGeometry) {
+            if (sharedTaper != InkTaper.version) built else sharedGeometry.getOrPut(stroke) { built }
+        }
+    }
+
     /** Raw bounds of [stroke] as `[minX, minY, maxX, maxY]`. No spline math: O(points). */
     fun rawBounds(stroke: Stroke): FloatArray {
         val pts = stroke.points
@@ -713,6 +733,7 @@ object InkRenderer {
     /** Clears memoized text layouts under memory pressure; layouts are rebuilt on demand. */
     fun trimMemory() {
         synchronized(textLayoutCache) { textLayoutCache.clear() }
+        synchronized(sharedGeometry) { sharedGeometry.clear() }
         TextMathBitmaps.trimMemory()
     }
 

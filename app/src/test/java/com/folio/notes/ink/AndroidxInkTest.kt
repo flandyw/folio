@@ -8,6 +8,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AndroidxInkTest {
+    private fun dash(x: Float) = Stroke(Tool.PEN, -1, 3f, (0..8).map { InkPoint(x + it * 2f, 0f, 1f) })
+
+    @Test fun appendedInkDrawsAsATailUntilItIsWorthRepainting() {
+        val page = List(5) { dash(it * 20f) }
+        assertEquals(5, vectorTailStart(page, page))
+        assertEquals(5, vectorTailStart(page, page + dash(200f)))
+        assertEquals(5, vectorTailStart(page, page + List(INK_TAIL_MAX) { dash(300f) }))
+        // Too long a tail, an edit inside the rastered ink, or nothing rastered: paint the raster.
+        assertEquals(-1, vectorTailStart(page, page + List(INK_TAIL_MAX + 1) { dash(300f) }))
+        assertEquals(-1, vectorTailStart(page, page.drop(1)))
+        assertEquals(-1, vectorTailStart(page, listOf(dash(0f)) + page.drop(1)))
+        assertEquals(-1, vectorTailStart(emptyList(), page))
+    }
+
+    @Test fun sharedGeometryIsOnePerStrokeInstance() {
+        val stroke = dash(0f)
+        val first = InkRenderer.shared(stroke)
+        assertSame(first, InkRenderer.shared(stroke))
+        assertEquals(InkRenderer.rendered(stroke).centre, first.centre)
+        // Identity, not equality: an equal copy is a different stroke to the caches.
+        assertNotSame(first, InkRenderer.shared(stroke.copy()))
+        InkTaper.configure(.5f)
+        try { assertNotSame(first, InkRenderer.shared(stroke)) } finally { InkTaper.configure(0f) }
+    }
+
     @Test fun thumbnailsInvalidateThePreviousRenderer() {
         assertTrue(ThumbnailKeys.isStale("page-420-7.jpg", "page", 7, 420))
         assertFalse(ThumbnailKeys.isStale(ThumbnailKeys.name("page", 7, 420), "page", 7, 420))
