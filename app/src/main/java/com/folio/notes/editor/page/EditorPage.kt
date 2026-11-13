@@ -330,7 +330,8 @@ import kotlinx.coroutines.CancellationException
                     onPaper = { boundInkView?.setStickyPaper(id, it) },
                     onDuplicate = { commitStickyDraft(); boundInkView?.duplicateSticky(id) },
                     onFront = { boundInkView?.bringStickyToFront(id) },
-                    onClearInk = if (focusedSticky.box.stickyInk.isNotEmpty()) ({ boundInkView?.clearStickyInk(id) }) else null)
+                    onClearInk = if (focusedSticky.box.stickyInk.isNotEmpty()) ({ boundInkView?.clearStickyInk(id) }) else null,
+                    availableWidth = it)
             }
         }
         if (selectionMenu != null && page.loaded && ready) {

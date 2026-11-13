@@ -1,12 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.selection
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +13,7 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.EditorInteractionState
 import com.folio.notes.editor.SelectionPlacementPanel
 import com.folio.notes.editor.layout.DocumentInputCoordinator
+import com.folio.notes.editor.toolbar.EditorIcons
 import com.folio.notes.ink.recognition.HandwritingTidyPanel
 import com.folio.notes.ink.recognition.InkConversionDraft
 import com.folio.notes.ink.recognition.InkConversionPreview
@@ -23,8 +21,6 @@ import com.folio.notes.ink.shapes.ShapeCleanupPanel
 import com.folio.notes.library.semanticsLabel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.displayTitle
-import com.folio.notes.ui.FolioMenuItem
-import com.folio.notes.ui.FolioMenuPopover
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.CancellationException
@@ -37,7 +33,6 @@ import kotlinx.coroutines.launch
     if (selection.isEmpty()) return
     var aligning by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
-    var more by remember { mutableStateOf(false) }
     var resizing by remember { mutableStateOf(false) }
     var resizeFactor by remember { mutableFloatStateOf(1f) }
     var tidying by remember { mutableStateOf(false) }
@@ -49,46 +44,38 @@ import kotlinx.coroutines.launch
     val ink = selection.values.flatMap { it.strokes + it.texts.flatMap { box -> box.stickyInk } }
     val count = selection.values.sumOf { it.strokes.size + it.texts.size + it.images.size }
     val pages = selection.size
-    // Same light, outlined pill as the single-page lasso menu, so both selections look like one feature.
-    Surface(modifier.semanticsLabel("Selection options"), shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (pages > 1) "$count selected · $pages pages" else "$count selected",
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            VerticalDivider(Modifier.padding(start = FolioSpacing.dp8, end = FolioSpacing.dp4).height(20.dp))
-            SelectionAction(Icons.Rounded.ContentCopy, "Copy selection", onClick = input::copySelection)
-            SelectionAction(Icons.Rounded.DynamicFeed, "Duplicate selection", onClick = input::duplicateSelection)
-            if (ink.isNotEmpty()) SelectionAction(Icons.Rounded.Palette, "Style selection") { restyling = true }
-            SelectionAction(Icons.Rounded.DeleteOutline, "Delete selection", destructive = true, onClick = input::deleteSelection)
-            Box {
-                SelectionAction(Icons.Rounded.MoreHoriz, "More selection options") { more = true }
-                FolioMenuPopover(more, { more = false }, title = if (pages > 1) "$pages pages selected" else "Selection") {
-                    FolioMenuItem({ Text("Align and distribute…") }, { more = false; aligning = true })
-                    if (ink.isNotEmpty()) {
-                        FolioMenuItem({ Text("Tidy up shapes…") }, { more = false; tidying = true })
-                        FolioMenuItem({ Text("Tidy up handwriting…") }, { more = false; tidyingWriting = true })
-                        FolioMenuItem({ Text(if (converting) "Reading handwriting…" else "Convert to text") }, {
-                            more = false
-                            if (!converting) {
-                                converting = true
-                                scope.launch {
-                                    try { conversionDraft = input.prepareTextConversion() }
-                                    catch (e: CancellationException) { throw e }
-                                    catch (e: Exception) { model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}") }
-                                    finally { converting = false }
-                                }
-                            }
-                        })
-                    }
-                    FolioMenuItem({ Text("Rotate 90°") }, { more = false; input.transformSelection(1f, 90f) })
-                    FolioMenuItem({ Text("Resize selection") }, { more = false; resizing = true })
-                    FolioMenuItem({ Text("Move to a page") }, { more = false; moving = true })
-                }
-            }
-            SelectionAction(Icons.Rounded.Close, "Deselect", onClick = input::clearSelection)
+    // The same bar as the single-page lasso menu, so both selections look like one feature.
+    fun convert() {
+        if (converting) return
+        converting = true
+        scope.launch {
+            try { conversionDraft = input.prepareTextConversion() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { model.reportError("Couldn't read this handwriting: ${e.message.orEmpty()}") }
+            finally { converting = false }
         }
     }
+    ContextBar("Selection options", modifier = modifier,
+        actions = listOfNotNull(
+            MenuAction(EditorIcons.Copy, "Copy", onClick = input::copySelection),
+            MenuAction(EditorIcons.Duplicate, "Duplicate", onClick = input::duplicateSelection),
+            if (ink.isNotEmpty()) MenuAction(EditorIcons.Style, "Colour and width") { restyling = true } else null,
+            MenuAction(EditorIcons.Delete, "Delete", destructive = true, onClick = input::deleteSelection)),
+        more = listOf(MenuAction(EditorIcons.Align, "Align and distribute…") { aligning = true }) +
+            (if (ink.isEmpty()) emptyList() else listOf(
+                MenuAction(EditorIcons.Tidy, "Tidy up shapes…") { tidying = true },
+                MenuAction(EditorIcons.Handwriting, "Tidy up handwriting…") { tidyingWriting = true },
+                MenuAction(EditorIcons.ToText, if (converting) "Reading handwriting…" else "Convert handwriting to text", !converting, onClick = ::convert))) +
+            listOf(
+                MenuAction(EditorIcons.RotateRight, "Rotate 90°") { input.transformSelection(1f, 90f) },
+                MenuAction(EditorIcons.Resize, "Resize…") { resizing = true },
+                MenuAction(EditorIcons.MoveToPage, "Move to page…") { moving = true },
+                null,
+                MenuAction(EditorIcons.Close, "Deselect", onClick = input::clearSelection)),
+        lead = {
+            Text(if (pages > 1) "$count selected · $pages pages" else "$count selected", Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp8),
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        })
     conversionDraft?.let { draft -> InkConversionPreview(draft, model, { conversionDraft = null }) { conversionDraft = null; input.clearSelection() } }
     if (aligning) SelectionPlacementPanel(note, selection, model, { aligning = false }, input::clearSelection)
     if (tidying) ShapeCleanupPanel(note, model, selection, { tidying = false }, input::clearSelection)

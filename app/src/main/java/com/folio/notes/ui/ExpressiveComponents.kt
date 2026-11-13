@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.folio.notes.editor.toolbar.ToolIcons
+import com.folio.notes.editor.toolbar.EditorIcons
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.input.longPressAction
 import com.folio.notes.input.rememberLongPressGuard
@@ -64,7 +64,7 @@ import com.folio.notes.settings.showEditorToolNames
     onClick: () -> Unit,
     icon: ImageVector,
     label: String,
-    /** Current ink colour shown as a dot, so the pen reads its colour without opening options. */
+    /** Current ink colour shown as an underline, so the pen reads its colour without opening options. */
     indicatorColor: Color? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -82,16 +82,17 @@ import com.folio.notes.settings.showEditorToolNames
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ),
-        ) { Icon(icon, label, Modifier.size(20.dp)) }
+        ) { Icon(icon, label, Modifier.size(22.dp)) }
         if (showNames) Text(label.substringBefore(" —"), Modifier.align(Alignment.BottomCenter), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        // The ink underline sits just under the glyph, inside the button, with or without a name below.
         if (indicatorColor != null) {
             Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = FolioSpacing.dp2, bottom = FolioSpacing.dp2).size(8.dp)
+                Modifier.align(Alignment.TopCenter).padding(top = touchSize - 6.dp).size(width = 14.dp, height = 3.dp)
                     .background(indicatorColor, CircleShape)
-                    .border(1.5.dp, if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
             )
         }
     }
@@ -118,7 +119,7 @@ import com.folio.notes.settings.showEditorToolNames
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                     Row(Modifier.padding(FolioSpacing.dp6), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                         FolioToolToggle(penSelected, { penSelected = true }, Icons.Rounded.Edit, "Pen")
-                        FolioToolToggle(!penSelected, { penSelected = false }, ToolIcons.Lasso, "Lasso select")
+                        FolioToolToggle(!penSelected, { penSelected = false }, EditorIcons.Lasso, "Lasso select")
                     }
                 }
                 LoadingIndicator()

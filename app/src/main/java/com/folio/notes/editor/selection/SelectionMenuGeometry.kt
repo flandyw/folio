@@ -36,3 +36,16 @@ internal object SelectionMenuGeometry {
         return SelectionMenuPosition(x.roundToInt(), y.roundToInt())
     }
 }
+
+/**
+ * Which of a context bar's [actions] keep a button when only [slots] buttons fit; the rest join the
+ * list behind the bar's own "more" button, which takes a slot whenever there is a list
+ * ([hasList], or anything that does not fit). The last [destructive] action is the last to leave,
+ * so Delete never hides behind a narrow pane.
+ */
+internal fun <T> contextBarButtons(actions: List<T>, slots: Int, hasList: Boolean, destructive: (T) -> Boolean): List<T> {
+    val room = (if (hasList || actions.size > slots) slots - 1 else slots).coerceAtLeast(0)
+    if (actions.size <= room) return actions
+    val kept = actions.filter(destructive).takeLast(minOf(1, room))
+    return actions.filter { it in (actions - kept.toSet()).take(room - kept.size) || it in kept }
+}

@@ -1,13 +1,10 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.editor.toolbar
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,18 +14,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.folio.notes.app.AppPrefs
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.input.longPressAction
 import com.folio.notes.input.rememberLongPressGuard
@@ -37,8 +33,7 @@ import com.folio.notes.model.DrawingTools
 import com.folio.notes.model.ShapePickerTools
 import com.folio.notes.model.StrokeStyle
 import com.folio.notes.model.Tool
-import com.folio.notes.settings.rememberPref
-import com.folio.notes.settings.rememberPrefs
+import com.folio.notes.settings.largeEditorControls
 import com.folio.notes.settings.showEditorToolNames
 import com.folio.notes.ui.FolioExpand
 import com.folio.notes.ui.FolioMenuItem
@@ -51,6 +46,79 @@ import com.folio.notes.ui.FolioToolToggle
 import com.folio.notes.ui.MenuSectionHeader
 import com.folio.notes.ui.SubmenuItem
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
+
+/**
+ * What one toolbar slot wears. [hint] is the rest of its tooltip; a slot with [options] opens the
+ * tool settings when its active tool is tapped again or held.
+ */
+private class SlotSpec(val icon: ImageVector, val label: String, val hint: String = "", val options: Boolean = true)
+
+private fun spec(slot: ToolbarSlot): SlotSpec = when (slot) {
+    ToolbarSlot.PEN -> SlotSpec(EditorIcons.Pen, "Pen")
+    ToolbarSlot.SHAPES -> SlotSpec(EditorIcons.Rectangle, "Shapes")
+    ToolbarSlot.HIGHLIGHTER -> SlotSpec(EditorIcons.Highlighter, "Highlighter")
+    ToolbarSlot.ERASER -> SlotSpec(EditorIcons.Eraser, "Eraser")
+    ToolbarSlot.TEXT -> SlotSpec(EditorIcons.Text, "Text")
+    ToolbarSlot.LASSO -> SlotSpec(EditorIcons.Lasso, "Lasso select")
+    ToolbarSlot.HAND -> SlotSpec(EditorIcons.Hand, "Hand", " — follow links, move pictures, scroll and zoom")
+    ToolbarSlot.STICKY_NOTE -> SlotSpec(EditorIcons.Sticky, "Sticky note", " — drag a rectangle, then type or draw", options = false)
+    ToolbarSlot.MARK_AREA -> SlotSpec(EditorIcons.MarkArea, "Mark area", " — box a “[n marks]” label the scan missed", options = false)
+    ToolbarSlot.LASER -> SlotSpec(EditorIcons.Laser, "Laser pointer", " — point and circle without writing")
+    ToolbarSlot.RULER -> SlotSpec(EditorIcons.Ruler, "Ruler", " — draw straight along its edge; one finger moves it, two turn it", options = false)
+}
+
+private fun shapeIcon(tool: Tool): ImageVector = when (tool) {
+    Tool.LINE -> EditorIcons.Line
+    Tool.ELLIPSE -> EditorIcons.Ellipse
+    Tool.TRIANGLE -> EditorIcons.Triangle
+    Tool.DIAMOND -> EditorIcons.Diamond
+    Tool.PENTAGON -> EditorIcons.Pentagon
+    Tool.HEXAGON -> EditorIcons.Hexagon
+    Tool.STAR -> EditorIcons.Star
+    Tool.GRAPH -> EditorIcons.Graph
+    else -> EditorIcons.Rectangle
+}
+
+private fun shapeLabel(tool: Tool) = when (tool) {
+    Tool.LINE -> "Straight line"
+    Tool.GRAPH -> "Graph axes"
+    else -> tool.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+}
+
+/** A tool's name for people, never its enum constant (no "Mark_area"). */
+internal fun toolLabel(tool: Tool): String =
+    if (tool in ShapePickerTools) shapeLabel(tool) else spec(ToolbarSlot.entries.first { tool in it.tools }).label
+
+/** The glyph a tool wears on the toolbar. */
+internal fun toolIcon(tool: Tool): ImageVector =
+    if (tool in ShapePickerTools) shapeIcon(tool) else spec(ToolbarSlot.entries.first { tool in it.tools }).icon
+
+/** Space a divider keeps from the tool tray beside it, so a selected tile never touches it. */
+private val DividerAir = 4.dp
+
+/** The strip's button edge; one more 2dp gap makes the pitch the capacity budget divides by. */
+private val ToolbarButton: Dp @Composable get() = if (largeEditorControls()) 48.dp else 36.dp
+private val ToolbarSlotPitch: Dp @Composable get() = (if (showEditorToolNames()) 76.dp else ToolbarButton) + 2.dp
+
+/** The second-level menus under the toolbar's … menu. */
+private enum class ToolSub { PRESETS, BEHAVIOUR }
+
+@Composable private fun StripDivider(modifier: Modifier = Modifier, height: Dp = 24.dp) {
+    Box(modifier.width(1.dp).height(height).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+}
+
+/** A plain strip button with its tooltip; tools use [FolioToolToggle] instead. */
+@Composable private fun StripButton(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick, enabled = enabled, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(22.dp)) }
+    }
+}
+
+/** A switch row for the Behaviour menu; a null [set] means this surface has no such setting. */
+@Composable private fun BehaviourSwitch(label: String, on: Boolean, set: ((Boolean) -> Unit)?) {
+    if (set != null) FolioMenuItem({ Text(label) }, { set(!on) }, trailingIcon = { Switch(on, null) })
+}
 
 /**
  * The ink tool strip: the tools, their quick colours, width and options, saved presets and the
@@ -65,8 +133,6 @@ import kotlin.math.roundToInt
  * [shapeTools] is the shape picker's own list, so a caller can drop [Tool.GRAPH] (a notebook's
  * paper tool rather than an annotation). A null [onSnap] removes the canvas snap switch entirely.
  */
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable internal fun FloatingInkToolbar(
     onMainHeight: (Int) -> Unit = {},
     /** Height of everything the toolbar shows, quick bar included, for callers whose page must never sit under it. */
@@ -79,7 +145,7 @@ import kotlin.math.roundToInt
     eraserWholeStroke: Boolean = false, onEraserWholeStroke: ((Boolean) -> Unit)? = null,
     shapeMeasurements: Boolean = true, onShapeMeasurements: ((Boolean) -> Unit)? = null,
     multiTouchUndo: Boolean = true, onMultiTouchUndo: ((Boolean) -> Unit)? = null,
-    onSelectAll: (() -> Unit)? = null, markAreaAvailable: Boolean = false,
+    markAreaAvailable: Boolean = false,
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
     toolPresetsState: ToolPresetState? = null,
@@ -87,13 +153,12 @@ import kotlin.math.roundToInt
     hiddenSlots: Set<ToolbarSlot> = emptySet(),
     rulerOn: Boolean = false, onRuler: (() -> Unit)? = null,
     shapeTools: List<Tool> = ShapePickerTools.toList(),
-    actions: List<ToolbarAction> = emptyList(),
-    /** Flat on the editor bar; false floats the tools on their own glass pill (the music reader). */
+    /** Flat on the editor bar; false floats the tools on their own pill (the music reader). */
     flat: Boolean = true,
     toolbarOptions: ToolbarOptions = ToolbarOptions(),
     header: @Composable (@Composable () -> Unit) -> Unit
 ) {
-    var shapes by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     var shapePicker by remember { mutableStateOf(false) }
     var presetMenu by remember { mutableStateOf<String?>(null) }
     var editToolbar by remember { mutableStateOf(false) }
@@ -116,16 +181,17 @@ import kotlin.math.roundToInt
         if (!toolbarOptions.pinnedPresets) emptyList()
         else toolbarLayout.pinnedPresetIds.mapNotNull { id -> presets.find { it.id == id } }
     }
-    val toolPrefsContext = LocalContext.current
-    val toolPrefs = remember(toolPrefsContext) { toolPrefsContext.getSharedPreferences("ink-tools", 0) }
+    val context = LocalContext.current
+    val toolPrefs = remember(context) { context.getSharedPreferences("ink-tools", 0) }
     val isShape = tool in ShapePickerTools
     val isDrawing = tool in DrawingTools
     // Text quick controls change the colour used for new text boxes.
     val showQuickBar = quickBarOpen && (isDrawing || tool == Tool.ERASER || (tool == Tool.TEXT && onTextColor != null))
     val feedback = LocalHapticFeedback.current
+    fun tick() = feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     /** A light tick on real tool changes; tapping the active tool stays silent. */
     fun pick(next: Tool) {
-        if (next != tool) feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (next != tool) tick()
         onTool(next)
     }
     var recentShapes by remember { mutableStateOf(ShapeRecents.decode(toolPrefs.getString(ShapeRecents.KEY, null))) }
@@ -137,16 +203,20 @@ import kotlin.math.roundToInt
     }
     // The highlighter has its own quick colours and presets; other ink tools share them.
     val colorGroup = InkColors.groupOf(tool)
-    // Dots on the pen/highlighter show their own stored colours, not the active tool's, so the
+    // The pen and highlighter wear their own stored colour and brush, not the active tool's, so an
     // inactive button still reads correctly. Reads are in-memory SharedPreferences lookups.
-    val penDot = if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt())
-    val highlighterDot = if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt())
-    // The pen button wears its brush even while another tool is active.
     val penBrush = if (tool == Tool.PEN) options.style else StrokeStyle.safeValueOf(toolPrefs.getString("PEN.style", null) ?: "SOLID")
-    val widthRange = WidthPresets.range(WidthPresets.group(tool, options.style))
+    fun inkOf(slot: ToolbarSlot): Color? = when {
+        !toolbarOptions.colourDots -> null
+        slot == ToolbarSlot.PEN -> Color(if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt()))
+        slot == ToolbarSlot.HIGHLIGHTER -> Color(if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt()))
+        slot == ToolbarSlot.LASER && tool == Tool.LASER -> Color(options.color)
+        else -> null
+    }
     val widthPresetState = remember(toolPrefs) { WidthPresetState(toolPrefs) }
     var colorSlotEditing by remember { mutableStateOf<Int?>(null) }
     var widthSlotEditing by remember { mutableStateOf<Int?>(null) }
+    var brushPicker by remember { mutableStateOf(false) }
     // The popover opens under whichever control asked for it: the quick bar's settings icon, or the tool's own button.
     var paletteFromQuickBar by remember { mutableStateOf(false) }
     LaunchedEffect(palette) { if (!palette) paletteFromQuickBar = false }
@@ -155,18 +225,133 @@ import kotlin.math.roundToInt
             ToolOptionsPanel(tool, options, onOptions, quick, toolPresetsState, onApplyPreset)
         }
     }
-    // A selected tool's tile reaches its button's edge, so a divider beside the tools keeps a
-    // little air on that side (budgeted in DividerAir below).
-    @Composable fun ToolbarDivider(modifier: Modifier = Modifier) {
-        Box(modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+    @Composable fun ShapePicker() {
+        if (shapePicker) ShapePickerPopover(tool, shapes = shapeTools, onPick = { chooseShape(it); shapePicker = false },
+            onDrawHold = { pick(Tool.PEN); shapePicker = false }, onDismiss = { shapePicker = false })
     }
+
+    @Composable fun SlotButton(slot: ToolbarSlot) {
+        val active = tool in slot.tools
+        val spec = spec(slot)
+        Box(contentAlignment = Alignment.Center) {
+            if (active) ToolSettingsPopover()
+            when (slot) {
+                ToolbarSlot.RULER -> FolioToolToggle(rulerOn, { tick(); onRuler?.invoke() }, spec.icon, if (rulerOn) "Hide ruler" else spec.label + spec.hint)
+                ToolbarSlot.SHAPES -> {
+                    val shape = if (isShape) tool else lastShape
+                    // Tapping the shape in hand chooses another; holding opens its line settings.
+                    FolioToolToggle(isShape, { onPalette(false); if (isShape) shapePicker = true else chooseShape(lastShape) }, shapeIcon(shape),
+                        "Shapes, ${shapeLabel(shape).lowercase()}" + if (isShape) " — tap again to choose shape" else "",
+                        onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
+                    Icon(EditorIcons.ChevronDown, null, Modifier.align(Alignment.BottomEnd).size(10.dp),
+                        tint = if (isShape) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                    ShapePicker()
+                }
+                else -> {
+                    val value = slot.tools.first()
+                    FolioToolToggle(active, { if (active && spec.options) onPalette(true) else pick(value) },
+                        if (slot == ToolbarSlot.PEN) brushIcon(Tool.PEN, penBrush) else spec.icon,
+                        if (slot == ToolbarSlot.PEN) "Pen, ${penBrush.brushLabel(Tool.PEN).lowercase()}" else spec.label + spec.hint,
+                        indicatorColor = inkOf(slot),
+                        onLongClick = { claimStripLongPress(); pick(value); if (spec.options) onPalette(true) })
+                }
+            }
+        }
+    }
+
+    @Composable fun PinnedPreset(preset: ToolPreset) = Box {
+        val active = tool == preset.tool && options.color == preset.color && options.width == preset.width &&
+            options.opacity == preset.opacity && options.style == preset.style
+        FilterChip(
+            selected = active,
+            onClick = stripGuard.click { tick(); onApplyPreset?.invoke(preset) },
+            label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
+            leadingIcon = { Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) },
+            modifier = Modifier.widthIn(max = 104.dp).height(28.dp).longPressAction(stripGuard) { claimStripLongPress(); presetMenu = preset.id }
+        )
+        FolioMenuPopover(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches(), title = "Pinned preset") {
+            FolioMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(EditorIcons.Close, null) })
+            FolioMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(EditorIcons.Tune, null) })
+        }
+    }
+
+    /** Everything the strip has no room for, and the settings that are changed once and left. */
+    @Composable fun OverflowMenu(showUndo: Boolean, showRedo: Boolean, overflow: List<ToolbarSlot>) {
+        var sub by remember { mutableStateOf<ToolSub?>(null) }
+        val openSub: (ToolSub) -> Unit = { sub = if (sub == it) null else it }
+        fun close() { menu = false; sub = null }
+        FolioMenuPopover(menu, ::close, modifier = Modifier.guardUiTouches(), title = "Tools & actions") {
+            if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); close() }, enabled = canUndo, leadingIcon = { Icon(EditorIcons.Undo, null) })
+            if (!showRedo) FolioMenuItem({ Text("Redo") }, { redo(); close() }, enabled = canRedo, leadingIcon = { Icon(EditorIcons.Redo, null) })
+            if (overflow.isNotEmpty()) MenuSectionHeader("Tools")
+            overflow.forEach { slot ->
+                val spec = spec(slot)
+                when (slot) {
+                    ToolbarSlot.SHAPES -> FolioMenuItem({ Text(spec.label) }, { close(); onPalette(false); shapePicker = true },
+                        leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) }, trailingIcon = { Icon(EditorIcons.ChevronRight, null) })
+                    ToolbarSlot.RULER -> FolioMenuItem({ Text(spec.label) }, { onRuler?.invoke(); close() }, leadingIcon = { Icon(spec.icon, null) }, selected = rulerOn)
+                    else -> FolioMenuItem({ Text(spec.label) }, { pick(slot.tools.first()); close() }, leadingIcon = { Icon(spec.icon, null) }, selected = tool in slot.tools)
+                }
+            }
+            if (overflow.isNotEmpty()) HorizontalDivider()
+            if (presets.isNotEmpty() && onApplyPreset != null) SubmenuItem("Presets…", EditorIcons.Bookmark, sub == ToolSub.PRESETS, { openSub(ToolSub.PRESETS) }) {
+                MenuSectionHeader("Presets")
+                presets.forEach { preset ->
+                    FolioMenuItem({ Text("${preset.name} · ${toolLabel(preset.tool).lowercase()}") }, { onApplyPreset(preset); close() },
+                        leadingIcon = { Box(Modifier.size(14.dp).background(Color(preset.color), CircleShape)) })
+                }
+            }
+            // Everything that tunes how the tools behave is a switch in one place; the menu stays open while they are flipped.
+            SubmenuItem("Behaviour…", EditorIcons.Tune, sub == ToolSub.BEHAVIOUR, { openSub(ToolSub.BEHAVIOUR) }) {
+                MenuSectionHeader("Eraser")
+                BehaviourSwitch("Whole-stroke eraser", eraserWholeStroke, onEraserWholeStroke)
+                BehaviourSwitch("Single-stroke eraser", eraserSingleStroke, onEraserSingleStroke)
+                BehaviourSwitch("Eraser pressure", eraserPressureEnabled, onEraserPressure)
+                BehaviourSwitch("Scribble to erase", scribbleToErase, onScribbleToErase)
+                MenuSectionHeader("Shapes & gestures")
+                BehaviourSwitch("Snap to grid", snapEnabled, onSnap)
+                BehaviourSwitch("Measurements", shapeMeasurements, onShapeMeasurements)
+                BehaviourSwitch("Two-finger undo", multiTouchUndo, onMultiTouchUndo)
+                if (isShape) FolioMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, { onOptions(options.copy(style = options.style.next())) })
+            }
+            if (toolbarLayoutState != null) FolioMenuItem({ Text("Edit toolbar") }, { close(); editToolbar = true }, leadingIcon = { Icon(EditorIcons.Reorder, null) })
+        }
+    }
+
+    @Composable fun RowScope.Strip(showUndo: Boolean, showRedo: Boolean, primary: List<ToolbarSlot>, showPresets: Boolean) {
+        // The … menu holds what the user put there plus whatever this pane is too narrow to show.
+        val overflow = toolbarLayout.order.filterNot { it in primary }
+        val hasTray = primary.isNotEmpty() || (showPresets && pinnedPresets.isNotEmpty())
+        if (showUndo) StripButton(EditorIcons.Undo, "Undo", canUndo, stripGuard.click(undo))
+        if (showRedo) StripButton(EditorIcons.Redo, "Redo", canRedo, stripGuard.click(redo))
+        if (showUndo && hasTray) StripDivider(Modifier.padding(start = DividerAir / 2, end = DividerAir))
+        if (hasTray) {
+            Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                primary.forEach { slot -> key(slot) { SlotButton(slot) } }
+                if (showPresets) pinnedPresets.forEach { preset -> key(preset.id) { PinnedPreset(preset) } }
+            }
+            StripDivider(Modifier.padding(start = DividerAir, end = DividerAir / 2))
+        }
+        Box {
+            // A tool that lives in the menu still opens its settings and shape picker somewhere.
+            if (primary.none { tool in it.tools }) ToolSettingsPopover()
+            if (ToolbarSlot.SHAPES in overflow) ShapePicker()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StripButton(EditorIcons.More, "More tools and actions", onClick = stripGuard.click { menu = true })
+                StripButton(if (quickBarOpen) EditorIcons.ChevronUp else EditorIcons.ChevronDown, if (quickBarOpen) "Hide ink options" else "Show ink options",
+                    onClick = stripGuard.click { quickBarOpen = !quickBarOpen })
+            }
+            OverflowMenu(showUndo, showRedo, overflow)
+        }
+    }
+
     @Composable fun QuickColors() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2), modifier = Modifier.padding(horizontal = FolioSpacing.dp2)) {
             quick.colors(colorGroup).forEachIndexed { index, c ->
                 // Tapping the colour in use, or holding any dot, edits that slot in a popover.
                 Box {
                     InkColorDot(c, options.color == c, {
-                        feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        tick()
                         if (options.color == c) colorSlotEditing = index else onOptions(options.copy(color = c))
                     }, touch = ToolbarButton - 4.dp, dot = 22.dp, label = "Quick colour ${index + 1}", onLongClick = { colorSlotEditing = index })
                     if (colorSlotEditing == index) ColorSlotPopover(
@@ -191,245 +376,94 @@ import kotlin.math.roundToInt
             }
         }
     }
+    /** The three widths as dots that grow with the stored width, so a customised slot still reads in order. */
     @Composable fun WidthDots() {
-        val presets = widthPresetState.widths(tool, options.style)
-        val selectedIndex = WidthPresets.selectedIndex(presets, options.width)
-        presets.forEachIndexed { index, w ->
+        val group = WidthPresets.group(tool, options.style)
+        val range = WidthPresets.range(group)
+        val widths = widthPresetState.widths(tool, options.style)
+        val selectedIndex = WidthPresets.selectedIndex(widths, options.width)
+        widths.forEachIndexed { index, w ->
             val selected = index == selectedIndex
             // Tapping the width in use, or holding any dot, edits that slot in a popover.
             Box {
                 Box(
                     Modifier.size(ToolbarButton - 4.dp).clip(CircleShape)
+                        .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                         .combinedClickable(
-                            role = androidx.compose.ui.semantics.Role.RadioButton,
-                            onClick = {
-                                feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (selected) widthSlotEditing = index else onOptions(options.copy(width = w))
-                            },
+                            role = Role.RadioButton,
+                            onClick = { tick(); if (selected) widthSlotEditing = index else onOptions(options.copy(width = w)) },
                             onLongClick = { feedback.performHapticFeedback(HapticFeedbackType.LongPress); widthSlotEditing = index }
                         )
                         .semanticsLabel("Width ${String.format(java.util.Locale.ROOT, "%.1f", w)}${if (selected) ", selected" else ""}"),
                     contentAlignment = Alignment.Center
                 ) {
-                    // The stroke sample grows with the stored width, so a customised slot still reads in order.
-                    val thickness = (1.5f + 4.5f * ((w - widthRange.start) / (widthRange.endInclusive - widthRange.start)).coerceIn(0f, 1f).let { kotlin.math.sqrt(it) }).dp
-                    Box(Modifier.width(24.dp).height(thickness).background(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
-                    if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = FolioSpacing.dp4).size(4.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                    val size = (4f + 12f * sqrt(((w - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f))).dp
+                    Box(Modifier.size(size).background(if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
                 }
                 if (widthSlotEditing == index) WidthSlotPopover(
                     tool = tool, slot = index, width = if (selected) options.width else w, options = options,
                     onPick = { picked -> widthPresetState.set(tool, index, picked, options.style); onOptions(options.copy(width = picked)) },
                     onReset = {
                         widthPresetState.reset(tool, index, options.style)
-                        onOptions(options.copy(width = WidthPresets.defaults(WidthPresets.group(tool, options.style))[index]))
+                        onOptions(options.copy(width = WidthPresets.defaults(group)[index]))
                     },
                     onDismiss = { widthSlotEditing = null }
                 )
             }
         }
     }
-    var brushPicker by remember { mutableStateOf(false) }
     /** The brush in use; tapping opens the brush cards, each drawn in the brush's own ink. */
-    @Composable fun BrushSwitch() {
-        Box {
-            IconButton({ brushPicker = !brushPicker }, modifier = Modifier.size(ToolbarButton).semanticsLabel("Brush, ${options.style.brushLabel(tool).lowercase()}")) {
-                Icon(brushIcon(tool, options.style), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (brushPicker) FolioPopover(onDismiss = { brushPicker = false }, width = 344.dp) {
-                BrushPicker(tool, options) { brush ->
-                    feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onOptions(options.withBrush(tool, brush, widthPresetState)); brushPicker = false
-                }
-            }
+    @Composable fun BrushSwitch() = Box {
+        IconButton({ brushPicker = !brushPicker }, modifier = Modifier.size(ToolbarButton).semanticsLabel("Brush, ${options.style.brushLabel(tool).lowercase()}")) {
+            Icon(brushIcon(tool, options.style), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (brushPicker) FolioPopover(onDismiss = { brushPicker = false }, width = 344.dp) {
+            BrushPicker(tool, options) { brush -> tick(); onOptions(options.withBrush(tool, brush, widthPresetState)); brushPicker = false }
         }
     }
-    @Composable fun WidthControl() {
-        val hold = rememberLongPressGuard()
-        // The one settings popover: width, opacity, colour and the tool's own options all live in it.
-        Box {
-            IconButton(hold.click { paletteFromQuickBar = !palette; onPalette(!palette) }, modifier = Modifier.size(ToolbarButton)) {
-                Icon(Icons.Rounded.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            ToolSettingsPopover(fromQuickBar = true)
-        }
-    }
-    @Composable fun ShapesSlot() {
-        Box(contentAlignment = Alignment.Center) {
-            val shapeIcon = shapeIcon(if (isShape) tool else lastShape)
-            Box {
-                FolioToolToggle(isShape, { onPalette(false); if (isShape) shapePicker = true else chooseShape(lastShape) }, shapeIcon,
-                    if (isShape) "Shapes, ${shapeLabel(tool).lowercase()} — tap again to choose shape" else "Shapes, ${shapeLabel(lastShape).lowercase()}",
-                    onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
-                Icon(Icons.Rounded.ArrowDropDown, null,
-                    Modifier.align(Alignment.BottomEnd).size(14.dp),
-                    tint = if (isShape) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (shapePicker) ShapePickerPopover(tool, shapes = shapeTools, onPick = { value ->
-                chooseShape(value); shapePicker = false
-            }, onDrawHold = { pick(Tool.PEN); shapePicker = false }, onDismiss = { shapePicker = false })
-        }
-    }
-    @Composable fun ToolbarSlotButton(slot: ToolbarSlot) {
-      Box {
-        if (tool in slot.tools) ToolSettingsPopover()
-        when (slot) {
-            ToolbarSlot.PEN -> ToolButton(Tool.PEN, tool, brushIcon(Tool.PEN, penBrush), "Pen, ${penBrush.brushLabel(Tool.PEN).lowercase()}", indicatorColor = Color(penDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.PEN); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.SHAPES -> ShapesSlot()
-            ToolbarSlot.HIGHLIGHTER -> ToolButton(Tool.HIGHLIGHTER, tool, ToolIcons.Highlighter, "Highlighter", indicatorColor = Color(highlighterDot).takeIf { toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.HIGHLIGHTER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.ERASER -> ToolButton(Tool.ERASER, tool, ToolIcons.Eraser, "Eraser", onLongPress = { claimStripLongPress(); pick(Tool.ERASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.STICKY_NOTE -> ToolButton(Tool.STICKY_NOTE, tool, Icons.AutoMirrored.Rounded.StickyNote2, "Sticky note — drag a rectangle, then type or draw", onLongPress = { claimStripLongPress(); pick(Tool.STICKY_NOTE) }) { pick(it) }
-            ToolbarSlot.TEXT -> ToolButton(Tool.TEXT, tool, Icons.Rounded.TextFields, "Text", onLongPress = { claimStripLongPress(); pick(Tool.TEXT); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.LASSO -> ToolButton(Tool.LASSO, tool, ToolIcons.Lasso, "Lasso select", onLongPress = { claimStripLongPress(); pick(Tool.LASSO); onPalette(true) }) { pick(it) }
-            ToolbarSlot.MARK_AREA -> ToolButton(Tool.MARK_AREA, tool, Icons.Rounded.CropFree, "Mark area — box a “[n marks]” label the scan missed", onLongPress = { claimStripLongPress(); pick(Tool.MARK_AREA) }) { pick(it) }
-            ToolbarSlot.HAND -> ToolButton(Tool.HAND, tool, Icons.Rounded.PanTool, "Hand — follow links, move pictures, scroll and zoom", onLongPress = { claimStripLongPress(); pick(Tool.HAND); onPalette(true) }) { pick(it) }
-            ToolbarSlot.LASER -> ToolButton(Tool.LASER, tool, ToolIcons.Laser, "Laser pointer — point and circle without writing", indicatorColor = Color(options.color).takeIf { tool == Tool.LASER && toolbarOptions.colourDots }, onLongPress = { claimStripLongPress(); pick(Tool.LASER); onPalette(true) }) { if (it == tool) onPalette(true) else pick(it) }
-            ToolbarSlot.RULER -> FolioToolToggle(rulerOn, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onRuler?.invoke() }, ToolIcons.Ruler,
-                if (rulerOn) "Hide ruler" else "Ruler — draw straight along its edge; one finger moves it, two turn it")
-        }
-      }
-    }
-    val controls: @Composable RowScope.(Boolean, Boolean, List<ToolbarSlot>, Boolean) -> Unit = { showRedo, showUndo, primary, showExtras ->
-        // The … menu holds what the user put there plus whatever this pane is too narrow to show.
-        val overflow = toolbarLayout.order.filterNot { it in primary }
-        val hasTray = primary.isNotEmpty() || (showExtras && (pinnedPresets.isNotEmpty() || actions.isNotEmpty()))
-        if (showUndo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Undo") } }, state = rememberTooltipState()) {
-            IconButton(stripGuard.click(undo), enabled = canUndo, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Undo, "Undo", Modifier.size(20.dp)) }
-        }
-        if (showRedo) TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Redo") } }, state = rememberTooltipState()) {
-            IconButton(stripGuard.click(redo), enabled = canRedo, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Redo, "Redo", Modifier.size(20.dp)) }
-        }
-        if (showUndo && hasTray) ToolbarDivider(Modifier.padding(start = DividerAir / 2, end = DividerAir))
-        // Tools yield slots to overflow as the pane narrows. Keep the selected tool on the
-        // strip, rather than leaving it off-screen at an old horizontal scroll position.
-        if (hasTray) {
-            Row(
-                Modifier.weight(1f, fill = false),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)
-            ) {
-                primary.forEach { slot -> key(slot) { ToolbarSlotButton(slot) } }
-                if (showExtras) pinnedPresets.forEach { preset ->
-                    key(preset.id) {
-                        val presetActive = tool == preset.tool && options.color == preset.color && options.width == preset.width &&
-                            options.opacity == preset.opacity && options.style == preset.style
-                        Box {
-                            FilterChip(
-                                selected = presetActive,
-                                onClick = stripGuard.click { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onApplyPreset?.invoke(preset) },
-                                label = { Text(preset.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
-                                leadingIcon = {
-                                    Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape)) { }
-                                },
-                                modifier = Modifier.widthIn(max = 104.dp).height(28.dp).longPressAction(stripGuard) { claimStripLongPress(); presetMenu = preset.id }
-                            )
-                            FolioMenuPopover(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches(), title = "Pinned preset") {
-                                FolioMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(Icons.Rounded.PushPin, null) })
-                                FolioMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(Icons.Rounded.Tune, null) })
+    /** The quick bar under the strip: brush, widths and colours for the tool in hand, and its full settings. */
+    @Composable fun QuickBar() = BoxWithConstraints {
+        // In a narrow pane, widths/shapes and colours get their own row so neither
+        // group disappears behind the other. Each row can still scroll in tiny panes.
+        val splitGroups = tool != Tool.TEXT && tool != Tool.ERASER && maxWidth < 440.dp
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+            EditorGlassSurface(Modifier.widthIn(max = 640.dp)) {
+                Row(Modifier.padding(horizontal = FolioSpacing.dp4).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        if (tool == Tool.TEXT && onTextColor != null) {
+                            quick.colors(colorGroup).forEachIndexed { index, c ->
+                                InkColorDot(c, textColor == c, { tick(); onTextColor(c) }, touch = ToolbarButton - 4.dp, dot = 22.dp, label = "Text colour ${index + 1}", onLongClick = { onPalette(true) })
                             }
+                            StripDivider(height = 18.dp)
+                            Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        } else {
+                            if (StrokeStyle.brushes(tool).isNotEmpty()) BrushSwitch()
+                            if (isShape) RecentShapes() else WidthDots()
+                            if (tool != Tool.ERASER && !splitGroups) { StripDivider(height = 18.dp); QuickColors() }
                         }
                     }
-                }
-                if (showExtras && actions.isNotEmpty()) {
-                    ToolbarDivider()
-                    actions.forEach { action ->
-                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(action.label) } }, state = rememberTooltipState()) {
-                            IconButton(stripGuard.click(action.onClick), modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(action.icon, action.label, Modifier.size(20.dp)) }
+                    // Settings stay reachable even when the colours and widths need scrolling: width,
+                    // opacity, colour and the tool's own options all live in that one popover.
+                    Box {
+                        IconButton({ paletteFromQuickBar = !palette; onPalette(!palette) }, modifier = Modifier.size(ToolbarButton)) {
+                            Icon(EditorIcons.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        ToolSettingsPopover(fromQuickBar = true)
                     }
                 }
             }
-            ToolbarDivider(Modifier.padding(start = DividerAir, end = DividerAir / 2))
-        }
-        // Overflow for less frequent actions — keep palette access separate from quick controls
-        Box {
-            if (primary.none { tool in it.tools }) ToolSettingsPopover()
-            var toolSub by remember { mutableStateOf<ToolSub?>(null) }
-            val openSub: (ToolSub) -> Unit = { toolSub = if (toolSub == it) null else it }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("More options") } }, state = rememberTooltipState()) {
-                    IconButton(stripGuard.click { shapes = true }, modifier = Modifier.size(ToolbarButton)) { Icon(Icons.Rounded.MoreHoriz, "More options", Modifier.size(20.dp)) }
-                }
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(if (quickBarOpen) "Hide ink options" else "Show ink options") } }, state = rememberTooltipState()) {
-                    IconButton(stripGuard.click { quickBarOpen = !quickBarOpen }, modifier = Modifier.size(ToolbarButton)) {
-                        Icon(if (quickBarOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (quickBarOpen) "Hide ink options" else "Show ink options", Modifier.size(20.dp))
-                    }
-                }
-            }
-            if (shapePicker && ToolbarSlot.SHAPES in overflow) {
-                ShapePickerPopover(tool, shapes = shapeTools, onPick = { value -> chooseShape(value); shapePicker = false },
-                    onDrawHold = { pick(Tool.PEN); shapePicker = false }, onDismiss = { shapePicker = false })
-            }
-            FolioMenuPopover(shapes, { shapes = false; toolSub = null }, modifier = Modifier.guardUiTouches(), title = "Tools & actions") {
-                if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); shapes = false }, enabled = canUndo,
-                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
-                if (!showRedo) {
-                    FolioMenuItem({ Text("Redo") }, { redo(); shapes = false }, enabled = canRedo,
-                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Redo, null) })
-                    HorizontalDivider()
-                }
-                if (overflow.isNotEmpty()) MenuSectionHeader("Tools")
-                overflow.forEach { slot ->
-                    if (slot == ToolbarSlot.SHAPES) {
-                        FolioMenuItem({ Text("Shapes") }, { shapes = false; onPalette(false); shapePicker = true },
-                            leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) },
-                            trailingIcon = { Icon(Icons.Rounded.ChevronRight, null) })
-                    } else if (slot == ToolbarSlot.RULER) {
-                        FolioMenuItem({ Text(if (rulerOn) "Ruler: on" else "Ruler: off") }, { onRuler?.invoke(); shapes = false },
-                            leadingIcon = { Icon(toolbarSlotIcon(slot, tool, lastShape), null) },
-                            selected = rulerOn)
-                    } else {
-                        val first = slot.tools.first()
-                        FolioMenuItem({ Text(toolbarSlotLabel(slot)) }, { pick(first); shapes = false },
-                            leadingIcon = { Icon(toolbarSlotIcon(slot, tool, lastShape), null) },
-                            selected = tool in slot.tools)
-                    }
-                }
-                if (overflow.isNotEmpty()) HorizontalDivider()
-                if (!showExtras) actions.forEach { action ->
-                    FolioMenuItem({ Text(action.label) }, { action.onClick(); shapes = false },
-                        leadingIcon = { Icon(action.icon, null) })
-                }
-                if (presets.isNotEmpty() && onApplyPreset != null) {
-                    SubmenuItem("Presets…", Icons.Rounded.Bookmark, toolSub == ToolSub.PRESETS, { openSub(ToolSub.PRESETS) }) {
-                        MenuSectionHeader("Presets")
-                        presets.forEach { preset ->
-                            FolioMenuItem(
-                                { Text("${preset.name} · ${toolLabel(preset.tool).lowercase()}") },
-                                { onApplyPreset(preset); shapes = false },
-                                leadingIcon = { Icon(Icons.Rounded.Bookmark, null) }
-                            )
-                        }
-                    }
-                }
-                // Everything that tunes how a tool behaves lives in one submenu; select all is on the page's long-press menu.
-                SubmenuItem("Behaviour…", Icons.Rounded.Tune, toolSub == ToolSub.TOOL, { openSub(ToolSub.TOOL) }) {
-                    if (!isDrawing && tool != Tool.ERASER) {
-                        if (onSnap != null) FolioMenuItem({ Text(if (snapEnabled) "Snap to grid: on" else "Snap to grid: off") }, { onSnap(!snapEnabled); shapes = false }, leadingIcon = { Icon(if (snapEnabled) Icons.Rounded.GridView else Icons.Rounded.GridOff, null) })
-                        if (onShapeMeasurements != null) FolioMenuItem({ Text(if (shapeMeasurements) "Measurements: on" else "Measurements: off") }, { onShapeMeasurements(!shapeMeasurements); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Straighten, null) })
-                    }
-                    if (tool == Tool.ERASER || tool == Tool.PEN || tool == Tool.HIGHLIGHTER) {
-                        if (onEraserSingleStroke != null) FolioMenuItem({ Text(if (eraserSingleStroke) "Single-stroke eraser: on" else "Single-stroke eraser: off") }, { onEraserSingleStroke(!eraserSingleStroke); shapes = false }, leadingIcon = { Icon(ToolIcons.Eraser, null) })
-                        if (onEraserPressure != null) FolioMenuItem({ Text(if (eraserPressureEnabled) "Eraser pressure: on" else "Eraser pressure: off") }, { onEraserPressure(!eraserPressureEnabled); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Compress, null) })
-                        if (onEraserWholeStroke != null) FolioMenuItem({ Text(if (eraserWholeStroke) "Whole-stroke eraser: on" else "Whole-stroke eraser: off") }, { onEraserWholeStroke(!eraserWholeStroke); shapes = false }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
-                        if (onScribbleToErase != null) FolioMenuItem({ Text(if (scribbleToErase) "Scribble to erase: on" else "Scribble to erase: off") }, { onScribbleToErase(!scribbleToErase); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Brush, null) })
-                    }
-                    if (isShape) FolioMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, {
-                        onOptions(options.copy(style = options.style.next()))
-                    }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
-                    if (onMultiTouchUndo != null) FolioMenuItem({ Text(if (multiTouchUndo) "Two-finger undo: on" else "Two-finger undo: off") }, { onMultiTouchUndo(!multiTouchUndo); shapes = false }, leadingIcon = { Icon(Icons.Rounded.Gesture, null) })
-                }
-                if (toolbarLayoutState != null) FolioMenuItem({ Text("Edit toolbar") }, { shapes = false; editToolbar = true }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+            if (splitGroups) EditorGlassSurface {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp6), verticalAlignment = Alignment.CenterVertically) { QuickColors() }
             }
         }
     }
+
     // The header hosts the main tools; quick controls remain directly beneath them.
     Column(modifier.guardUiTouches().fillMaxWidth().onSizeChanged { onFullHeight(it.height) },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         // Only the header and main strip reserve space; the quick bar floats over the page so
         // toggling it never moves the document.
-        Column(Modifier.onSizeChanged { onMainHeight(it.height) }, horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+        Box(Modifier.onSizeChanged { onMainHeight(it.height) }) {
             header {
                 BoxWithConstraints {
                     // Undo and redo follow Settings, and narrow panes drop redo, then undo, into the … menu.
@@ -439,28 +473,24 @@ import kotlin.math.roundToInt
                     // Budget the fixed buttons first, then whole tool slots; presets never crowd those slots out.
                     val fixedWidth = 85.dp + DividerAir * 3 / 2 +
                         (if (showUndo) 41.dp + DividerAir * 3 / 2 else 0.dp) + (if (showRedo) 38.dp else 0.dp)
-                    // Leave two dp of slack for per-button pixel rounding at fractional densities.
-                    val capacity = ((maxWidth - fixedWidth) / ToolbarSlotPitch).toInt()
-                        .coerceIn(0, toolbarLayout.visible.size)
+                    val capacity = ((maxWidth - fixedWidth) / ToolbarSlotPitch).toInt().coerceIn(0, toolbarLayout.visible.size)
+                    // Tools yield slots to the menu as the pane narrows, but the tool in hand keeps a place on the strip.
                     val primary = toolbarLayout.visible.take(capacity).toMutableList()
                     val activeSlot = toolbarLayout.visible.firstOrNull { tool in it.tools }
                     if (activeSlot != null && capacity > 0 && activeSlot !in primary) {
                         primary[primary.lastIndex] = activeSlot
                         primary.sortBy { toolbarLayout.order.indexOf(it) }
                     }
-                    val extrasWidth = 104.dp * pinnedPresets.size + ToolbarSlotPitch * actions.size +
-                        if (actions.isNotEmpty()) 3.dp else 0.dp
-                    val showExtras = primary.size == toolbarLayout.visible.size &&
-                        maxWidth >= fixedWidth + ToolbarSlotPitch * primary.size + extrasWidth
+                    val showPresets = primary.size == toolbarLayout.visible.size &&
+                        maxWidth >= fixedWidth + ToolbarSlotPitch * primary.size + 104.dp * pinnedPresets.size
                     val stripHold = Modifier.longPressAction(stripGuard) {
-                        if (System.currentTimeMillis() - childLongPressAt <= 400) {
-                            // A tool or preset claimed the gesture first; its own action stands alone.
-                            stripGuard.begin()
-                        } else if (toolbarLayoutState != null) editToolbar = true
+                        // A tool or preset that claimed the gesture first keeps it; its own action stands alone.
+                        if (System.currentTimeMillis() - childLongPressAt <= 400) stripGuard.begin()
+                        else if (toolbarLayoutState != null) editToolbar = true
                     }
                     val strip: @Composable () -> Unit = {
                         Row(Modifier.padding(horizontal = FolioSpacing.dp4).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                            controls(showRedo, showUndo, primary, showExtras)
+                            Strip(showUndo, showRedo, primary, showPresets)
                         }
                     }
                     // The editor bar already is the surface, so its tools sit on it without a pill.
@@ -469,89 +499,9 @@ import kotlin.math.roundToInt
                 }
             }
         }
-        FolioExpand(showQuickBar) {
-            BoxWithConstraints {
-                // In a narrow pane, widths/shapes and colours get their own row so neither
-                // group disappears behind the other. Each row can still scroll in tiny panes.
-                val splitQuickGroups = tool != Tool.TEXT && tool != Tool.ERASER && maxWidth < 440.dp
-                Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                    EditorGlassSurface(Modifier.widthIn(max = 640.dp)) {
-                        Row(Modifier.padding(horizontal = FolioSpacing.dp4).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                            Row(Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                if (tool == Tool.TEXT && onTextColor != null) {
-                                    quick.colors(colorGroup).forEachIndexed { index, c ->
-                                        InkColorDot(c, textColor == c, { feedback.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTextColor(c) }, touch = ToolbarButton - 4.dp, dot = 22.dp, label = "Text colour ${index + 1}", onLongClick = { onPalette(true) })
-                                    }
-                                    Box(Modifier.width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-                                    Text("Text colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                                } else {
-                                    if (StrokeStyle.brushes(tool).isNotEmpty()) BrushSwitch()
-                                    if (isShape) RecentShapes() else WidthDots()
-                                    if (tool != Tool.ERASER && !splitQuickGroups) {
-                                        Box(Modifier.width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
-                                        QuickColors()
-                                    }
-                                }
-                            }
-                            // Settings stays reachable even when the colours and widths need scrolling.
-                            WidthControl()
-                        }
-                    }
-                    if (splitQuickGroups) EditorGlassSurface {
-                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp6),
-                            verticalAlignment = Alignment.CenterVertically) { QuickColors() }
-                    }
-                }
-            }
-        }
+        FolioExpand(showQuickBar) { QuickBar() }
     }
-    if (editToolbar && toolbarLayoutState != null) {
-        ToolbarEditPanel(
-            layoutState = toolbarLayoutState,
-            presets = presets,
-            onDismiss = { editToolbar = false }
-        )
-    }
-}
-
-/** Space a divider keeps from the tool tray beside it, so a selected tile never touches it. */
-private val DividerAir = 4.dp
-
-/** The strip's button edge; one more 2dp gap makes the pitch the capacity budget divides by. */
-private val ToolbarButton: Dp
-    @Composable get() { val p = rememberPrefs(); val large by rememberPref(p, AppPrefs.UX_LARGE_CONTROLS) { it.getBoolean(AppPrefs.UX_LARGE_CONTROLS, AppPrefs.DEFAULT_UX_LARGE_CONTROLS) }; return if (large) 48.dp else 36.dp }
-private val ToolbarSlotPitch: Dp @Composable get() = (if (showEditorToolNames()) 76.dp else ToolbarButton) + 2.dp
-
-/** A one-tap action shown beside the tools in the dock. */
-internal class ToolbarAction(val icon: ImageVector, val label: String, val onClick: () -> Unit)
-
-private fun toolbarSlotLabel(slot: ToolbarSlot): String = when (slot) {
-    ToolbarSlot.PEN -> "Pen"
-    ToolbarSlot.SHAPES -> "Shapes"
-    ToolbarSlot.HIGHLIGHTER -> "Highlighter"
-    ToolbarSlot.ERASER -> "Eraser"
-    ToolbarSlot.STICKY_NOTE -> "Sticky note"
-    ToolbarSlot.TEXT -> "Text"
-    ToolbarSlot.LASSO -> "Lasso select"
-    ToolbarSlot.HAND -> "Hand"
-    ToolbarSlot.MARK_AREA -> "Mark area"
-    ToolbarSlot.LASER -> "Laser pointer"
-    ToolbarSlot.RULER -> "Ruler"
-}
-
-private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (slot) {
-    ToolbarSlot.PEN -> Icons.Rounded.Edit
-    ToolbarSlot.SHAPES -> shapeIcon(if (tool in ShapePickerTools) tool else lastShape)
-    ToolbarSlot.HIGHLIGHTER -> ToolIcons.Highlighter
-    ToolbarSlot.ERASER -> ToolIcons.Eraser
-    ToolbarSlot.STICKY_NOTE -> Icons.AutoMirrored.Rounded.StickyNote2
-    ToolbarSlot.TEXT -> Icons.Rounded.TextFields
-    ToolbarSlot.LASSO -> ToolIcons.Lasso
-    ToolbarSlot.HAND -> Icons.Rounded.PanTool
-    ToolbarSlot.MARK_AREA -> Icons.Rounded.CropFree
-    ToolbarSlot.LASER -> ToolIcons.Laser
-    ToolbarSlot.RULER -> ToolIcons.Ruler
+    if (editToolbar && toolbarLayoutState != null) ToolbarEditPanel(toolbarLayoutState, presets) { editToolbar = false }
 }
 
 /**
@@ -560,17 +510,17 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
  * nothing is ever forced into the menu. Rows drag by their handle (long-press)
  * and also move with arrows so the sheet stays usable without fine motor control.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable internal fun ToolbarEditPanel(
-    layoutState: ToolbarLayoutState,
-    presets: List<ToolPreset>,
-    onDismiss: () -> Unit
-) {
+@Composable internal fun ToolbarEditPanel(layoutState: ToolbarLayoutState, presets: List<ToolPreset>, onDismiss: () -> Unit) {
     val layout = layoutState.layout
     val rowHeight = 56.dp
     val rowHeightPx = with(LocalDensity.current) { rowHeight.toPx() }
     var dragFrom by remember(layout.order) { mutableStateOf<Int?>(null) }
     var dragDelta by remember { mutableFloatStateOf(0f) }
+    @Composable fun Move(up: Boolean, name: String, enabled: Boolean, onClick: () -> Unit) {
+        IconButton(onClick, enabled = enabled, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
+            Icon(if (up) EditorIcons.Up else EditorIcons.Down, "Move $name ${if (up) "up" else "down"}", Modifier.size(18.dp))
+        }
+    }
     FolioPanel(title = "Edit toolbar", onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
@@ -584,37 +534,23 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             layout.order.forEachIndexed { index, slot ->
                 val dragging = dragFrom == index
                 val inMenu = slot in layout.hidden
+                val spec = spec(slot)
                 Surface(
                     shape = FolioShapes.large,
-                    color = if (dragging) MaterialTheme.colorScheme.secondaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth().height(rowHeight)
-                        .zIndex(if (dragging) 1f else 0f)
+                    color = if (dragging) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth().height(rowHeight).zIndex(if (dragging) 1f else 0f)
                         .graphicsLayer { translationY = if (dragging) dragDelta else 0f }
                 ) {
                     Row(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            toolbarSlotIcon(slot, Tool.PEN, Tool.LINE), null,
-                            Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Icon(spec.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
-                            Text(toolbarSlotLabel(slot), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                if (inMenu) "In … menu" else "On the toolbar",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text(spec.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (inMenu) "In … menu" else "On the toolbar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton({ layoutState.moveSlot(index, index - 1) }, enabled = index > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.ArrowUpward, "Move ${toolbarSlotLabel(slot)} up", Modifier.size(18.dp))
-                        }
-                        IconButton({ layoutState.moveSlot(index, index + 1) }, enabled = index < layout.order.lastIndex, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.ArrowDownward, "Move ${toolbarSlotLabel(slot)} down", Modifier.size(18.dp))
-                        }
-                        if (inMenu) {
-                            TextButton({ layoutState.show(slot) }, shapes = ButtonDefaults.shapes()) { Text("To toolbar") }
-                        } else {
-                            TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1, shapes = ButtonDefaults.shapes()) { Text("To … menu") }
-                        }
+                        Move(true, spec.label, index > 0) { layoutState.moveSlot(index, index - 1) }
+                        Move(false, spec.label, index < layout.order.lastIndex) { layoutState.moveSlot(index, index + 1) }
+                        if (inMenu) TextButton({ layoutState.show(slot) }, shapes = ButtonDefaults.shapes()) { Text("To toolbar") }
+                        else TextButton({ layoutState.hide(slot) }, enabled = layout.visible.size > 1, shapes = ButtonDefaults.shapes()) { Text("To … menu") }
                         // A full 40dp grip: the glyph alone was too small to catch with a finger.
                         Box(Modifier.size(40.dp).pointerInput(slot, index, layout.order.size) {
                                 detectDragGesturesAfterLongPress(
@@ -628,8 +564,7 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
                                     onDragCancel = { dragFrom = null; dragDelta = 0f }
                                 )
                             }, contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.DragHandle, "Drag to reorder ${toolbarSlotLabel(slot)}", Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(EditorIcons.Lines, "Drag to reorder ${spec.label}", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -637,27 +572,21 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
             Text("Pinned presets · up to ${ToolbarLayouts.MAX_PINNED}", style = MaterialTheme.typography.titleSmall)
             if (presets.isEmpty()) {
                 Text("Save a tool setup as a preset (Tool settings → Save current) to pin it here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                presets.forEach { preset ->
-                    val pinnedIndex = layout.pinnedPresetIds.indexOf(preset.id)
-                    val pinned = pinnedIndex >= 0
-                    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape))
-                            Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
-                                Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(toolLabel(preset.tool), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (pinned) {
-                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex - 1) }, enabled = pinnedIndex > 0, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.ArrowUpward, "Move ${preset.name} up", Modifier.size(18.dp))
-                                }
-                                IconButton({ layoutState.movePinned(pinnedIndex, pinnedIndex + 1) }, enabled = pinnedIndex < layout.pinnedPresetIds.lastIndex, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.ArrowDownward, "Move ${preset.name} down", Modifier.size(18.dp))
-                                }
-                            }
-                            TextButton({ layoutState.togglePin(preset.id) }, shapes = ButtonDefaults.shapes()) { Text(if (pinned) "Unpin" else "Pin") }
+            } else presets.forEach { preset ->
+                val pinnedIndex = layout.pinnedPresetIds.indexOf(preset.id)
+                val pinned = pinnedIndex >= 0
+                Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(12.dp).background(Color(preset.color), CircleShape))
+                        Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp8)) {
+                            Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(toolLabel(preset.tool), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        if (pinned) {
+                            Move(true, preset.name, pinnedIndex > 0) { layoutState.movePinned(pinnedIndex, pinnedIndex - 1) }
+                            Move(false, preset.name, pinnedIndex < layout.pinnedPresetIds.lastIndex) { layoutState.movePinned(pinnedIndex, pinnedIndex + 1) }
+                        }
+                        TextButton({ layoutState.togglePin(preset.id) }, shapes = ButtonDefaults.shapes()) { Text(if (pinned) "Unpin" else "Pin") }
                     }
                 }
             }
@@ -668,57 +597,3 @@ private fun toolbarSlotIcon(slot: ToolbarSlot, tool: Tool, lastShape: Tool): and
         }
     }
 }
-
-@Composable private fun ToolButton(value: Tool, selected: Tool, icon: ImageVector, label: String, indicatorColor: Color? = null, onLongPress: () -> Unit, change: (Tool) -> Unit) {
-    // The tooltip yields to the long-press: holding a tool opens its settings instead.
-    FolioToolToggle(value == selected, { change(value) }, icon, label, indicatorColor = indicatorColor, onLongClick = onLongPress)
-}
-
-private val GraphAxesIcon by lazy {
-    ImageVector.Builder("GraphAxes", 24.dp, 24.dp, 24f, 24f).apply {
-        path(stroke = androidx.compose.ui.graphics.SolidColor(Color.Black), strokeLineWidth = 1.8f,
-            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
-            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round) {
-            moveTo(3f, 12f); lineTo(21f, 12f)
-            moveTo(12f, 3f); lineTo(12f, 21f)
-            moveTo(6f, 9f); lineTo(3f, 12f); lineTo(6f, 15f)
-            moveTo(18f, 9f); lineTo(21f, 12f); lineTo(18f, 15f)
-            moveTo(9f, 6f); lineTo(12f, 3f); lineTo(15f, 6f)
-            moveTo(9f, 18f); lineTo(12f, 21f); lineTo(15f, 18f)
-        }
-    }.build()
-}
-
-private fun shapeIcon(tool: Tool): androidx.compose.ui.graphics.vector.ImageVector = when (tool) {
-    Tool.LINE -> ToolIcons.Line
-    Tool.ELLIPSE -> Icons.Rounded.Circle
-    Tool.TRIANGLE -> Icons.Rounded.ChangeHistory
-    Tool.DIAMOND -> Icons.Rounded.Diamond
-    Tool.PENTAGON -> Icons.Rounded.Pentagon
-    Tool.HEXAGON -> Icons.Rounded.Hexagon
-    Tool.STAR -> Icons.Rounded.StarBorder
-    Tool.GRAPH -> GraphAxesIcon
-    else -> Icons.Rounded.CropSquare
-}
-
-private fun shapeLabel(tool: Tool) = when (tool) {
-    Tool.LINE -> "Straight line"
-    Tool.GRAPH -> "Graph axes"
-    else -> tool.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
-}
-
-/** A tool's name for people, never its enum constant (no "Mark_area"). */
-internal fun toolLabel(tool: Tool): String =
-    if (tool in ShapePickerTools) shapeLabel(tool)
-    else ToolbarSlot.entries.first { tool in it.tools }.let(::toolbarSlotLabel)
-
-/** The glyph a toolbar slot wears; the ruler has no tool, so slots are not always tools. */
-internal fun toolbarSlotIcon(slot: ToolbarSlot): ImageVector = toolbarSlotIcon(slot, Tool.PEN, Tool.LINE)
-
-/** The glyph a tool wears on the toolbar. */
-internal fun toolIcon(tool: Tool): ImageVector =
-    if (tool in ShapePickerTools) shapeIcon(tool)
-    else toolbarSlotIcon(ToolbarSlot.entries.first { tool in it.tools }, tool, Tool.LINE)
-
-/** The second-level menus under the toolbar's ⋯ menu. */
-private enum class ToolSub { PRESETS, TOOL }

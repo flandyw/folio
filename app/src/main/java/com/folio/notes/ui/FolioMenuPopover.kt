@@ -53,14 +53,11 @@ import com.folio.notes.input.guardUiTouches
             transformOrigin = TransformOrigin(.5f, 0f)
         },
         shape = FolioShapes.extraLarge,
-        color = scheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = .65f)),
-        shadowElevation = 16.dp,
-    ) {
-        Box(Modifier.background(Brush.verticalGradient(listOf(scheme.surfaceContainerLow, scheme.surfaceContainer)))) {
-            content()
-        }
-    }
+        color = scheme.surfaceContainer,
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = .5f)),
+        shadowElevation = 12.dp,
+        content = content,
+    )
 }
 
 /** Place inside the trigger's Box. The card flips above it and stays inside the current window. */

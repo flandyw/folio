@@ -3,11 +3,6 @@ package com.folio.notes.editor.toolbar
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Flag
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -27,7 +22,7 @@ import com.folio.notes.input.rememberLongPressGuard
     Crossfade(targetState = active, label = "timingChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
+                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(EditorIcons.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE
@@ -42,10 +37,10 @@ import com.folio.notes.input.rememberLongPressGuard
             val clock = if (done) "Pens down" else timer.clockText()
             ToolbarSessionPill(
                 icon = when {
-                    done -> Icons.Rounded.Flag
-                    timer.paused -> Icons.Rounded.Pause
-                    reading -> Icons.AutoMirrored.Rounded.MenuBook
-                    else -> Icons.Rounded.Timer
+                    done -> EditorIcons.Flag
+                    timer.paused -> EditorIcons.Pause
+                    reading -> EditorIcons.Book
+                    else -> EditorIcons.Timer
                 },
                 value = clock,
                 tone = when {

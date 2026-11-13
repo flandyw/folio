@@ -21,12 +21,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -259,7 +253,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
-            Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(Icons.Rounded.Home, "Back to notebooks", onHome) }
+            Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(EditorIcons.Home, "Back to notebooks", onHome) }
             val stripColor = BarTones.strip
             Box(Modifier.weight(1f, fill = false).fillMaxHeight().drawWithContent {
                 drawContent()
@@ -438,10 +432,10 @@ private enum class TabClose { NONE, TAB, SPLIT }
                     } }
                 }
             }
-            if (onNew != null) TabAction(Icons.Rounded.Add, "Open another document", onNew)
+            if (onNew != null) TabAction(EditorIcons.Plus, "Open another document", onNew)
             if (onCloseTabs != null) Box {
                 var menu by remember { mutableStateOf(false) }
-                TabAction(Icons.Rounded.KeyboardArrowDown, "Tab actions") { menu = true }
+                TabAction(EditorIcons.ChevronDown, "Tab actions") { menu = true }
                 DropdownMenu(menu, { menu = false }) {
                     val at = ids.indexOf(activeId)
                     @Composable fun item(label: String, targets: List<String>) =
@@ -491,7 +485,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
         }
         drawPath(edge, colors.primary.copy(alpha = .55f * opacity.value), style = Stroke(1.dp.toPx()))
     }) {
-        Icon(Icons.Rounded.VerticalSplit, null,
+        Icon(EditorIcons.Split, null,
             Modifier.align(Alignment.BottomStart).offset {
                 val x = first.placement.displayed(false, Offset.Zero).x
                 // offset is relative in RTL; the placement coordinates above are physical.
@@ -567,7 +561,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
                         tooltip = { PlainTooltip { Text(if (split) "Close split view (both stay open)" else "Close") } }, state = rememberTooltipState()) {
                         IconButton({ if (split) onCloseSplit() else onClose(tab.id) }, enabled = enabled,
                             modifier = Modifier.fillMaxSize(), shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Close, label, Modifier.size(15.dp),
+                            Icon(EditorIcons.Close, label, Modifier.size(15.dp),
                                 tint = if (split) accent else LocalContentColor.current)
                         }
                     }

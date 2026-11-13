@@ -6,8 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -231,12 +229,12 @@ internal class PopoverPositionProvider(private val margin: Int, private val gap:
 
 /** The toolbar and picker glyph for [style] on [tool]. */
 internal fun brushIcon(tool: Tool, style: StrokeStyle): ImageVector = when {
-    tool == Tool.HIGHLIGHTER -> ToolIcons.Highlighter
-    style == StrokeStyle.FOUNTAIN -> Icons.Rounded.HistoryEdu
-    style == StrokeStyle.PENCIL -> Icons.Rounded.Draw
-    style == StrokeStyle.MARKER -> Icons.Rounded.BorderColor
-    style == StrokeStyle.CALLIGRAPHY -> Icons.Rounded.Brush
-    else -> Icons.Rounded.Edit
+    tool == Tool.HIGHLIGHTER -> EditorIcons.Highlighter
+    style == StrokeStyle.FOUNTAIN -> EditorIcons.Fountain
+    style == StrokeStyle.PENCIL -> EditorIcons.Pencil
+    style == StrokeStyle.MARKER -> EditorIcons.Marker
+    style == StrokeStyle.CALLIGRAPHY -> EditorIcons.Brush
+    else -> EditorIcons.Pen
 }
 
 /** [brush] keeps the current width when it is one of the brush's own slots, else starts on its middle one. */

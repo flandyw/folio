@@ -63,7 +63,6 @@ import com.folio.notes.editor.page.EditorPage
 import com.folio.notes.editor.page.EditorPageBrowser
 import com.folio.notes.editor.page.NotebookOptionsContent
 import com.folio.notes.editor.page.PageNavigator
-import com.folio.notes.editor.selection.CropContextMenu
 import com.folio.notes.editor.selection.EditorDocumentSelection
 import com.folio.notes.editor.selection.MoveSelectionPanel
 import com.folio.notes.editor.selection.PageContextMenu
@@ -1105,15 +1104,16 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
             val pictureMenu: (@Composable (Dp) -> Unit)? = selectedImage?.takeIf { it.first == page.id }?.let { (_, picked) ->
                 val live = page.images.find { it.id == picked.id }
                 if (live == null) null else { availableWidth ->
-                    if (cropActive) CropContextMenu(
-                        onApply = { activeInkView?.endImageCrop(true) },
-                        onCancel = { activeInkView?.endImageCrop(false) }
-                    ) else PictureContextMenu(
-                        cropped = live.isCropped(), availableWidth = availableWidth,
+                    val alone = CanvasSelection(images = listOf(live))
+                    PictureContextMenu(
+                        cropping = cropActive, cropped = live.isCropped(), availableWidth = availableWidth,
                         onRotateLeft = { model.rotateImageCounterClockwise(live.id) },
                         onRotateRight = { model.rotateImageClockwise(live.id) },
                         onCrop = { activeInkView?.beginImageCrop() },
+                        onEndCrop = { activeInkView?.endImageCrop(it) },
                         onFullPhoto = { model.resetImageCrop(live.id) },
+                        onCopy = { model.copyToClipboard(alone) },
+                        onDuplicate = { model.duplicateSelection(alone, ::selectPlaced) },
                         onFront = { model.bringImageToFront(live.id) },
                         onBack = { model.sendImageToBack(live.id) },
                         onDelete = { model.removeImage(live.id); selectedImage = null; activeInkView?.clearImageSelection() }
@@ -1412,7 +1412,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                     eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
                     shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
                     multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
-                    onSelectAll = ::selectAllInk,
                     textColor = textColor, onTextColor = ::setTextColor,
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
@@ -1656,7 +1655,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                 onMoveUp = { model.movePage(pageIndex, pageIndex - 1) }, onMoveDown = { model.movePage(pageIndex, pageIndex + 1) },
                 onInsert = { revealNewPage(model.insertPage(pageIndex + 1)) },
                 onDuplicate = { model.duplicatePage(pageIndex)?.let { revealNewPage(it) } },
-                onDelete = { deletingPage = page.id }),
+                onDelete = { deletingPage = page.id },
+                onPaper = if (page.pdfIndex == null) ({ openPaperMenu(false) }) else null,
+                onClear = if (page.strokes.isEmpty() && page.texts.isEmpty() && page.images.isEmpty()) null else ({ finishTextEditing(); model.clearPageContent(page.id) })),
             onPaste = { paste(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
             onText = { finishTextEditing(hideKeyboard = false); borrowTool(Tool.TEXT); placeTextBox(page, at) },

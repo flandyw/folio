@@ -5,11 +5,6 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -108,7 +103,7 @@ object EditorQuickPrefs {
         Row(Modifier.fillMaxWidth().clip(FolioShapes.small).clickable(role = androidx.compose.ui.semantics.Role.Button) { open = !open }.padding(vertical = FolioSpacing.dp8),
             verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            Icon(Icons.Rounded.ExpandMore, if (open) "Collapse $title" else "Expand $title", Modifier.size(20.dp).folioDisclosure(open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(EditorIcons.ChevronDown, if (open) "Collapse $title" else "Expand $title", Modifier.size(20.dp).folioDisclosure(open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         FolioExpand(open) { Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), content = content) }
     }
@@ -413,7 +408,7 @@ object EditorQuickPrefs {
             Modifier.size(dot).folioSelected(selected).background(Color(color), CircleShape).border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(dot * 0.55f), tint = if (InkColors.isLight(color)) Color.Black else Color.White)
+            if (selected) Icon(EditorIcons.Check, null, Modifier.size(dot * 0.55f), tint = if (InkColors.isLight(color)) Color.Black else Color.White)
         }
     }
 }
@@ -529,7 +524,7 @@ object EditorQuickPrefs {
                     onClick = hold.click { quick.applyPreset(group, preset); load(quick.colors(group)) },
                     label = { Text(preset.name) },
                     modifier = Modifier.longPressAction(hold) { quick.deletePreset(group, preset) },
-                    trailingIcon = { Icon(Icons.Rounded.Close, "Delete ${preset.name}", Modifier.size(18.dp).clickable(role = Role.Button) { quick.deletePreset(group, preset) }) }
+                    trailingIcon = { Icon(EditorIcons.Close, "Delete ${preset.name}", Modifier.size(18.dp).clickable(role = Role.Button) { quick.deletePreset(group, preset) }) }
                 )
             }
         }
@@ -580,8 +575,8 @@ object EditorQuickPrefs {
                 onClick = hold.click { onApply?.invoke(preset) },
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
                                 trailingIcon = { Row {
-                    IconButton({ layout.togglePin(preset.id) }) { Icon(Icons.Rounded.PushPin, if (preset.id in layout.layout.pinnedPresetIds) "Unpin ${preset.name}" else "Pin ${preset.name} to toolbar", tint = if (preset.id in layout.layout.pinnedPresetIds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton({ presets.delete(preset.id) }) { Icon(Icons.Rounded.Close, "Delete ${preset.name}") }
+                    IconButton({ layout.togglePin(preset.id) }) { Icon(EditorIcons.Bookmark, if (preset.id in layout.layout.pinnedPresetIds) "Unpin ${preset.name}" else "Pin ${preset.name} to toolbar", tint = if (preset.id in layout.layout.pinnedPresetIds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton({ presets.delete(preset.id) }) { Icon(EditorIcons.Close, "Delete ${preset.name}") }
                 } }
             )
         }
