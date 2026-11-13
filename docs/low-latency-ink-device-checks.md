@@ -28,7 +28,7 @@ The APK packages `arm64-v8a` and `armeabi-v7a` only (`abiFilters` in `app/build.
 
 Install a build that contains this source. A debug install is enough to start the list. `./build.sh -n` makes the signed experimental APK and does not publish. Do not use `./build.sh -p` for this check. A release claim also needs the same list on an R8 build (`./build.sh -n -r`): release shrinking is on for that build and there is no graphics-core keep rule. Record which build you installed in the table. A debug-only pass does not clear the unverified note for a shipped release.
 
-On the tablet, confirm Settings › Writing › Pen feel › **Low-latency ink** is present and on, and that the pen tool's Behaviour page shows the same switch. Search for "Low-latency ink" (the search keywords still include "experimental"; the switch itself does not say the feature is off). On the phone, do the same, then turn **Draw with a finger** on.
+On the tablet, confirm the pen tool's Behaviour page shows **Low-latency ink** on (Settings no longer repeats the switch). On the phone, do the same, then turn **Draw with a finger** on.
 
 Have a blank finite notebook, an infinite canvas, a PDF page, a page with a sticky note, and a mistake-review question that can open **Paper**. Developer options › Show refresh rate is optional; display Hz is covered in [display refresh](display-refresh.md).
 

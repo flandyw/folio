@@ -1,28 +1,27 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.settings
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.folio.notes.FolioApplication
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.SidebarItem
+import com.folio.notes.editor.GestureGuide
+import com.folio.notes.editor.follow.FollowFeel
+import com.folio.notes.editor.follow.FollowMode
+import com.folio.notes.editor.follow.FollowPreferenceStore
+import com.folio.notes.editor.follow.FollowPreferences
+import com.folio.notes.editor.follow.FollowPreview
+import com.folio.notes.editor.follow.WritingDirection
+import com.folio.notes.editor.follow.WritingHand
 import com.folio.notes.editor.sticky.StickyNotes
 import com.folio.notes.editor.toolbar.EditorQuickPrefs
 import com.folio.notes.editor.toolbar.ToolPresetState
@@ -30,9 +29,7 @@ import com.folio.notes.editor.toolbar.ToolbarEditPanel
 import com.folio.notes.editor.toolbar.ToolbarOptions
 import com.folio.notes.editor.toolbar.UndoButtons
 import com.folio.notes.editor.toolbar.rememberToolbarLayoutState
-import com.folio.notes.editor.toolbar.toolIcon
 import com.folio.notes.editor.toolbar.toolLabel
-import com.folio.notes.editor.toolbar.toolbarSlotIcon
 import com.folio.notes.export.ShareShortcut
 import com.folio.notes.ink.pen.FeedbackStatus
 import com.folio.notes.ink.pen.PenWritingFeedback
@@ -41,12 +38,8 @@ import com.folio.notes.ink.recognition.ScribbleSettingsSection
 import com.folio.notes.ink.shapes.ShapeAssistSettings
 import com.folio.notes.input.StylusShortcut
 import com.folio.notes.library.CoverPicker
-import com.folio.notes.library.LibraryKind
-import com.folio.notes.library.LibrarySort
 import com.folio.notes.model.Folder
 import com.folio.notes.model.Paper
-import com.folio.notes.model.ShapePickerTools
-import com.folio.notes.model.TextAlignMode
 import com.folio.notes.model.Tool
 import com.folio.notes.storage.LibraryFolders
 import com.folio.notes.ui.AccentPresets
@@ -62,12 +55,12 @@ import com.folio.notes.ui.ThemePalette
 import com.folio.notes.ui.rememberAccentState
 import com.folio.notes.ui.rememberCoverPalette
 import com.folio.notes.ui.rememberCustomCoverColors
-import com.folio.notes.workspace.SplitPanes
 import kotlin.math.roundToInt
 
-// One composable per settings category. Each reads and writes its own preferences through
-// rememberPref, so a page keeps no state beyond what is on screen; the few values that live in
-// FolioApp (theme, finger, stylus, haptics, shapes) arrive through AppSettings.
+// One composable per settings category. Settings holds only what has no better home: anything the
+// editor's own tool options or the Library already offer (pen smoothing, eraser behaviour, shelf
+// sorting, …) is changed there, not repeated here. Each page reads and writes its preferences
+// through rememberPref; the few values that live in FolioApp arrive through AppSettings.
 
 internal class AppSettings(
     val themeMode: ThemeMode, val onThemeMode: (ThemeMode) -> Unit,
@@ -76,7 +69,6 @@ internal class AppSettings(
     val finger: Boolean, val onFinger: (Boolean) -> Unit,
     val stylus: StylusShortcut, val onStylus: (StylusShortcut) -> Unit,
     val haptics: Boolean, val onHaptics: (Boolean) -> Unit,
-    val shapeRecognition: Boolean, val onShapeRecognition: (Boolean) -> Unit,
     val hapticsSupported: Boolean, val dynamicAvailable: Boolean,
 )
 
@@ -91,69 +83,73 @@ internal class BackupSettings(
 
 internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit, val onChatGpt: () -> Unit)
 
-private fun <E : Enum<E>> readEnum(raw: String?, fallback: E, values: Array<E>): E = values.firstOrNull { it.name == raw } ?: fallback
-
-private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
 
 // ---- Appearance ---------------------------------------------------------------------------------
 
 @Composable internal fun AppearancePage(s: AppSettings) {
-    UxAppearanceSettings()
+    val p = rememberPrefs()
     SettingsGroup("Theme") {
-        SettingsRadioGroup {
-            ThemeMode.entries.forEach { SettingsRadioRow(it.label, it.description, it == s.themeMode) { s.onThemeMode(it) } }
-        }
-    }
-    SettingsGroup("Colours", footer = "Ink colours on the page never change with the theme or accent.") {
-        SettingsRadioGroup {
-            ThemePalette.entries.forEach { option ->
-                val enabled = option != ThemePalette.DYNAMIC || s.dynamicAvailable
-                SettingsRadioRow(option.label, if (enabled) option.description else "Needs Android 12 or newer", option == s.themePalette, enabled) { s.onThemePalette(option) }
-            }
-        }
+        SettingsSegmentedRow("Mode", listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark"), s.themeMode, s.onThemeMode)
         SettingsDivider()
         SettingsSwitchRow("Pure black dark", "True black backgrounds whenever the dark theme is active.", s.amoled, s.onAmoled)
     }
-    AccentGroup(s.themePalette)
-    SidebarGroup()
-    TextSizeGroup()
+    SettingsGroup("Colours", footer = "Ink colours on the page never change with the theme or accent.") {
+        SettingsChipRow("Palette", ThemePalette.entries.filter { it != ThemePalette.DYNAMIC || s.dynamicAvailable }.map { it to it.label },
+            s.themePalette, s.onThemePalette, subtitle = s.themePalette.description)
+        SettingsDivider()
+        AccentBlock(s.themePalette)
+    }
+    val scale by rememberPref(p, AppPrefs.UI_TEXT_SCALE) { AppPrefs.uiTextScale(it.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { _ -> it.contains(AppPrefs.UI_TEXT_SCALE) }) }
+    SettingsGroup("Size") {
+        SettingsSliderRow(
+            "Text size", percent(scale), scale, AppPrefs.UI_TEXT_SCALE_MIN..AppPrefs.UI_TEXT_SCALE_MAX,
+            { p.write { putFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.uiTextScale(it)) } }, steps = 10,
+            subtitle = "Scales Folio's labels on top of your device's font size.",
+            onReset = if (scale != AppPrefs.DEFAULT_UI_TEXT_SCALE) ({ p.write { putFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE) } }) else null,
+        )
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.UX_LARGE_CONTROLS, AppPrefs.DEFAULT_UX_LARGE_CONTROLS, "Larger controls", "Make editor buttons and selection actions easier to tap.")
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.UX_LABELS, AppPrefs.DEFAULT_UX_LABELS, "Show tool names", "Label the active tool and pinned presets in the editor.")
+    }
+    val hidden by rememberPref(p, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
+    SettingsGroup("Sidebar", footer = "Library and Settings are always shown.") {
+        SidebarItem.entries.forEachIndexed { index, item ->
+            if (index > 0) SettingsDivider()
+            SettingsSwitchRow(item.label, item.summary, item !in hidden, { on ->
+                p.write { putString(SidebarItem.PREF_KEY, SidebarItem.encode(if (on) hidden - item else hidden + item)) }
+            })
+        }
+    }
     SettingsGroup("Display") {
         SettingsPrefSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON, "Keep screen on", "The display never sleeps while Folio is open. Handy for long sessions and timed papers.")
+        SettingsPrefSwitch(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON, "Keep screen on", "The display never sleeps while Folio is open.")
     }
 }
 
 /** One colour of your own, applied to every Folio palette by re-tinting its accents. */
-@Composable private fun AccentGroup(palette: ThemePalette) {
+@Composable private fun AccentBlock(palette: ThemePalette) {
     val accent = rememberAccentState()
     var picking by remember { mutableStateOf(false) }
     val chosen = accent.accent
-    // Black and white is the one palette an accent cannot re-tint, so the chooser says so rather
-    // than accepting a colour that would never be drawn. The stored colour is kept untouched.
+    // Black and white is the one palette an accent cannot re-tint; the stored colour is kept untouched.
     val tinting = palette != ThemePalette.MONO
-    SettingsGroup(
-        "Accent colour",
-        footer = if (tinting) "Replaces the wallpaper colours when both are on."
-        else "Black and white keeps its own greys, so no accent colour is applied. Your choice is remembered for the other palettes.",
-    ) {
-        SettingsBlock {
-            SettingsBlockHint(
-                when {
-                    !tinting -> "Not used by Black and white."
-                    chosen == null -> "Using the palette's own colours."
-                    else -> "Tints buttons, selections and highlights."
-                }
-            )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                AccentPresets.forEach { preset ->
-                    ColorSwatch(preset, chosen != null && AccentTones.colorToArgb(preset) == AccentTones.colorToArgb(chosen), "Accent ${AccentTones.hex(preset)}", { accent.set(preset) }, enabled = tinting)
-                }
+    SettingsBlock {
+        SettingsBlockTitle("Accent colour", when {
+            !tinting -> "Not used by Black and white. Your choice is kept for the other palettes."
+            chosen == null -> "Using the palette's own colours."
+            else -> "Tints buttons, selections and highlights."
+        })
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            AccentPresets.forEach { preset ->
+                ColorSwatch(preset, chosen != null && AccentTones.colorToArgb(preset) == AccentTones.colorToArgb(chosen), "Accent ${AccentTones.hex(preset)}", { accent.set(preset) }, enabled = tinting)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                OutlinedButton({ picking = true }, enabled = tinting, shapes = ButtonDefaults.shapes()) { Text("Pick a colour") }
-                if (chosen != null) TextButton(accent::clear, enabled = tinting, shapes = ButtonDefaults.shapes()) { Text("Use palette colours") }
-            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            OutlinedButton({ picking = true }, enabled = tinting, shapes = ButtonDefaults.shapes()) { Text("Pick a colour") }
+            if (chosen != null) TextButton(accent::clear, enabled = tinting, shapes = ButtonDefaults.shapes()) { Text("Use palette colours") }
         }
     }
     if (picking && tinting) {
@@ -177,273 +173,242 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
     }
 }
 
-/** Scales every sp-based label and heading, on top of the device's own font size. */
-@Composable private fun TextSizeGroup() {
-    val p = rememberPrefs()
-    val scale by rememberPref(p, AppPrefs.UI_TEXT_SCALE) { AppPrefs.uiTextScale(it.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { _ -> it.contains(AppPrefs.UI_TEXT_SCALE) }) }
-    SettingsGroup("Text size", footer = "Multiplies your device's font size, so a larger system font still wins. Handwriting and typed text sizes are separate.") {
-        SettingsSliderRow(
-            "App text", "${(scale * 100).roundToInt()}%", scale, AppPrefs.UI_TEXT_SCALE_MIN..AppPrefs.UI_TEXT_SCALE_MAX,
-            { p.write { putFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.uiTextScale(it)) } }, steps = 10,
-            onReset = if (scale != AppPrefs.DEFAULT_UI_TEXT_SCALE) ({ p.write { putFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE) } }) else null,
-        )
-    }
-}
+// ---- Pen & touch --------------------------------------------------------------------------------
 
-// ---- Writing ------------------------------------------------------------------------------------
-
-@Composable internal fun WritingPage(s: AppSettings) {
-    UxWritingSettings()
+@Composable internal fun PenPage(s: AppSettings) {
     val p = rememberPrefs()
-    val defaultTool by rememberPref(p, AppPrefs.DEFAULT_TOOL) { AppPrefs.defaultTool(it.getString(AppPrefs.DEFAULT_TOOL, null)) }
-    val textSize by rememberPref(p, AppPrefs.TEXT_SIZE_KEY) { AppPrefs.textSize(it.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { _ -> it.contains(AppPrefs.TEXT_SIZE_KEY) }) }
-    val stickyTextSize by rememberPref(p, AppPrefs.STICKY_TEXT_SIZE) { AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE)) }
-    val textAlign by rememberPref(p, "text.align") { readEnum(it.getString("text.align", null), TextAlignMode.LEFT, TextAlignMode.entries.toTypedArray()) }
-    val smoothing by rememberPref(p, AppPrefs.PEN_SMOOTHING) { AppPrefs.penSmoothing(it.getFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING)) }
+    val palmMs by rememberPref(p, AppPrefs.PALM_MS) { AppPrefs.palmMs(it.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { _ -> it.contains(AppPrefs.PALM_MS) }) }
+    val fastPan by rememberPref(p, AppPrefs.FAST_PAN) { it.getBoolean(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN) }
+    val panMultiplier by rememberPref(p, AppPrefs.FAST_PAN_MULTIPLIER) { AppPrefs.fastPanMultiplier(it.getFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER)) }
     val startHold by rememberPref(p, AppPrefs.PEN_START_HOLD) { AppPrefs.penStartHold(it.getString(AppPrefs.PEN_START_HOLD, null)) }
-    val maxZoom by rememberPref(p, AppPrefs.MAX_ZOOM) { AppPrefs.maxZoom(it.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM)) }
-    SettingsGroup("Input") {
-        SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool. Until you choose, this turns off by itself the first time a pen is used. Palm touches are ignored while the stylus writes.", s.finger, s.onFinger)
+    var guide by remember { mutableStateOf(false) }
+
+    SettingsGroup("Touch") {
+        SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool.", s.finger, s.onFinger)
         SettingsDivider()
-        SettingsSliderRow("Pen smoothing", if (smoothing == 0f) "Off" else "${(smoothing * 100).roundToInt()}%", smoothing, 0f..1f,
-            { p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.penSmoothing(it)) } },
-            subtitle = "Smooth small hand movements while keeping up with fast writing. Applies to new pen strokes.",
-            lowLabel = "Off", highLabel = "More smoothing",
-            onReset = if (smoothing != AppPrefs.DEFAULT_PEN_SMOOTHING)
-                ({ p.write { putFloat(AppPrefs.PEN_SMOOTHING, AppPrefs.DEFAULT_PEN_SMOOTHING) } }) else null)
+        SettingsSliderRow(
+            "Palm rejection", if (palmMs == 0L) "System only" else "$palmMs ms", palmMs.toFloat(), AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat(),
+            { p.write { putLong(AppPrefs.PALM_MS, AppPrefs.palmMs(it.roundToInt().toLong())) } },
+            subtitle = "How long touches stay ignored after the pen leaves. Raise it if your palm leaves marks or moves the page.",
+            onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
+        )
         SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Scroll past the last page, then release to add a blank page. Turn off to add pages only with Add page.")
+        // One slider for the two stored values: 1× is "fast pan off", anything above is the multiplier.
+        val pan = if (fastPan) panMultiplier else 1f
+        SettingsSliderRow(
+            "Pan speed", "%.2f".format(pan).trimEnd('0').trimEnd('.') + "×", pan, 1f..AppPrefs.FAST_PAN_MAX,
+            { raw ->
+                val v = (raw * 4).roundToInt() / 4f
+                p.write {
+                    putBoolean(AppPrefs.FAST_PAN, v >= AppPrefs.FAST_PAN_MIN)
+                    if (v >= AppPrefs.FAST_PAN_MIN) putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.fastPanMultiplier(v))
+                }
+            },
+            steps = ((AppPrefs.FAST_PAN_MAX - 1f) * 4).roundToInt() - 1,
+            subtitle = "How far a finger drag or fling moves the page. 1× follows your finger.",
+            onReset = if (fastPan) ({ p.write { putBoolean(AppPrefs.FAST_PAN, false) } }) else null,
+        )
+        SettingsDivider()
+        SettingsPrefSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap to undo", "Tap the canvas with two fingers to undo, three to redo.")
+        SettingsDivider()
+        SettingsLinkRow("Gestures and shortcuts", "Everything the pen, fingers and keyboard can do.", onClick = { guide = true })
     }
-    SettingsGroup("Hold at stroke start", footer = "With the pen selected, rest the tip still for half a second, then draw to use this tool for one stroke. Lifting without moving leaves a normal dot.") {
-        SettingsSegmentedRow("Switch to", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
-            { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } })
-    }
-    SettingsGroup("Zoom") {
-        SettingsSliderRow("Maximum zoom", "${(maxZoom * 100).roundToInt()}%", maxZoom, AppPrefs.MIN_MAX_ZOOM..AppPrefs.MAX_MAX_ZOOM,
-            { p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.maxZoom(it.roundToInt().toFloat())) } }, steps = 6,
-            subtitle = "Set the closest zoom for pages, infinite canvases and reference views.",
-            lowLabel = "100%", highLabel = "800%",
-            onReset = if (maxZoom != AppPrefs.DEFAULT_MAX_ZOOM) ({ p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM) } }) else null)
-    }
-    val taper by rememberPref(p, AppPrefs.INK_TAPER) { AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)) }
-    SettingsGroup("Pen feel", footer = "Pressure response and per-tool pen settings are in the pen's tool options in the editor. Soft ends change how every pen stroke is drawn, old and new; the rest apply to new strokes.") {
-        SettingsPrefSwitch(AppPrefs.PEN_SPEED_WIDTH, AppPrefs.DEFAULT_PEN_SPEED_WIDTH, "Thinner when fast",
-            "Write faster for thinner ink and slower for fuller strokes. Works with or without pressure.")
-        SettingsDivider()
-        SettingsSliderRow("Soft stroke ends", if (taper == 0f) "Off" else "${(taper * 100).roundToInt()}%", taper, 0f..1f,
-            { p.write { putFloat(AppPrefs.INK_TAPER, AppPrefs.inkTaper(it)) } },
-            subtitle = "Taper the start and end of pen strokes. Dots and short ticks keep their original shape.",
-            lowLabel = "Off", highLabel = "Softer",
-            onReset = if (taper != 0f) ({ p.write { putFloat(AppPrefs.INK_TAPER, 0f) } }) else null)
-        SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT, "Tilt widens the highlighter",
-            "Tilt the stylus for a broader highlight. The stroke width is set when the tip touches down.")
-        SettingsDivider()
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            SettingsPrefSwitch(AppPrefs.LOW_LATENCY_INK, AppPrefs.DEFAULT_LOW_LATENCY_INK, "Low-latency ink",
-                "Draws an opaque ballpoint stylus stroke through a direct display layer so it follows the tip more closely. The page still draws the stroke underneath. Turn it off if ink looks heavier while writing or flickers when you lift.")
+    SettingsGroup("Pencil", footer = "Double-tap works with a OnePlus or OPPO Pencil. Other styli keep their own system shortcut.") {
+        SettingsChipRow("Pencil double-tap", StylusShortcut.entries.map { it to it.label }, s.stylus, s.onStylus, subtitle = s.stylus.description)
+        if (s.hapticsSupported) {
             SettingsDivider()
+            SettingsSwitchRow("Double-tap buzz", "Buzz the Pencil on every double tap. Needs Bluetooth.", s.haptics, s.onHaptics)
         }
-        SettingsPrefSwitch(AppPrefs.REFIT_STROKES, AppPrefs.DEFAULT_REFIT_STROKES, "Keep notebooks small",
-            "Reduce stored points after each pen stroke while preserving its shape, so notebooks use less space.")
+        if (PenWritingFeedback.isSupported()) WritingFeedbackRows()
+    }
+    SettingsGroup("Pen", footer = "Smoothing, soft stroke ends, pressure and the eraser's behaviour are in each tool's options in the editor.") {
+        SettingsSegmentedRow("Hold at stroke start", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
+            { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } },
+            subtitle = "Rest the pen tip still for half a second, then draw, to borrow this tool for one stroke.")
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT, "Tilt widens the highlighter", "Tilt the stylus for a broader highlight.")
     }
     SettingsGroup("Tidy up shapes") {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { ShapeAssistSettings() }
+        SettingsBlock { ShapeAssistSettings() }
     }
-    SettingsGroup("Shapes") {
-        SettingsPrefSwitch(EditorQuickPrefs.SHAPE_MEASUREMENTS, true, "Live measurements", "Show length and angle, or width × height, while drawing a shape.")
-        SettingsDivider()
-        SettingsPrefSwitch("mathSnap", true, "Snap to grid and 15°", "Snap lines to 15° angles and the grid on Maths, Grid and Graph paper. You can also change this in the editor.")
+    SettingsGroup("Scribble to erase") {
+        SettingsBlock { ScribbleSettingsSection(showPracticeInitially = false) }
     }
-    ToolbarGroups()
-    SettingsGroup("Starting tool", footer = "Choose the tool used when opening a notebook. Set each tool’s colour, width and opacity in the editor.") {
-        DefaultToolPicker(defaultTool) { p.write { putString(AppPrefs.DEFAULT_TOOL, it.name) } }
+    if (guide) GestureGuide { guide = false }
+}
+
+/** The Pencil Pro's own soft buzz while the tip is down, through ColorOS's pen service. */
+@Composable private fun WritingFeedbackRows() {
+    val p = rememberPrefs()
+    val context = LocalContext.current
+    val feedback = remember(context) { (context.applicationContext as? FolioApplication)?.penFeedback }
+    val on by rememberPref(p, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
+    val status = when (feedback?.status) {
+        FeedbackStatus.Connected -> "Connected."
+        FeedbackStatus.Connecting -> "Connecting to the pen service…"
+        FeedbackStatus.Refused -> "ColorOS refused the pen service on this tablet."
+        FeedbackStatus.Unavailable -> "This tablet has no ColorOS pen service."
+        else -> "Connects when a notebook is open."
     }
-    SettingsGroup("Typed text", footer = "Choose the size and alignment for new text boxes. Existing text boxes keep their settings.") {
-        SettingsSliderRow(
-            "Size", "${textSize.roundToInt()} pt", textSize, AppPrefs.TEXT_SIZE_MIN..AppPrefs.TEXT_SIZE_MAX,
-            { p.write { putFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.textSize(it)) } },
-            onReset = if (textSize != AppPrefs.DEFAULT_TEXT_SIZE) ({ p.write { putFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE) } }) else null,
-        )
-        SettingsDivider()
-        SettingsSegmentedRow("Alignment", TextAlignMode.entries.map { it to title(it.name) }, textAlign, { p.write { putString("text.align", it.name) } })
-    }
-    SettingsGroup("Sticky notes", footer = "Choose the text size for new sticky notes. To resize text on an existing note, use its menu.") {
-        SettingsSliderRow(
-            "Text size", "${stickyTextSize.roundToInt()} pt", stickyTextSize, StickyNotes.TEXT_SIZE_MIN..StickyNotes.TEXT_SIZE_MAX,
-            { p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.stickyTextSize(it)) } },
-            onReset = if (stickyTextSize != AppPrefs.DEFAULT_STICKY_TEXT_SIZE) ({ p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE) } }) else null,
-        )
+    SettingsDivider()
+    SettingsSwitchRow(
+        "Buzz while writing",
+        "The Pencil vibrates softly while its tip is down. Needs a licensed HiPaint or StarNote installed and Pencil vibration on in ColorOS. $status",
+        on, { v -> p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, v) } },
+    )
+    if (!on) return
+    listOf(
+        "Pen and shapes feel" to PenWritingFeedback.TEXTURE_BALLPEN,
+        "Highlighter feel" to PenWritingFeedback.TEXTURE_MARKER,
+        "Eraser feel" to PenWritingFeedback.TEXTURE_ERASER,
+    ).forEach { (name, texture) ->
+        val feel by rememberPref(p, WritingFeel.key(texture)) { WritingFeel.pick(it, texture) }
+        SettingsChipRow(name, WritingFeel.entries.map { it to it.label }, feel, { p.write { putString(WritingFeel.key(texture), it.name) } })
     }
 }
 
-/**
- * The editor toolbar: which tools it carries, and what sits beside them.
- */
-@Composable private fun ToolbarGroups() {
+// ---- Editor -------------------------------------------------------------------------------------
+
+@Composable internal fun EditorPage() {
     val p = rememberPrefs()
     val options by rememberPref(p, *ToolbarOptions.KEYS) { ToolbarOptions.read(it) }
     val layouts = rememberToolbarLayoutState(p)
     val inkPrefs = LocalContext.current.let { context -> remember(context) { context.getSharedPreferences("ink-tools", 0) } }
     val presets = remember(inkPrefs) { ToolPresetState(inkPrefs) }
     var editTools by rememberSaveable { mutableStateOf(false) }
-    SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away: tools, undo and redo in the … menu, the timer in the notebook menu.") {
+    val defaultTool by rememberPref(p, AppPrefs.DEFAULT_TOOL) { AppPrefs.defaultTool(it.getString(AppPrefs.DEFAULT_TOOL, null)) }
+    val maxZoom by rememberPref(p, AppPrefs.MAX_ZOOM) { AppPrefs.maxZoom(it.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM)) }
+    val textSize by rememberPref(p, AppPrefs.TEXT_SIZE_KEY) { AppPrefs.textSize(it.getFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE).takeIf { _ -> it.contains(AppPrefs.TEXT_SIZE_KEY) }) }
+    val stickyTextSize by rememberPref(p, AppPrefs.STICKY_TEXT_SIZE) { AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE)) }
+    val shareShortcut by rememberPref(p, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
+
+    SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away in the … menu.") {
         val layout = layouts.layout
         SettingsLinkRow(
             "Tools and order",
-            "${layout.visible.size} on the toolbar" +
-                (if (layout.overflow.isNotEmpty()) " · ${layout.overflow.size} in the … menu" else "") +
-                (if (layout.pinnedPresetIds.isNotEmpty()) " · ${layout.pinnedPresetIds.size} pinned" else ""),
+            "${layout.visible.size} on the toolbar" + if (layout.overflow.isNotEmpty()) " · ${layout.overflow.size} in the … menu" else "",
             onClick = { editTools = true },
-            leadingContent = {
-                Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                    layout.visible.take(3).forEach { slot ->
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
-                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surfaceContainerLow), modifier = Modifier.size(28.dp)) {
-                            Box(contentAlignment = Alignment.Center) { Icon(toolbarSlotIcon(slot), null, Modifier.size(16.dp)) }
-                        }
-                    }
-                }
-            },
         )
         SettingsDivider()
         SettingsSegmentedRow("Undo and redo", UndoButtons.entries.map { it to it.label }, options.undo,
             { p.write { putString(AppPrefs.TOOLBAR_UNDO, it.name) } })
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_COLOUR_DOTS, true, "Colour dots", "Preview the current ink colour on the pen and highlighter buttons.")
-        SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_PINNED_PRESETS, true, "Pinned presets", "Show pinned presets beside the tools. Hiding them keeps your pins saved.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents above the toolbar. Off shows a back button instead.")
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show exam and Focal timers beside the tools when space allows.")
+    }
+    SettingsGroup("Opening a notebook") {
+        // A starting tool chosen before this list was shortened (a shape, say) stays selectable.
+        val tools = (listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.TEXT, Tool.HAND, Tool.STICKY_NOTE) + defaultTool).distinct()
+        SettingsChipRow("Starting tool", tools.map { it to toolLabel(it) }, defaultTool, { p.write { putString(AppPrefs.DEFAULT_TOOL, it.name) } })
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false, "Start with ink options open", "Show widths and colours below the toolbar when a notebook opens.")
+        SettingsPrefSwitch(AppPrefs.UX_LOCAL_TOOLS, AppPrefs.DEFAULT_UX_LOCAL_TOOLS, "Remember tools per notebook", "Reopen each notebook with its last tool instead of the starting tool.")
+    }
+    SettingsGroup("Pages") {
+        SettingsPrefSwitch(EditorQuickPrefs.PULL_TO_ADD_PAGE, true, "Pull past the end to add a page", "Scroll past the last page, then release to add a blank one.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents above the toolbar. Turn off to show a back button in the toolbar instead.")
+        SettingsSliderRow("Maximum zoom", percent(maxZoom), maxZoom, AppPrefs.MIN_MAX_ZOOM..AppPrefs.MAX_MAX_ZOOM,
+            { p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.maxZoom(it.roundToInt().toFloat())) } }, steps = 6,
+            onReset = if (maxZoom != AppPrefs.DEFAULT_MAX_ZOOM) ({ p.write { putFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM) } }) else null)
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.UX_SNAP, AppPrefs.DEFAULT_UX_SNAP, "Snap moved selections", "Align moved selections to the grid and page margins. Hold Shift to move freely.")
+    }
+    SettingsGroup("Text", footer = "Sizes for new text boxes and sticky notes. Existing ones keep theirs.") {
+        SettingsSliderRow(
+            "Typed text size", "${textSize.roundToInt()} pt", textSize, AppPrefs.TEXT_SIZE_MIN..AppPrefs.TEXT_SIZE_MAX,
+            { p.write { putFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.textSize(it)) } },
+            onReset = if (textSize != AppPrefs.DEFAULT_TEXT_SIZE) ({ p.write { putFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.DEFAULT_TEXT_SIZE) } }) else null,
+        )
+        SettingsDivider()
+        SettingsSliderRow(
+            "Sticky note text size", "${stickyTextSize.roundToInt()} pt", stickyTextSize, StickyNotes.TEXT_SIZE_MIN..StickyNotes.TEXT_SIZE_MAX,
+            { p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.stickyTextSize(it)) } },
+            onReset = if (stickyTextSize != AppPrefs.DEFAULT_STICKY_TEXT_SIZE) ({ p.write { putFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE) } }) else null,
+        )
+    }
+    SettingsGroup("Keyboard") {
+        SettingsPrefSwitch(AppPrefs.UX_TOOL_KEYS, AppPrefs.DEFAULT_UX_TOOL_KEYS, "Tool letter shortcuts", "Use letter keys to switch tools while the canvas has focus.")
+        SettingsDivider()
+        ToolKeySettings()
+    }
+    SettingsGroup("Sharing") {
+        SettingsChipRow("Share button long-press", ShareShortcut.entries.map { it to it.label }, shareShortcut,
+            { p.write { putString(AppPrefs.SHARE_LONG_PRESS, it.name) } }, subtitle = "A tap still opens the export menu.")
     }
     if (editTools) ToolbarEditPanel(layouts, presets.presets, onDismiss = { editTools = false })
 }
 
-/** The tools a notebook can open with, as labelled tiles; shapes are a second, smaller row. */
-@Composable private fun DefaultToolPicker(selected: Tool, onSelect: (Tool) -> Unit) {
-    // Mark area only means something on an imported PDF, so it is never a sensible starting tool.
-    val tools = listOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.LASSO, Tool.TEXT, Tool.HAND, Tool.STICKY_NOTE)
-    SettingsBlock(verticalSpacing = FolioSpacing.dp12) {
-        FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            tools.forEach { tool -> ToolTile(tool, tool == selected, large = true) { onSelect(tool) } }
-        }
-        SettingsBlockHint("Or start with a shape")
-        FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            ShapePickerTools.forEach { tool -> ToolTile(tool, tool == selected, large = false) { onSelect(tool) } }
-        }
-    }
-}
-
-@Composable private fun ToolTile(tool: Tool, selected: Boolean, large: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val label = toolLabel(tool)
-    Surface(
-        selected = selected, onClick = onClick,
-        shape = FolioShapes.large,
-        color = if (selected) scheme.primaryContainer else scheme.surfaceContainerHigh,
-        contentColor = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
-        border = if (selected) BorderStroke(2.dp, scheme.primary) else null,
-        modifier = Modifier.semantics { role = Role.RadioButton; contentDescription = label }
-            .then(if (large) Modifier.width(96.dp).height(80.dp) else Modifier.height(40.dp)),
-    ) {
-        if (large) Column(Modifier.padding(FolioSpacing.dp8), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6, Alignment.CenterVertically)) {
-            Icon(toolIcon(tool), null, Modifier.size(24.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (selected) scheme.onPrimaryContainer else scheme.onSurface)
-        } else Row(Modifier.padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Icon(toolIcon(tool), null, Modifier.size(18.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-        }
-    }
-}
-
-// ---- Stylus & touch -----------------------------------------------------------------------------
-
-@Composable internal fun StylusPage(s: AppSettings) {
-    UxStylusPractice(s.stylus)
-    val p = rememberPrefs()
-    val palmMs by rememberPref(p, AppPrefs.PALM_MS) { AppPrefs.palmMs(it.getLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS).takeIf { _ -> it.contains(AppPrefs.PALM_MS) }) }
-    val fastPan by rememberPref(p, AppPrefs.FAST_PAN) { it.getBoolean(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN) }
-    val panMultiplier by rememberPref(p, AppPrefs.FAST_PAN_MULTIPLIER) { AppPrefs.fastPanMultiplier(it.getFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER)) }
-    SettingsGroup("Pencil double-tap", footer = "Works with a OnePlus or OPPO Pencil. Other styli keep their own system shortcut.") {
-        SettingsRadioGroup {
-            StylusShortcut.entries.forEach { SettingsRadioRow(it.label, it.description, s.stylus == it) { s.onStylus(it) } }
-        }
-    }
-    if (PenWritingFeedback.isSupported()) WritingFeedbackGroup()
-    SettingsGroup("Haptics") {
-        SettingsSwitchRow(
-            "Double-tap buzz",
-            if (s.hapticsSupported) "Buzz the Pencil on every double tap it sends, whatever the action. Needs Bluetooth; confirmed on the OnePlus Pencil Pro."
-            else "Needs Android 12 or newer and a Bluetooth LE pencil.",
-            s.haptics, s.onHaptics, s.hapticsSupported,
-        )
-    }
-    SettingsGroup("Palm rejection and gestures", footer = "Pen pressure curves stay per tool in the editor.") {
-        SettingsSliderRow(
-            "Palm rejection", if (palmMs == 0L) "System only" else "$palmMs ms", palmMs.toFloat(), AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat(),
-            { p.write { putLong(AppPrefs.PALM_MS, AppPrefs.palmMs(it.roundToInt().toLong())) } },
-            subtitle = "Protects against palm touches while the pen is in range and for this long afterwards, and takes back finger ink drawn just before the pen arrived. Deliberate two-finger zoom still works. 0 keeps Android palm cancellation and pen-only input while the tip is down.",
-            onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
-        )
-        SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.FAST_PAN, AppPrefs.DEFAULT_FAST_PAN, "Fast pan", "Move further with finger drags, two-finger drags and flings.")
-        if (fastPan) {
-            SettingsSliderRow(
-                "Pan speed", "%.2g×".format(panMultiplier), panMultiplier, AppPrefs.FAST_PAN_MIN..AppPrefs.FAST_PAN_MAX,
-                { p.write { putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.fastPanMultiplier((it * 4).roundToInt() / 4f)) } },
-                subtitle = "Choose how far a drag moves the page. 1× follows your finger.",
-                onReset = if (panMultiplier != AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER) ({ p.write { putFloat(AppPrefs.FAST_PAN_MULTIPLIER, AppPrefs.DEFAULT_FAST_PAN_MULTIPLIER) } }) else null,
-            )
-        }
-        SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap to undo", "Tap the canvas with two fingers to undo or three to redo. Pen and palm touches do not trigger these gestures.")
-    }
-}
-
-// ---- Erasing ------------------------------------------------------------------------------------
-
-@Composable internal fun ErasingPage() {
-    SettingsGroup("Eraser") {
-        SettingsPrefSwitch(EditorQuickPrefs.ERASER_PRESSURE, true, "Pressure-sensitive", "Adjust the eraser size with pen pressure (about ±12%).")
-        SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.ERASER_SINGLE_STROKE, false, "Return after erasing", "Return to the previous tool after one eraser stroke.")
-        SettingsDivider()
-        SettingsPrefSwitch(EditorQuickPrefs.ERASER_WHOLE_STROKE, false, "Erase whole strokes", "Touch any part of a stroke to erase the entire stroke.")
-    }
-    SettingsGroup("Scribble to erase") {
-        SettingsBlock { ScribbleSettingsSection(showPracticeInitially = false) }
-    }
-}
-
 // ---- Writing follow -----------------------------------------------------------------------------
 
-// ---- Library & covers ---------------------------------------------------------------------------
+/** The follow defaults that are a matter of taste; the rest keep their tuned values. */
+@Composable internal fun FollowPage() {
+    val p = rememberPrefs()
+    val f by rememberPref(p, *FollowPreferenceStore.keys, read = FollowPreferenceStore::read)
+    val hand by rememberPref(p, "writingHand", read = FollowPreferenceStore::hand)
+    val change: (FollowPreferences) -> Unit = { FollowPreferenceStore.write(p, it) }
+    val text = f.mode == FollowMode.TEXT
+
+    SettingsGroup("Writing follow", footer = "The view stays still while your pen is down; touch down during a glide to stop it. Infinite canvases only follow after you choose Write a response.") {
+        SettingsPrefSwitch("writingFollow", false, "Follow on pages", "Move the view as you write on notebook and PDF pages.")
+        SettingsDivider()
+        SettingsSegmentedRow("What you write", listOf(FollowMode.TEXT to "Text", FollowMode.MATH to "Maths"), f.mode, { change(f.copy(mode = it)) },
+            subtitle = if (text) "Follows sideways and down, then returns to the start of the next line."
+            else "Reveals room below your working and keeps its horizontal position.")
+        SettingsDivider()
+        SettingsSegmentedRow("Writing direction", listOf(WritingDirection.LTR to "Left → right", WritingDirection.RTL to "Right → left"), f.direction, { change(f.copy(direction = it)) })
+        SettingsDivider()
+        SettingsSegmentedRow("Hand holding the pen", listOf(WritingHand.RIGHT to "Right", WritingHand.LEFT to "Left"), hand, { p.write { putString("writingHand", it.name) } })
+    }
+    SettingsGroup("Movement") {
+        val feel = FollowFeel.of(f)
+        SettingsChipRow<FollowFeel?>("Feel", FollowFeel.entries.map { it to it.label }, feel, { it?.apply(f)?.let(change) },
+            subtitle = if (feel == null) "Custom. Pick one to replace it." else "How soon, how far and how fast the view moves.")
+        SettingsDivider()
+        // (sideways, down). Maths never moves sideways, so it only offers the choices that differ there.
+        val moves = if (text) listOf((true to true) to "Sideways and down", (false to true) to "Down only",
+            (true to false) to "Sideways only", (false to false) to "Only when I tap")
+            else listOf((f.horizontalFollow to true) to "Down the page", (f.horizontalFollow to false) to "Only when I tap")
+        SettingsChipRow("Move the view", moves, f.horizontalFollow to f.verticalFollow,
+            { (sideways, down) -> change(f.copy(horizontalFollow = sideways, verticalFollow = down)) })
+        SettingsDivider()
+        SettingsBlock { FollowPreview(f, hand) }
+        SettingsSliderRow("Writing height", "${f.positionPercent}% down", f.position, .35f.. .7f, { change(f.copy(position = it)) },
+            subtitle = "Where your line sits on screen after the view moves.", lowLabel = "Higher", highLabel = "Lower")
+    }
+    SettingsGroup("Next line", footer = "Printed lines take priority over spacing.") {
+        SettingsSwitchRow("Automatic line return", if (text) "Write across the line, then pause near the margin to return."
+            else "Text only. In Maths, tap Next line.", f.automaticReturn, { change(f.copy(automaticReturn = it)) }, enabled = text)
+        SettingsDivider()
+        SettingsSwitchRow("Learn my line spacing", "Match your handwriting’s line spacing after two natural line breaks.", f.adaptiveSpacing, { change(f.copy(adaptiveSpacing = it)) }, enabled = text)
+        SettingsDivider()
+        SettingsSliderRow("Line spacing", "${"%.1f".format(f.spacingMm)} mm", f.spacingMm, 4f..24f,
+            { change(f.copy(spacing = FollowPreferences.fromMm(it))) }, steps = 19, subtitle = "7 mm resembles ruled paper.", lowLabel = "Closer", highLabel = "Further apart")
+    }
+    SettingsGroup("Answer areas", footer = "Select, detect or clear the area on the current page from the editor's Answer areas menu.") {
+        SettingsPrefSwitch("follow.autoDetectAnswerAreas", false, "Detect answer areas automatically", "Look for answer lines on the current PDF page while following is on.")
+    }
+    SettingsGroup {
+        // Also the way back for anyone who tuned a control that no longer has a row here.
+        SettingsLinkRow("Reset writing follow", "Restore every writing-follow default. Saved answer areas and pinned peek views are kept.", onClick = {
+            FollowPreferenceStore.write(p, FollowPreferences())
+            p.write {
+                putBoolean("writingFollow", false)
+                putString("writingHand", WritingHand.RIGHT.name)
+                putBoolean("follow.autoDetectAnswerAreas", false)
+                putBoolean("follow.showAnswerAreas", true)
+                putBoolean(AppPrefs.AUTO_PEEK, false)
+                putFloat(AppPrefs.ZOOM_PANE_HEIGHT, AppPrefs.DEFAULT_ZOOM_PANE_HEIGHT)
+            }
+        }, trailing = {})
+    }
+}
+
+// ---- Library ------------------------------------------------------------------------------------
 
 @Composable internal fun LibraryPage(folders: List<Folder>) {
-    UxLibrarySettings()
     val p = rememberPrefs()
-    val sort by rememberPref(p, AppPrefs.LIB_SORT) { AppPrefs.librarySort(it.getString(AppPrefs.LIB_SORT, null)) }
-    val kind by rememberPref(p, AppPrefs.LIB_KIND) { AppPrefs.libraryKind(it.getString(AppPrefs.LIB_KIND, null)) }
-    val listView by rememberPref(p, AppPrefs.LIB_LIST) { it.getBoolean(AppPrefs.LIB_LIST, AppPrefs.DEFAULT_LIST_VIEW) }
     val paper by rememberPref(p, AppPrefs.DEFAULT_PAPER) { AppPrefs.defaultPaper(it.getString(AppPrefs.DEFAULT_PAPER, null)) }
     val cover by rememberPref(p, AppPrefs.DEFAULT_COVER) { AppPrefs.defaultCover(it.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { _ -> it.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX) }
-    val pageCover by rememberPref(p, AppPrefs.DEFAULT_PAGE_COVER) { it.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED) }
-    SettingsGroup("Shelf", footer = "Sorting, filters and layout also update when you change them in the Library.") {
-        SettingsChipRow("Sort by", LibrarySort.entries.map { it to it.label }, sort, { p.write { putString(AppPrefs.LIB_SORT, it.name) } })
-        SettingsDivider()
-        SettingsChipRow("Show", LibraryKind.entries.map { it to it.label }, kind, { p.write { putString(AppPrefs.LIB_KIND, it.name) } })
-        SettingsDivider()
-        SettingsSegmentedRow("Layout", listOf(false to "Covers", true to "Compact list"), listView, { p.write { putBoolean(AppPrefs.LIB_LIST, it) } })
-    }
     SettingsGroup("New notebooks") {
         SettingsChipRow("Paper", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.DEFAULT_PAPER, it.name) } })
         SettingsDivider()
@@ -452,10 +417,9 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             CoverPicker(cover, { p.write { putInt(AppPrefs.DEFAULT_COVER, AppPrefs.defaultCover(it)) } }, "Your next idea")
         }
         SettingsDivider()
-        SettingsSwitchRow("First page as cover", "New notebooks show their first page on the shelf. Off uses the decorative cover.", pageCover,
-            { p.write { putBoolean(AppPrefs.DEFAULT_PAGE_COVER, it) } },
-            onReset = if (pageCover != AppPrefs.DEFAULT_PAGE_COVER_ENABLED) ({ p.write { putBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED) } }) else null)
+        SettingsPrefSwitch(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED, "First page as cover", "New notebooks show their first page on the shelf. Off uses the decorative cover.")
     }
+    CustomCoverGroup()
     val quickRaw by rememberPref(p, AppPrefs.QUICK_FOLDER) { it.getString(AppPrefs.QUICK_FOLDER, null) }
     val quickFolder = AppPrefs.quickFolderId(quickRaw, folders)
     SettingsGroup("Quick notes and canvases", footer = "Where the Quick note and Canvas buttons save new notebooks.") {
@@ -466,7 +430,13 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
             }
         }
     }
-    CustomCoverGroup()
+    SettingsGroup("Notebook list swipes") {
+        for ((title, key, fallback) in listOf(Triple("Swipe right", AppPrefs.UX_SWIPE_RIGHT, "FAVOURITE"), Triple("Swipe left", AppPrefs.UX_SWIPE_LEFT, "TRASH"))) {
+            val selected by rememberPref(p, key) { AppPrefs.uxSwipe(it.getString(key, null), fallback) }
+            SettingsChipRow(title, listOf("FAVOURITE", "TRASH", "TAGS", "MOVE", "SHARE").map { it to it.lowercase().replaceFirstChar(Char::uppercase) }, selected,
+                { p.write { putString(key, it) } })
+        }
+    }
 }
 
 /** Add, remove and preview the cover colours that sit after the built-in covers. */
@@ -500,11 +470,10 @@ private fun title(name: String) = name.lowercase().replace('_', ' ').replaceFirs
         if (suggestions.isNotEmpty() && !full) {
             SettingsDivider()
             SettingsBlock {
-                SettingsBlockTitle("Suggested colours")
+                SettingsBlockTitle("Suggested colours", "Tap to add one to your cover colours.")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     suggestions.forEach { color -> ColorSwatch(color, false, "Add cover colour ${AccentTones.hex(color)}", { palette.add(color) }) }
                 }
-                SettingsBlockHint("Tap to add one to your cover colours.")
             }
         }
     }
@@ -524,7 +493,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     Paper.MC_SHEET -> "MC sheet"
     Paper.TIAN_GRID -> "Tian (田字格)"
     Paper.MI_GRID -> "Mi (米字格)"
-    else -> title(paper.name)
+    else -> paper.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 }
 
 // ---- Backup & restore ---------------------------------------------------------------------------
@@ -533,7 +502,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val auto = b.tree != null
     SettingsGroup(
         "Automatic backup",
-        footer = "After saved changes and once a day, Folio checks for changes and copies only new data. It keeps the latest two restore points and shares unchanged pages, PDFs and images.",
+        footer = "After saved changes and once a day, Folio copies only what changed and keeps the latest two restore points.",
     ) {
         SettingsLinkRow(
             if (auto) "Backing up to ${b.folderName ?: "the selected folder"}" else "Not set up",
@@ -557,104 +526,60 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             SettingsDivider()
             SettingsLinkRow("Turn off automatic backup", onClick = b.onDisable, enabled = !b.busy)
         }
+        SettingsDivider()
+        SettingsLinkRow("Restore from backup folder", "Choose the same folder on any device to restore its latest backup.", onClick = b.onRestoreFromFolder, enabled = !b.busy)
     }
-    SettingsGroup("Restore", footer = "Choose the same folder on any device to restore its latest backup. Keep the restore points and the Folio backup data folder together.") {
-        SettingsLinkRow("Restore from backup folder", onClick = b.onRestoreFromFolder, enabled = !b.busy)
-    }
-    SettingsGroup("Backup exclusions", footer = "Leave textbooks or other notebooks out of automatic and library backups. Exporting a single notebook still includes everything.") {
-        SettingsLinkRow("Excluded notebooks", if (b.excludedCount == 0) "None" else "${b.excludedCount} left out", onClick = b.onExclusions, enabled = !b.busy)
-    }
-    SettingsGroup("Library file", footer = "A compact, self-contained file for sharing or moving devices. Included notebooks keep all pages and undo history. Restoring adds copies beside your current notebooks; older backups still open.") {
+    SettingsGroup("Library file", footer = "A self-contained file for sharing or moving devices. Restoring adds copies beside your current notebooks.") {
         SettingsLinkRow("Save library backup", onClick = b.onSaveLibrary, enabled = !b.busy)
         SettingsDivider()
         SettingsLinkRow("Restore library backup", onClick = b.onRestoreLibrary, enabled = !b.busy)
     }
+    SettingsGroup("Exclusions", footer = "Leave textbooks or other notebooks out of automatic and library backups. Exporting a single notebook still includes everything.") {
+        SettingsLinkRow("Excluded notebooks", if (b.excludedCount == 0) "None" else "${b.excludedCount} left out", onClick = b.onExclusions, enabled = !b.busy)
+    }
 }
 
-// ---- Timer & workspace --------------------------------------------------------------------------
+// ---- Study --------------------------------------------------------------------------------------
 
-@Composable internal fun WorkflowPage() {
+@Composable internal fun StudyPage() {
     val p = rememberPrefs()
     val customMinutes by rememberPref(p, AppPrefs.TIMER_CUSTOM_MIN) { AppPrefs.timerCustomMinutes(it.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_CUSTOM_MIN) }) }
     val reading by rememberPref(p, AppPrefs.TIMER_READING_MIN) { AppPrefs.timerReadingMinutes(it.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_READING_MIN) }) }
-    val autoStart by rememberPref(p, AppPrefs.TIMER_AUTO_START) { it.getBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START) }
     val idle by rememberPref(p, AppPrefs.TIMER_IDLE_MIN) { AppPrefs.timerIdleMinutes(it.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_IDLE_MIN) }) }
-    val png by rememberPref(p, AppPrefs.EXPORT_PNG_SCALE) { AppPrefs.pngScale(it.getFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE).takeIf { _ -> it.contains(AppPrefs.EXPORT_PNG_SCALE) }) }
-    val split by rememberPref(p, AppPrefs.SPLIT_FRACTION) { AppPrefs.splitFraction(it.getFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT).takeIf { _ -> it.contains(AppPrefs.SPLIT_FRACTION) }) }
-    val shareShortcut by rememberPref(p, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
-    // The field holds what is being typed; only a value in range is stored.
-    var typed by rememberSaveable { mutableStateOf(customMinutes.toString()) }
-    val typedValue = typed.toIntOrNull()
-    val typedInvalid = typedValue != null && typedValue !in AppPrefs.TIMER_CUSTOM_MIN_RANGE..AppPrefs.TIMER_CUSTOM_MAX
-    LaunchedEffect(customMinutes) { if (typed.toIntOrNull() != customMinutes && typed.toIntOrNull()?.let { it in AppPrefs.TIMER_CUSTOM_MIN_RANGE..AppPrefs.TIMER_CUSTOM_MAX } != false) typed = customMinutes.toString() }
+    val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
+    val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
 
-    SettingsGroup("Exam timer", footer = "Exam 1 (90) and Exam 2 (120) presets are unchanged.") {
-        SettingsBlock {
-            OutlinedTextField(
-                typed, { raw ->
-                    typed = raw.filter(Char::isDigit).take(3)
-                    typed.toIntOrNull()?.takeIf { it in AppPrefs.TIMER_CUSTOM_MIN_RANGE..AppPrefs.TIMER_CUSTOM_MAX }?.let { p.write { putInt(AppPrefs.TIMER_CUSTOM_MIN, it) } }
-                },
-                Modifier.fillMaxWidth(), label = { Text("Custom timer, writing minutes") }, singleLine = true, isError = typedInvalid,
-                supportingText = { Text(if (typedInvalid) "Enter 1–480" else "Prefills the Custom timer.") },
-            )
-        }
+    SettingsGroup("Exam timer", footer = "The Exam 1 (90) and Exam 2 (120) presets are fixed; these set the Custom timer.") {
+        // Five-minute steps; an exact length can still be typed in the timer panel.
+        SettingsSliderRow(
+            "Custom timer", "$customMinutes min", customMinutes.toFloat(), 5f..AppPrefs.TIMER_CUSTOM_MAX.toFloat(),
+            { p.write { putInt(AppPrefs.TIMER_CUSTOM_MIN, (it / 5).roundToInt() * 5) } }, steps = AppPrefs.TIMER_CUSTOM_MAX / 5 - 2,
+            onReset = if (customMinutes != AppPrefs.DEFAULT_TIMER_CUSTOM_MIN) ({ p.write { putInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN) } }) else null,
+        )
         SettingsDivider()
         SettingsSliderRow(
-            "Custom timer, reading time", "$reading min", reading.toFloat(), AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(),
+            "Reading time", "$reading min", reading.toFloat(), AppPrefs.TIMER_READING_MIN_RANGE.toFloat()..AppPrefs.TIMER_READING_MAX.toFloat(),
             { p.write { putInt(AppPrefs.TIMER_READING_MIN, it.roundToInt()) } }, steps = AppPrefs.TIMER_READING_MAX - AppPrefs.TIMER_READING_MIN_RANGE - 1,
             onReset = if (reading != AppPrefs.DEFAULT_TIMER_READING_MIN) ({ p.write { putInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN) } }) else null,
         )
         SettingsDivider()
-        SettingsSwitchRow("Resume on pen down", "A paused exam clock resumes on the next pen stroke. The pen never starts a new sitting by itself; start it from the timer panel.", autoStart,
-            { p.write { putBoolean(AppPrefs.TIMER_AUTO_START, it) } },
-            onReset = if (autoStart != AppPrefs.DEFAULT_TIMER_AUTO_START) ({ p.write { putBoolean(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START) } }) else null)
+        SettingsPrefSwitch(AppPrefs.TIMER_AUTO_START, AppPrefs.DEFAULT_TIMER_AUTO_START, "Resume on pen down", "A paused exam clock resumes on the next pen stroke. The pen never starts a new sitting.")
         SettingsDivider()
         SettingsSliderRow(
             "Stop after inactivity", if (idle <= 0) "Never" else "$idle min", idle.toFloat(), AppPrefs.TIMER_IDLE_MIN_RANGE.toFloat()..AppPrefs.TIMER_IDLE_MAX.toFloat(),
             { p.write { putInt(AppPrefs.TIMER_IDLE_MIN, it.roundToInt()) } }, steps = AppPrefs.TIMER_IDLE_MAX - AppPrefs.TIMER_IDLE_MIN_RANGE - 1,
-            subtitle = "The clock stops once the pen has been idle this long and your next stroke resumes it. 0 keeps it running until you stop it. Leaving the editor or the screen going off parks it as before.",
+            subtitle = "The clock stops once the pen has been idle this long; your next stroke resumes it.",
             onReset = if (idle != AppPrefs.DEFAULT_TIMER_IDLE_MIN) ({ p.write { putInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN) } }) else null,
         )
     }
-    SettingsGroup("Export", footer = "PDF exports keep vector ink; this only affects page images. Higher is crisper on large pages and larger to share.") {
-        SettingsSliderRow(
-            "Page image (PNG) sharpness", "${"%.1f".format(png)}×", png, AppPrefs.PNG_SCALE_MIN..AppPrefs.PNG_SCALE_MAX,
-            { p.write { putFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.pngScale(it)) } },
-            onReset = if (png != AppPrefs.DEFAULT_PNG_SCALE) ({ p.write { putFloat(AppPrefs.EXPORT_PNG_SCALE, AppPrefs.DEFAULT_PNG_SCALE) } }) else null,
-        )
-    }
-    SettingsGroup("Share button", footer = "Long-press the share button in the editor to run this straight away. A tap still opens the export menu.") {
-        SettingsChipRow("Long-press action", ShareShortcut.entries.map { it to it.label }, shareShortcut,
-            { p.write { putString(AppPrefs.SHARE_LONG_PRESS, it.name) } })
-    }
-    SettingsGroup("Split view", footer = "Open it with the split button in the editor's toolbar. Drag the divider to resize, or to an edge to close a pane.") {
-        SettingsSliderRow(
-            "Editor share", "${(split * 100).roundToInt()}%", split, SplitPanes.MIN_FRACTION..SplitPanes.MAX_FRACTION,
-            { p.write { putFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.splitFraction(it)) } },
-            onReset = if (split != AppPrefs.DEFAULT_SPLIT) ({ p.write { putFloat(AppPrefs.SPLIT_FRACTION, AppPrefs.DEFAULT_SPLIT) } }) else null,
-        )
-    }
-}
-
-// ---- Mistake practice ---------------------------------------------------------------------------
-
-/** The printed guide a new mistake-practice page starts with; the canvas itself stays infinite. */
-@Composable internal fun MistakesPage() {
-    SettingsGroup("Review confirmation") { SettingsPrefSwitch(AppPrefs.UX_REVIEW_CONFIRM, true, "Confirm answer reveal and skip", "Turn off for single-tap review. Keyboard controls: Space reveal, 1–4 rate, S skip.") }
-    val p = rememberPrefs()
-    val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
-    val mode by rememberPref(p, AppPrefs.MISTAKE_RESPONSE_MODE) { AppPrefs.mistakeResponseMode(it.getString(AppPrefs.MISTAKE_RESPONSE_MODE, null)) }
-    SettingsGroup("Answering", footer = "How a new question opens. Exam paper prints the question on a ruled sheet you write and highlight on, like the real exam. Switching during a review changes this too.") {
-        SettingsChipRow("Respond by", listOf("write" to "Writing canvas", "type" to "Typing", "exam" to "Exam paper"), mode, { p.write { putString(AppPrefs.MISTAKE_RESPONSE_MODE, it) } })
-    }
-    val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
-    SettingsGroup("Practice pages", footer = "Applies to the next question you practise. Pages you have already written keep theirs.") {
+    SettingsGroup("Mistake practice", footer = "Paper and zoom apply to the next question you practise. Pages you have already written keep theirs.") {
         SettingsChipRow("Paper guide", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.MISTAKE_PAPER, it.name) } })
-        SettingsSliderRow("Starting zoom", "${(zoom * 100).roundToInt()}%", zoom, .5f..3f,
+        SettingsDivider()
+        SettingsSliderRow("Starting zoom", percent(zoom), zoom, .5f..3f,
             { p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.mistakeZoom(it)) } }, steps = 24,
-            onReset = if (zoom != AppPrefs.DEFAULT_MISTAKE_ZOOM) ({ p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM) } }) else null,
-            lowLabel = "50%", highLabel = "300%")
+            onReset = if (zoom != AppPrefs.DEFAULT_MISTAKE_ZOOM) ({ p.write { putFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM) } }) else null)
+        SettingsDivider()
+        SettingsPrefSwitch(AppPrefs.UX_REVIEW_CONFIRM, AppPrefs.DEFAULT_UX_REVIEW_CONFIRM, "Confirm answer reveal and skip", "Turn off for single-tap review.")
     }
 }
 
@@ -665,16 +590,15 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val experimental by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
         it.getBoolean(AppPrefs.EXPERIMENTAL_UPDATES, AppPrefs.DEFAULT_EXPERIMENTAL_UPDATES)
     }
-    SettingsGroup("Focal", footer = "One account for study sessions and mistake sync.") {
-        SettingsLinkRow("Manage Focal account", onClick = a.onFocal)
-    }
-    SettingsGroup("ChatGPT", footer = "Review your working and keep useful feedback as editable sticky notes.") {
-        SettingsLinkRow("Page review & account", onClick = a.onChatGpt)
-    }
-    SettingsGroup("Updates", footer = "Your notebooks stay on this device. Use Backup & restore to save or restore the whole library.") {
-        SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version from the selected update source when Folio opens.")
+    SettingsGroup("Accounts") {
+        SettingsLinkRow("Focal account", "One account for study sessions and mistake sync.", onClick = a.onFocal)
         SettingsDivider()
-        SettingsSwitchRow("Enable experimental builds", "Get experimental builds from folio.flandolf.me. These may be less stable. Experimental builds are checked automatically when enabled.",
+        SettingsLinkRow("ChatGPT", "Review your working and keep feedback as sticky notes.", onClick = a.onChatGpt)
+    }
+    SettingsGroup("Updates") {
+        SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version when Folio opens.")
+        SettingsDivider()
+        SettingsSwitchRow("Experimental builds", "Get earlier, less stable builds from folio.flandolf.me.",
             experimental, { prefs.write { putBoolean(AppPrefs.EXPERIMENTAL_UPDATES, it) } }, enabled = !a.updateBusy)
         SettingsDivider()
         SettingsLinkRow(
@@ -683,59 +607,5 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         )
         if (experimental) SettingsLinkRow("Check GitHub Releases", onClick = a.onCheckGitHub, enabled = !a.updateBusy)
         a.updateContent()
-    }
-}
-
-/** Which destinations sit in the sidebar (bottom bar on a phone). Library and Settings are always there. */
-@Composable private fun SidebarGroup() {
-    val p = rememberPrefs()
-    val hidden by rememberPref(p, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
-    SettingsGroup("Sidebar", footer = "Library and Settings are always shown. Turn a destination back on here to bring it back.") {
-        SidebarItem.entries.forEachIndexed { index, item ->
-            if (index > 0) SettingsDivider()
-            SettingsSwitchRow(item.label, item.summary, item !in hidden, { on ->
-                p.write { putString(SidebarItem.PREF_KEY, SidebarItem.encode(if (on) hidden - item else hidden + item)) }
-            })
-        }
-    }
-}
-
-/** The Pencil Pro's own soft buzz while the tip is down, through ColorOS's pen service. */
-@Composable private fun WritingFeedbackGroup() {
-    val p = rememberPrefs()
-    val context = LocalContext.current
-    val feedback = remember(context) { (context.applicationContext as? FolioApplication)?.penFeedback }
-    val on by rememberPref(p, AppPrefs.WRITING_FEEDBACK) { it.getBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) }
-    val feels = listOf(
-        "Pen and shapes" to PenWritingFeedback.TEXTURE_BALLPEN,
-        "Highlighter" to PenWritingFeedback.TEXTURE_MARKER,
-        "Eraser" to PenWritingFeedback.TEXTURE_ERASER,
-    )
-    val status = when (feedback?.status) {
-        FeedbackStatus.Connected -> "Connected through a partner app's licence (HiPaint or StarNote)."
-        FeedbackStatus.Connecting -> "Connecting to the pen service…"
-        FeedbackStatus.Refused -> "ColorOS refused the pen service on this tablet."
-        FeedbackStatus.Unavailable -> "This tablet has no ColorOS pen service."
-        else -> "Connects when a notebook is open."
-    }
-    SettingsGroup("Writing feedback", footer = "Requires an installed, licensed HiPaint or StarNote and Pencil vibration enabled in ColorOS settings. Compatibility depends on the tablet's pen service.") {
-        SettingsSwitchRow(
-            "Buzz while writing",
-            "The Pencil Pro vibrates softly while its tip is down with a pen, shape, highlighter or eraser, like the system notes app. No Bluetooth permission needed. $status",
-            on, { v -> p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, v) } },
-            onReset = if (on != AppPrefs.DEFAULT_WRITING_FEEDBACK) ({ p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, AppPrefs.DEFAULT_WRITING_FEEDBACK) } }) else null,
-        )
-        if (on) {
-            feels.forEach { (name, texture) ->
-                val feel by rememberPref(p, WritingFeel.key(texture)) { WritingFeel.pick(it, texture) }
-                SettingsDivider()
-                Text(name, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleSmall)
-                SettingsRadioGroup {
-                    WritingFeel.entries.forEach { f ->
-                        SettingsRadioRow(f.label, f.description, feel == f) { p.write { putString(WritingFeel.key(texture), f.name) } }
-                    }
-                }
-            }
-        }
     }
 }

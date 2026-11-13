@@ -2,7 +2,6 @@
 package com.folio.notes.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -12,16 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.EditorKeyBindings
-import com.folio.notes.editor.GestureGuide
 import com.folio.notes.editor.toolbar.toolLabel
-import com.folio.notes.input.StylusShortcut
-import com.folio.notes.input.StylusShortcutEffect
-import com.folio.notes.input.StylusShortcutManager
-import com.folio.notes.input.StylusShortcuts
 import com.folio.notes.model.Tool
 import com.folio.notes.ui.FolioPanel
 
@@ -41,61 +34,6 @@ internal fun Modifier.settingsTarget(title: String): Modifier = composed {
         }
     }
     bringIntoViewRequester(requester).then(if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.small) else Modifier)
-}
-
-@Composable internal fun UxAppearanceSettings() {
-    SettingsGroup("Controls and discovery") {
-        SettingsPrefSwitch(AppPrefs.UX_LABELS, false, "Show tool names", "Label the active tool and pinned presets in the editor.")
-        SettingsPrefSwitch(AppPrefs.UX_LARGE_CONTROLS, false, "Larger controls", "Make editor buttons and selection actions easier to tap.")
-        SettingsPrefSwitch(AppPrefs.UX_HINTS, true, "Shortcut hints", "Show shortcut tips in the editor and Library. Dismiss a tip when you no longer need it.")
-    }
-}
-
-@Composable internal fun UxWritingSettings() {
-    SettingsGroup("Keyboard and object placement") {
-        ToolKeySettings()
-        SettingsPrefSwitch(AppPrefs.UX_TOOL_KEYS, true, "Tool letter shortcuts", "Use letter keys to switch tools while the canvas has focus. Customise the keys above.")
-        SettingsPrefSwitch(AppPrefs.UX_SNAP, false, "Snap moved selections", "Align moved selections to 12-unit spacing and page margins. Hold Shift to move freely.")
-        SettingsPrefSwitch(AppPrefs.UX_LOCAL_TOOLS, false, "Remember tools per notebook", "Reopen each notebook with its last tool and preset. Turn off to use the app defaults.")
-    }
-}
-
-@Composable internal fun UxLibrarySettings() {
-    val prefs = rememberPrefs()
-    SettingsGroup("Notebook list swipes") {
-        for ((title, key, fallback) in listOf(Triple("Swipe right", AppPrefs.UX_SWIPE_RIGHT, "FAVOURITE"), Triple("Swipe left", AppPrefs.UX_SWIPE_LEFT, "TRASH"))) {
-            val selected by rememberPref(prefs, key) { AppPrefs.uxSwipe(it.getString(key, null), fallback) }
-            SettingsChipRow(title, listOf("FAVOURITE", "TRASH", "TAGS", "MOVE", "SHARE").map { it to it.lowercase().replaceFirstChar(Char::uppercase) }, selected,
-                { prefs.write { putString(key, it) } })
-        }
-    }
-}
-
-@Composable internal fun UxStylusPractice(action: StylusShortcut) {
-    var guide by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf("Double-tap your pencil, or double-tap this practice area, to try the shortcut.") }
-    var current by remember { mutableStateOf(Tool.PEN) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val manager = remember(context) { StylusShortcutManager(context) }
-    val run by rememberUpdatedState<() -> Unit> {
-        val effect = StylusShortcuts.effect(action, current, Tool.PEN)
-        if (effect is StylusShortcutEffect.SwitchTool) current = effect.tool
-        result = when (effect) {
-            is StylusShortcutEffect.SwitchTool -> "Selected ${toolLabel(current)}"
-            StylusShortcutEffect.OpenPalette -> "Practice: open the colour palette"
-            StylusShortcutEffect.Undo -> "Practice: undo the last action"
-            StylusShortcutEffect.NextLine -> "The next writing line would open when writing follow is active"
-            StylusShortcutEffect.None -> "No pencil shortcut selected"
-        }
-    }
-    DisposableEffect(manager) { manager.start { run() }; onDispose { manager.stop() } }
-    SettingsGroup("Try your pencil shortcut") {
-        Surface(Modifier.fillMaxWidth().heightIn(min = 96.dp).pointerInput(action) { detectTapGestures(onDoubleTap = { run() }) }, color = MaterialTheme.colorScheme.secondaryContainer) {
-            Text(result, Modifier.padding(16.dp))
-        }
-        TextButton({ guide = true }) { Text("Gestures and shortcuts") }
-    }
-    if (guide) GestureGuide { guide = false }
 }
 
 @Composable internal fun largeEditorControls(): Boolean {

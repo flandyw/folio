@@ -14,16 +14,13 @@ import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Backup
-import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -53,18 +50,18 @@ internal val LocalOpenBackupSettings = staticCompositionLocalOf<(() -> Unit)?> {
 internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 /**
- * Settings, as one stack of grouped pages. A phone shows a home list that drills into a category;
- * a tablet keeps the category list beside the page. Search looks at individual settings, not just
- * category names. Every control saves as it changes, so there is nothing to confirm or cancel.
+ * Settings: eight pages, one per thing you might want to change. A phone shows the list and
+ * drills into a page; a tablet keeps the list beside the page. Search finds a setting by name and
+ * scrolls to it. Every control saves as it changes.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, shapeRecognition: Boolean, onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
-    val focusManager = LocalFocusManager.current
-    var category by rememberSaveable { mutableStateOf<SettingsCategory?>(if (startWithBackup) SettingsCategory.BACKUP else if (startWithWritingFollow) SettingsCategory.FOLLOW else null) }
+    val focus = LocalFocusManager.current
+    var page by rememberSaveable { mutableStateOf(if (startWithBackup) SettingsPage.BACKUP else if (startWithWritingFollow) SettingsPage.FOLLOW else null) }
     var query by rememberSaveable { mutableStateOf("") }
     val searching = query.isNotBlank()
-    val searchTarget = remember { mutableStateOf("") }
+    val target = remember { mutableStateOf("") }
 
     val backupProgress by LibraryAutoBackup.progress.collectAsState()
     val backupTree by rememberPref(prefs, LibraryAutoBackup.TREE_URI) { it.getString(LibraryAutoBackup.TREE_URI, null) }
@@ -77,7 +74,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
 
     val app = AppSettings(
         themeMode, onThemeMode, themePalette, onThemePalette, amoled, onAmoled, finger, onFinger, stylus, onStylus, haptics, onHaptics,
-        shapeRecognition, onShapeRecognition, remember(context) { PenHapticsManager.isSupported(context) }, Build.VERSION.SDK_INT >= 31,
+        remember(context) { PenHapticsManager.isSupported(context) }, Build.VERSION.SDK_INT >= 31,
     )
     val backup = BackupSettings(
         backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy || backupProgress != null, backupExcludedCount,
@@ -85,65 +82,88 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
     )
     val account = AccountSettings(onFocal, onCheckForUpdates, onCheckGitHub, updateChecking, updateBusy, updateContent, onChatGpt)
 
-    BackHandler(enabled = searching || category != null) {
-        if (searching) query = "" else category = null
+    val open: (SettingsPage) -> Unit = { focus.clearFocus(); page = it; query = "" }
+    val summary: (SettingsPage) -> String = {
+        when (it) {
+            SettingsPage.APPEARANCE -> "${themeMode.label} · ${themePalette.label}"
+            SettingsPage.BACKUP -> if (backupProgress != null) "Backup in progress" else if (backupTree != null) "Automatic backup on" else "Automatic backup off"
+            else -> it.summary
+        }
     }
+
+    BackHandler(enabled = searching || page != null) { if (searching) query = "" else page = null }
 
     // Same top gap as the shell gives its destinations, so this heading lines up with theirs.
     val topGap = (FolioSpacing.dp16 - WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()).coerceAtLeast(0.dp)
-    CompositionLocalProvider(LocalDestinationTopGap provides topGap, LocalSettingsTarget provides searchTarget) {
-    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
-        val wide = maxWidth >= 840.dp
-        val open: (SettingsCategory) -> Unit = { focusManager.clearFocus(); category = it; query = "" }
-        if (wide) {
-            Row(Modifier.fillMaxSize()) {
-                SettingsSidebar(category ?: SettingsCategory.APPEARANCE, searching, query, { query = it }, open, Modifier.width(320.dp).fillMaxHeight())
-                VerticalDivider()
-                SettingsPane(
-                    title = when { searching -> "Search"; else -> (category ?: SettingsCategory.APPEARANCE).title },
-                    onNavigate = onBack, navLabel = "Close settings", modifier = Modifier.weight(1f),
-                ) { SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, folders, open, { query = "" }) }
-            }
-        } else {
-            SettingsPane(
-                title = when { searching -> "Search"; category != null -> category!!.title; else -> "Settings" },
-                onNavigate = { if (searching) query = "" else if (category != null) category = null else onBack() },
-                navLabel = if (category == null && !searching) "Close settings" else "Back to settings",
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (category == null || searching) {
-                    SettingsSearchField(query, { query = it })
+    CompositionLocalProvider(LocalDestinationTopGap provides topGap, LocalSettingsTarget provides target) {
+        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+            val wide = maxWidth >= 840.dp
+            // A tablet always has a page open beside the list; a phone shows the list until one is picked.
+            val shown = page ?: SettingsPage.APPEARANCE.takeIf { wide }
+            val body: @Composable ColumnScope.() -> Unit = {
+                when {
+                    searching -> SearchResults(query, onOpen = { hit -> target.value = hit.title; open(hit.page) }, onClear = { query = "" })
+                    shown == null -> SettingsGroup {
+                        SettingsPage.entries.forEachIndexed { index, item ->
+                            if (index > 0) SettingsDivider()
+                            SettingsLinkRow(item.title, summary(item), onClick = { open(item) }, leadingContent = { PageIcon(item.icon) })
+                        }
+                    }
+                    else -> when (shown) {
+                        SettingsPage.APPEARANCE -> AppearancePage(app)
+                        SettingsPage.PEN -> PenPage(app)
+                        SettingsPage.EDITOR -> EditorPage()
+                        SettingsPage.FOLLOW -> FollowPage()
+                        SettingsPage.LIBRARY -> LibraryPage(folders)
+                        SettingsPage.BACKUP -> BackupPage(backup)
+                        SettingsPage.STUDY -> StudyPage()
+                        SettingsPage.ACCOUNT -> AccountPage(account)
+                    }
                 }
-                if (!searching && category == null) SettingsHome(app, backup, open)
-                else SettingsContent(searching, query, category ?: SettingsCategory.APPEARANCE, app, backup, account, folders, open) { query = "" }
+            }
+            val title = if (searching) "Search" else shown?.title ?: "Settings"
+            if (wide) Row(Modifier.fillMaxSize()) {
+                Surface(Modifier.width(320.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column {
+                        FolioScreenHeading("Settings")
+                        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12).padding(bottom = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            SearchField(query, { query = it }, Modifier.padding(bottom = FolioSpacing.dp8))
+                            SettingsPage.entries.forEach { item ->
+                                NavigationDrawerItem(
+                                    label = { Text(item.title) }, selected = !searching && item == shown, onClick = { open(item) },
+                                    icon = { Icon(item.icon, null) }, modifier = Modifier.fillMaxWidth(), shape = FolioShapes.large,
+                                )
+                            }
+                        }
+                    }
+                }
+                VerticalDivider()
+                Pane(title, onBack, "Close settings", Modifier.weight(1f), body)
+            } else Pane(
+                title,
+                onNavigate = { if (searching) query = "" else if (page != null) page = null else onBack() },
+                navLabel = if (shown == null && !searching) "Close settings" else "Back to settings",
+                Modifier.fillMaxSize(),
+            ) {
+                if (shown == null || searching) SearchField(query, { query = it })
+                body()
             }
         }
     }
-    }
 }
 
-// ---- Shell --------------------------------------------------------------------------------------
-
 /** The shared screen heading over a centred, scrolling column of groups. */
-@Composable private fun SettingsPane(
-    title: String,
-    onNavigate: () -> Unit,
-    navLabel: String,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
+@Composable private fun Pane(title: String, onNavigate: () -> Unit, navLabel: String, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            FolioScreenHeading(
-                title,
-                leading = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } },
-            )
+            FolioScreenHeading(title, leading = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } })
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).imePadding(), contentAlignment = Alignment.TopCenter) {
+            // Keyed by title so each page starts scrolled to its top.
             key(title) {
                 Column(
                     Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
@@ -156,31 +176,11 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
     }
 }
 
-@Composable private fun SettingsContent(
-    searching: Boolean, query: String, category: SettingsCategory,
-    app: AppSettings, backup: BackupSettings, account: AccountSettings, folders: List<Folder>, open: (SettingsCategory) -> Unit, onClear: () -> Unit,
-) {
-    if (searching) { SearchResults(query, open, onClear); return }
-    when (category) {
-        SettingsCategory.APPEARANCE -> AppearancePage(app)
-        SettingsCategory.WRITING -> WritingPage(app)
-        SettingsCategory.STYLUS -> StylusPage(app)
-        SettingsCategory.ERASING -> ErasingPage()
-        SettingsCategory.FOLLOW -> FollowPage()
-        SettingsCategory.LIBRARY -> LibraryPage(folders)
-        SettingsCategory.BACKUP -> BackupPage(backup)
-        SettingsCategory.WORKFLOW -> WorkflowPage()
-        SettingsCategory.MISTAKES -> MistakesPage()
-        SettingsCategory.ACCOUNT -> AccountPage(account)
-    }
-}
-
-@Composable private fun SettingsSearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
+@Composable private fun SearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
     val keyboard = LocalSoftwareKeyboardController.current
     OutlinedTextField(
         value = query, onValueChange = onQuery, modifier = modifier.fillMaxWidth(), singleLine = true, shape = FolioShapes.extraLarge,
-        label = { Text("Search settings") },
-        placeholder = { Text("Theme, backup, pencil or timer") },
+        placeholder = { Text("Search settings") },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
@@ -188,237 +188,94 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
     )
 }
 
-// ---- Home (phone) -------------------------------------------------------------------------------
-
-@Composable private fun SettingsHome(app: AppSettings, backup: BackupSettings, open: (SettingsCategory) -> Unit) {
-    SettingsSection.entries.forEach { section ->
-        SettingsGroup(section.title) {
-            val items = SettingsCategory.entries.filter { it.section == section }
-            items.forEachIndexed { index, item ->
-                if (index > 0) SettingsDivider()
-                CategoryRow(item, summaryFor(item, app, backup)) { open(item) }
-            }
-        }
-    }
-    Text(
-        "Changes save as you make them. A reset arrow appears beside any setting that differs from its default.",
-        Modifier.padding(horizontal = FolioSpacing.dp16), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-private fun summaryFor(item: SettingsCategory, app: AppSettings, backup: BackupSettings): String = when (item) {
-    SettingsCategory.APPEARANCE -> "${app.themeMode.label} · ${app.themePalette.label}"
-    SettingsCategory.BACKUP -> if (backup.progress != null) "Backup in progress" else if (backup.tree != null) "Automatic backup on" else "Automatic backup off"
-    // The rows that hold everyday toggles say how they stand right now.
-    SettingsCategory.WRITING -> "Finger drawing ${if (app.finger) "on" else "off"} · Shapes ${if (app.shapeRecognition) "on" else "off"}"
-    SettingsCategory.STYLUS -> "Pencil double-tap: ${app.stylus.label}" + if (app.hapticsSupported) " · Buzz ${if (app.haptics) "on" else "off"}" else ""
-    else -> item.summary
-}
-
-@Composable private fun CategoryRow(item: SettingsCategory, summary: String, onClick: () -> Unit) {
-    SettingsLinkRow(
-        item.title, summary, onClick = onClick,
-        leadingContent = { CategoryIcon(item.icon) },
-    )
-}
-
-@Composable private fun CategoryIcon(icon: ImageVector) {
+@Composable private fun PageIcon(icon: ImageVector) {
     Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(40.dp)) {
         Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
     }
 }
 
-// ---- Sidebar (tablet) ---------------------------------------------------------------------------
-
-@Composable private fun SettingsSidebar(
-    selected: SettingsCategory, searching: Boolean, query: String, onQuery: (String) -> Unit,
-    onSelect: (SettingsCategory) -> Unit, modifier: Modifier = Modifier,
-) {
-    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxSize()) {
-        FolioScreenHeading("Settings")
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-            SettingsSearchField(query, onQuery, Modifier.padding(bottom = FolioSpacing.dp8))
-            SettingsSection.entries.forEach { section ->
-                Text(section.title, Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp12, bottom = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                SettingsCategory.entries.filter { it.section == section }.forEach { item ->
-                    NavigationDrawerItem(
-                        label = { Text(item.title) }, selected = !searching && item == selected, onClick = { onSelect(item) },
-                        icon = { Icon(item.icon, null) }, modifier = Modifier.fillMaxWidth(), shape = FolioShapes.large,
-                    )
-                }
-            }
-        }
-        }
-    }
-}
-
-// ---- Search -------------------------------------------------------------------------------------
-
-@Composable private fun SearchResults(query: String, open: (SettingsCategory) -> Unit, onClear: () -> Unit) {
-    val target = LocalSettingsTarget.current
+@Composable private fun SearchResults(query: String, onOpen: (SettingsIndex.Hit) -> Unit, onClear: () -> Unit) {
     val hits = remember(query) { SettingsIndex.search(query) }
     if (hits.isEmpty()) {
         Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Icon(Icons.Rounded.Search, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Nothing matches “${query.trim()}”", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
-            Text("Try a word such as theme, backup, pencil or timer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text("Pen smoothing, eraser behaviour and shelf sorting are changed in the editor and Library.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             TextButton(onClear, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
         }
         return
     }
-    SettingsGroup(if (hits.size == 1) "1 result" else "${hits.size} results") {
+    SettingsGroup {
         hits.forEachIndexed { index, hit ->
             if (index > 0) SettingsDivider()
-            SettingsLinkRow(hit.title, hit.category.title, onClick = { target?.value = hit.target; open(hit.category) }, leadingContent = { CategoryIcon(hit.category.icon) })
+            SettingsLinkRow(hit.title, hit.page.title, onClick = { onOpen(hit) }, leadingContent = { PageIcon(hit.page.icon) })
         }
     }
 }
 
-// ---- Model --------------------------------------------------------------------------------------
-
-private enum class SettingsSection(val title: String) {
-    PERSONAL("Personalise"), WRITING("Writing"), NOTEBOOKS("Notebooks"), STUDY("Study"), APP("Folio"),
+private enum class SettingsPage(val title: String, val summary: String, val icon: ImageVector) {
+    APPEARANCE("Appearance", "Theme, colours, text size and sidebar", Icons.Rounded.Palette),
+    PEN("Pen & touch", "Finger drawing, palm rejection, pencil, shapes and scribble", Icons.Rounded.Gesture),
+    EDITOR("Editor", "Toolbar, starting tool, zoom, text and keyboard", Icons.Rounded.Edit),
+    FOLLOW("Writing follow", "Move the page as you write", Icons.Rounded.AutoStories),
+    LIBRARY("Library", "New notebooks, covers, quick notes and swipes", Icons.AutoMirrored.Rounded.MenuBook),
+    BACKUP("Backup & restore", "Automatic backup and library files", Icons.Rounded.Backup),
+    STUDY("Study", "Exam timer and mistake practice", Icons.Rounded.Timer),
+    ACCOUNT("Account & updates", "Focal, ChatGPT and app updates", Icons.Rounded.AccountCircle),
 }
 
-private enum class SettingsCategory(val title: String, val summary: String, val icon: ImageVector, val section: SettingsSection) {
-    APPEARANCE("Appearance", "Theme, accent colour, text size, display and sidebar", Icons.Rounded.Palette, SettingsSection.PERSONAL),
-    WRITING("Writing & tools", "Toolbar, finger drawing, shapes, default tool and text", Icons.Rounded.Edit, SettingsSection.WRITING),
-    STYLUS("Stylus & touch", "Pencil shortcut, haptics, palm rejection, gestures", Icons.Rounded.Gesture, SettingsSection.WRITING),
-    ERASING("Erasing", "Pressure, whole strokes and scribble to erase", Icons.Rounded.CleaningServices, SettingsSection.WRITING),
-    FOLLOW("Writing follow", "Page movement, direction and line return", Icons.Rounded.AutoStories, SettingsSection.WRITING),
-    LIBRARY("Library & covers", "Shelf layout, sorting, paper and covers", Icons.AutoMirrored.Rounded.MenuBook, SettingsSection.NOTEBOOKS),
-    BACKUP("Backup & restore", "Automatic backup, library files, exclusions", Icons.Rounded.Backup, SettingsSection.NOTEBOOKS),
-    WORKFLOW("Timer & workspace", "Exam timer, image export and split view", Icons.Rounded.Timer, SettingsSection.STUDY),
-    MISTAKES("Mistake practice", "Paper for handwritten practice pages", Icons.Rounded.EditNote, SettingsSection.STUDY),
-    ACCOUNT("Account & updates", "Focal, ChatGPT and app updates", Icons.Rounded.AccountCircle, SettingsSection.APP),
-}
-
-/** What search can find: each setting by name plus the words someone might use for it. */
+/**
+ * What search can find. A title here is the title of the row or group on its page, which is how a
+ * result scrolls to it (`Modifier.settingsTarget`), so keep the two in step.
+ */
 private object SettingsIndex {
-    class Hit(val category: SettingsCategory, val title: String, val keywords: String) {
-        val target get() = settingsSearchTarget(title)
-    }
-
-    private fun e(c: SettingsCategory, title: String, keywords: String = "") = Hit(c, title, keywords)
+    class Hit(val page: SettingsPage, val title: String, val keywords: String)
 
     private val all = listOf(
-        e(SettingsCategory.ACCOUNT, "Check on launch", "automatic app updates"),
-        e(SettingsCategory.MISTAKES, "Starting zoom", "practice handwriting size"),
-        e(SettingsCategory.MISTAKES, "Respond by", "write type exam paper default"),
-        e(SettingsCategory.WORKFLOW, "Custom timer, reading time", "exam duration"),
-        e(SettingsCategory.WORKFLOW, "Custom timer, writing minutes", "exam duration"),
-        e(SettingsCategory.BACKUP, "Back up now", "automatic folder manual run"),
-        e(SettingsCategory.BACKUP, "Restore library backup", "import portable recover file"),
-        e(SettingsCategory.BACKUP, "Save library backup", "export portable device file"),
-        e(SettingsCategory.FOLLOW, "Switch to the area I write in", "detected response"),
-        e(SettingsCategory.FOLLOW, "Show answer area outlines", "boundaries display"),
-        e(SettingsCategory.FOLLOW, "Detect answer areas automatically", "pdf lines"),
-        e(SettingsCategory.FOLLOW, "Start following at this zoom", "minimum page zoom"),
-        e(SettingsCategory.FOLLOW, "Learn my line spacing", "adaptive natural breaks"),
-        e(SettingsCategory.FOLLOW, "Show where the next line lands", "landing guide dot dashed"),
-        e(SettingsCategory.FOLLOW, "Line-end zone", "return margin"),
-        e(SettingsCategory.FOLLOW, "Position after a sideways move", "horizontal location"),
-        e(SettingsCategory.FOLLOW, "Writing height", "vertical position line"),
-        e(SettingsCategory.FOLLOW, "Movement speed", "glide pace motion"),
-        e(SettingsCategory.FOLLOW, "Pause before moving", "delay glide wait"),
-        e(SettingsCategory.STYLUS, "Pan speed", "navigation fast multiplier"),
-        e(SettingsCategory.STYLUS, "Fast pan", "navigation drag speed"),
-        e(SettingsCategory.WRITING, "Document tabs", "toolbar open notebooks"),
-        e(SettingsCategory.WRITING, "Start with ink options open", "width colours palette toolbar"),
-        e(SettingsCategory.WRITING, "Timer on the toolbar", "focal exam chips"),
-        e(SettingsCategory.WRITING, "Pinned presets", "toolbar saved tools"),
-        e(SettingsCategory.WRITING, "Colour dots", "toolbar pen highlighter color preview"),
-        e(SettingsCategory.WRITING, "Sticky notes", "default text size font"),
-        e(SettingsCategory.WRITING, "Keep notebooks small", "storage refit points"),
-        e(SettingsCategory.WRITING, "Low-latency ink", "display pen delay experimental"),
-        e(SettingsCategory.WRITING, "Tilt widens the highlighter", "angle marker width"),
-        e(SettingsCategory.WRITING, "Soft stroke ends", "taper pen"),
-        e(SettingsCategory.WRITING, "Thinner when fast", "pen speed width"),
-        e(SettingsCategory.WRITING, "Pull past the end to add a page", "scroll release blank"),
-        e(SettingsCategory.WRITING, "Pen smoothing", "jitter handwriting steady"),
-        e(SettingsCategory.APPEARANCE, "Show tool names", "labels learning icons"),
-        e(SettingsCategory.APPEARANCE, "Larger controls", "accessibility touch targets buttons"),
-        e(SettingsCategory.APPEARANCE, "Shortcut hints", "tips guide dismiss"),
-        e(SettingsCategory.WRITING, "Tool letter shortcuts", "keyboard pen eraser"),
-        e(SettingsCategory.WRITING, "Customise tool keys", "keyboard remap bindings"),
-        e(SettingsCategory.WRITING, "Snap moved selections", "align margins grid objects"),
-        e(SettingsCategory.WRITING, "Remember tools per notebook", "local presets global defaults"),
-        e(SettingsCategory.STYLUS, "Try your pencil shortcut", "practice test double tap guide gestures"),
-        e(SettingsCategory.LIBRARY, "Swipe right", "gesture favourite trash tags move share"),
-        e(SettingsCategory.LIBRARY, "Swipe left", "gesture favourite trash tags move share"),
-        e(SettingsCategory.MISTAKES, "Confirm answer reveal and skip", "single tap double tap review keyboard"),
-        e(SettingsCategory.APPEARANCE, "Theme", "light dark system mode night"),
-        e(SettingsCategory.APPEARANCE, "Colour theme", "color palette sage ocean plum warm mono monochrome greyscale grey neutral wallpaper dynamic material you"),
-        e(SettingsCategory.APPEARANCE, "Black and white theme", "mono monochrome greyscale grey colourless neutral no colour pure"),
-        e(SettingsCategory.APPEARANCE, "Pure black dark", "amoled oled black"),
-        e(SettingsCategory.APPEARANCE, "Accent colour", "color tint highlight picker custom"),
-        e(SettingsCategory.APPEARANCE, "Text size", "font bigger smaller scale"),
-        e(SettingsCategory.APPEARANCE, "Fullscreen", "status bar gesture immersive"),
-        e(SettingsCategory.APPEARANCE, "Keep screen on", "sleep display awake"),
-        e(SettingsCategory.APPEARANCE, "Sidebar", "navigation rail bottom bar tabs destinations hide show mistakes study progress music vcaa exams menu items"),
-        e(SettingsCategory.WRITING, "Draw with a finger", "touch palm scroll"),
-        e(SettingsCategory.WRITING, "Hold at stroke start", "pen stylus hold pause shortcut highlighter eraser switch tool"),
-        e(SettingsCategory.WRITING, "Tidy up shapes", "shape assist recognition hold delay speed pause stylus line arrow circle oval square rectangle triangle diamond pentagon hexagon star tidy lasso cleanup preview practice perfect equal polygon highlighter underline"),
-        e(SettingsCategory.WRITING, "Pen feel", "thinner fast speed width taper soft stroke ends tilt highlighter marker pressure curve light firm prediction latency smooth keep notebooks small refit"),
-        e(SettingsCategory.WRITING, "Maximum zoom", "zoom limit magnification pinch page canvas reference"),
-        e(SettingsCategory.WRITING, "Live shape measurements", "length angle width height"),
-        e(SettingsCategory.WRITING, "Snap to grid and 15°", "math maths angle graph"),
-        e(SettingsCategory.WRITING, "Toolbar style", "goodnotes folio tabs pills layout editor bar"),
-        e(SettingsCategory.WRITING, "Toolbar tools and order", "customise customize edit hide reorder pin presets strip"),
-        e(SettingsCategory.WRITING, "Toolbar undo and redo", "history buttons"),
-        e(SettingsCategory.WRITING, "Toolbar colour dots, presets and timer", "color indicator pinned focal chip ink options tabs"),
-        e(SettingsCategory.WRITING, "Starting tool", "default tool in hand pen highlighter open lasso sticky note shape"),
-        e(SettingsCategory.WRITING, "Typed text size and alignment", "font default left centre right"),
-        e(SettingsCategory.STYLUS, "Pencil double-tap", "stylus shortcut action oneplus oppo"),
-        e(SettingsCategory.STYLUS, "Double-tap buzz", "pen haptics vibration bluetooth"),
-        e(SettingsCategory.STYLUS, "Writing feedback", "buzz while writing vibration haptics texture pencil ballpoint feel"),
-        e(SettingsCategory.STYLUS, "Palm rejection", "resting hand touch milliseconds"),
-        e(SettingsCategory.STYLUS, "Two-finger tap to undo", "gesture redo three fingers"),
-        e(SettingsCategory.ERASING, "Pressure-sensitive eraser", "size grows"),
-        e(SettingsCategory.ERASING, "Return after erasing", "single stroke eraser previous tool"),
-        e(SettingsCategory.ERASING, "Erase whole strokes", "whole stroke eraser remove entire stroke"),
-        e(SettingsCategory.ERASING, "Scribble to erase", "scrub sensitivity"),
-        e(SettingsCategory.FOLLOW, "Writing follow", "page move glide scroll automatically"),
-        e(SettingsCategory.FOLLOW, "Reading direction", "left right rtl ltr"),
-        e(SettingsCategory.FOLLOW, "Hand holding the pen", "left handed right handed"),
-        e(SettingsCategory.FOLLOW, "Automatic line return", "next line answer area"),
-        e(SettingsCategory.FOLLOW, "Room before moving and edge strip width", "pale tinted rectangle bar zone threshold sideways down sooner later"),
-        e(SettingsCategory.FOLLOW, "Edge strip visibility", "pale tint opacity contrast faint stronger darker transparency"),
-        e(SettingsCategory.FOLLOW, "Writing position and line spacing", "height column millimetres learn adaptive"),
-        e(SettingsCategory.FOLLOW, "Movement feel and timing", "relaxed balanced responsive delay glide speed pause threshold tolerance"),
-        e(SettingsCategory.FOLLOW, "Answer areas", "detect outline switch boundaries"),
-        e(SettingsCategory.FOLLOW, "Zoom pane height and auto peek", "enlarged panel size overview"),
-        e(SettingsCategory.LIBRARY, "Sort by", "order shelf recent name"),
-        e(SettingsCategory.LIBRARY, "Library layout", "covers compact list view grid"),
-        e(SettingsCategory.LIBRARY, "Default paper", "new notebook ruled grid dots blank"),
-        e(SettingsCategory.LIBRARY, "Default cover colour", "new notebook"),
-        e(SettingsCategory.LIBRARY, "First page as cover", "thumbnail shelf"),
-        e(SettingsCategory.LIBRARY, "Your cover colours", "custom add remove"),
-        e(SettingsCategory.LIBRARY, "Quick note folder", "quick canvas infinite save folder default"),
-        e(SettingsCategory.BACKUP, "Automatic backup", "folder restore point cloud drive daily"),
-        e(SettingsCategory.BACKUP, "Restore from backup folder", "recover"),
-        e(SettingsCategory.BACKUP, "Backup exclusions", "leave out textbook pdf skip"),
-        e(SettingsCategory.BACKUP, "Library backup file", "save restore export zip portable move device"),
-        e(SettingsCategory.WORKFLOW, "Exam timer", "custom minutes reading time"),
-        e(SettingsCategory.WORKFLOW, "Resume timer on pen down", "pause start"),
-        e(SettingsCategory.WORKFLOW, "Stop timer after inactivity", "idle"),
-        e(SettingsCategory.WORKFLOW, "Page image sharpness", "png export scale quality"),
-        e(SettingsCategory.WORKFLOW, "Split view balance", "workspace editor share companion pane"),
-        e(SettingsCategory.WORKFLOW, "Share button long-press", "share export copy clipboard quick action pdf png page notebook"),
-        e(SettingsCategory.MISTAKES, "Mistake practice paper", "question wrong revision review handwriting infinite canvas"),
-        e(SettingsCategory.ACCOUNT, "Focal account", "sign in sync study sessions mistakes"),
-        e(SettingsCategory.ACCOUNT, "ChatGPT", "AI feedback connection experimental sign in"),
-        e(SettingsCategory.ACCOUNT, "Check for updates", "github release version launch"),
-        e(SettingsCategory.ACCOUNT, "Enable experimental builds", "folio server beta update channel"),
-    )
+        SettingsPage.APPEARANCE to listOf(
+            "Theme" to "light dark system mode night", "Pure black dark" to "amoled oled", "Colours" to "color palette sage ocean plum warm mono black white wallpaper dynamic",
+            "Accent colour" to "color tint highlight", "Text size" to "font bigger smaller scale", "Larger controls" to "accessibility touch targets buttons",
+            "Show tool names" to "labels icons", "Sidebar" to "navigation rail bottom bar hide mistakes study progress music vcaa", "Fullscreen" to "status bar immersive", "Keep screen on" to "sleep awake",
+        ),
+        SettingsPage.PEN to listOf(
+            "Draw with a finger" to "touch scroll", "Palm rejection" to "resting hand", "Pan speed" to "fast navigation drag fling", "Two-finger tap to undo" to "gesture redo three",
+            "Gestures and shortcuts" to "guide help", "Pencil double-tap" to "stylus shortcut oneplus oppo", "Double-tap buzz" to "haptics vibration bluetooth",
+            "Buzz while writing" to "haptics vibration feedback texture feel", "Hold at stroke start" to "highlighter eraser switch tool", "Tilt widens the highlighter" to "angle marker",
+            "Tidy up shapes" to "shape assist recognition hold line circle rectangle", "Scribble to erase" to "scrub",
+        ),
+        SettingsPage.EDITOR to listOf(
+            "Tools and order" to "toolbar customise hide reorder", "Undo and redo" to "toolbar buttons", "Document tabs" to "toolbar open notebooks", "Timer on the toolbar" to "exam focal",
+            "Starting tool" to "default pen highlighter", "Remember tools per notebook" to "last tool", "Pull past the end to add a page" to "scroll blank", "Maximum zoom" to "pinch limit",
+            "Snap moved selections" to "align grid margins", "Typed text size" to "font text box", "Sticky note text size" to "font", "Tool letter shortcuts" to "keyboard keys",
+            "Customise tool keys" to "keyboard remap", "Share button long-press" to "export pdf png copy",
+        ),
+        SettingsPage.FOLLOW to listOf(
+            "Follow on pages" to "writing follow move glide scroll automatically", "What you write" to "text maths mode", "Writing direction" to "left right rtl ltr", "Hand holding the pen" to "left handed right handed",
+            "Feel" to "relaxed balanced responsive speed pause", "Move the view" to "sideways down", "Writing height" to "vertical position", "Automatic line return" to "next line",
+            "Learn my line spacing" to "adaptive", "Line spacing" to "millimetres ruled", "Detect answer areas automatically" to "pdf lines", "Reset writing follow" to "defaults",
+        ),
+        SettingsPage.LIBRARY to listOf(
+            "Paper" to "new notebook default ruled grid dots blank", "Cover design and colour" to "new notebook default", "First page as cover" to "thumbnail shelf",
+            "Your cover colours" to "custom add remove", "Quick notes and canvases" to "folder save", "Swipe right" to "gesture favourite trash tags move share", "Swipe left" to "gesture favourite trash tags move share",
+        ),
+        SettingsPage.BACKUP to listOf(
+            "Automatic backup" to "folder cloud drive daily back up now", "Restore from backup folder" to "recover", "Save library backup" to "export file",
+            "Restore library backup" to "import file recover", "Excluded notebooks" to "exclusions leave out textbook skip",
+        ),
+        SettingsPage.STUDY to listOf(
+            "Custom timer" to "exam minutes duration", "Reading time" to "exam minutes", "Resume on pen down" to "timer pause", "Stop after inactivity" to "timer idle",
+            "Paper guide" to "mistake practice", "Starting zoom" to "mistake practice handwriting size", "Confirm answer reveal and skip" to "mistake review single tap",
+        ),
+        SettingsPage.ACCOUNT to listOf(
+            "Focal account" to "sign in sync", "ChatGPT" to "ai feedback sign in", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
+        ),
+    ).flatMap { (page, rows) -> rows.map { (title, keywords) -> Hit(page, title, keywords) } }
 
-    /** Every word typed must appear in the title, keywords or category name. */
+    /** Every word typed must appear in the title, keywords or page name. */
     fun search(query: String): List<Hit> {
         val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
         return all.filter { hit ->
-            val haystack = "${hit.title} ${hit.keywords} ${hit.category.title}".lowercase()
+            val haystack = "${hit.title} ${hit.keywords} ${hit.page.title}".lowercase()
             words.all { it in haystack }
         }
     }

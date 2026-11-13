@@ -16,14 +16,13 @@ Infinite canvases still require an explicit CanvasWritingSession. Opening the pa
 
 All global controls are in **Settings → Writing follow**. The editor menu and zoom pane's Options button open that category directly. Controls save immediately and the open editor observes the same preferences without writing a stale copy back.
 
-The page is grouped by the question a writer asks, and each behaviour has exactly one control:
+The page shows only the choices that are a matter of taste; every other value in `FollowPreferences` keeps its tuned default (or whatever an older build stored) and has no row:
 
-- **Start here** — follow on pages, Text/Maths, writing direction, hand.
-- **Feel** — three independent knobs: **Pause before moving** (`returnDelayMs`; sideways and downward following use the full pause), **Room before moving** (`room`, 0–1, which derives both the sideways trigger `edgeThreshold` .60–.90, the matching edge strip and the downward dead band `verticalDeadBand` .07–.27) and **Movement speed** (`pace`, 0–1, which derives both the minimum glide 700→140 ms and next-line pace 1500→300 ms/screen, piecewise through the defaults at .6). The strip is normally 40–10% wide, default 15%; the shared minimum gap can narrow the maximum width if the landing column is near that edge. The slider adjusts the actual width in 1% steps and shows its percentage. **Start from** Relaxed / Balanced / Responsive sets only these three; Balanced is the default, and any other mix reads as Custom. Presets never touch hand, direction, writing position, line settings, line-end zone, visibility or automatic return.
-- **Where your writing sits** — writing height, position after a sideways move and **Edge strip visibility** (0–50% tint opacity in 1% steps, default 10%). Zero opacity hides the strip while retaining the movement threshold. There is no independent strip-width slider; Room before moving owns the movement zone. Both previews use the same boundary as the editor. Visibility saves independently and resets with the other follow defaults. Existing saved room and opacity choices are retained; the new defaults apply to unset preferences and Reset writing follow.
-- **Next line** — automatic return, **Line-end zone** (`endMargin`, a writing habit kept out of the presets), landing guide, learned/starting line spacing.
-- **When following runs** — one **Move the view** choice (sideways and down / down only / sideways only / only when I tap; Maths offers down or tap) over the `horizontalFollow`/`verticalFollow` pair, and the minimum page zoom.
-- **Answer areas**, **Zoom pane & peek**, **Reset**.
+- **Writing follow**: follow on pages, Text/Maths, writing direction, hand.
+- **Movement**: **Feel** (the `FollowFeel` presets, which set `returnDelayMs`, `room` and `pace` together; a stored combination that matches no preset shows as Custom), one **Move the view** choice (sideways and down / down only / sideways only / only when I tap; Maths offers down or tap) over the `horizontalFollow`/`verticalFollow` pair, and **Writing height**.
+- **Next line**: automatic return, learn my line spacing, line spacing.
+- **Answer areas**: detect automatically.
+- **Reset writing follow** restores every default, including the values that have no row (`horizontalPosition`, `endMargin`, `showLandingGuide`, `edgeStripOpacity`, `minimumZoom`, `autoSwitchAreas`, answer-area outlines, zoom pane height, auto peek).
 
 **Detect answer areas automatically** uses the current page's background rules while following is on, in scrolling view, one-page view and the zoom pane. It waits for PDF rendering and guide detection, then selects a detected area near the current view.
 

@@ -14,7 +14,7 @@ choosing the numbers that were always stored.
   yet (the first samples of a stroke) the old two-sample linear guess (`StrokePrediction.predict`) is used.
 - **Low-latency ink (on by default; not yet device-verified).** `AppPrefs.LOW_LATENCY_INK`
   (`input.lowLatencyInk`) reads `DEFAULT_LOW_LATENCY_INK`, which is `true`, so a missing preference is on.
-  Settings › Writing › Pen feel and the pen tool's Behaviour page both offer the switch, and only when
+  The pen tool's Behaviour page offers the switch (Settings no longer repeats it), and only when
   `SDK_INT` is at least 29. The preference is read in `InkView.startLowLatency` when a stroke begins.
   Turning it off disposes the layer on the next contact that reaches that function. Eraser and laser
   return earlier, so they leave an existing layer in place until the next pen or highlighter contact.
@@ -52,7 +52,7 @@ smoothing when the pen braked; that let pen-lift jitter through as a hook at str
 
 ## Hold at stroke start
 
-Settings › Writing › **Hold at stroke start** chooses Highlighter (default), Eraser or Off
+Settings › Pen & touch › **Hold at stroke start** chooses Highlighter (default), Eraser or Off
 (`AppPrefs.PEN_START_HOLD`). With the pen selected, keep the stylus within 8 dp of its landing point
 for 500 ms to arm that tool (a haptic tick confirms), then move off the radius to borrow it until
 lift. Lifting while still inside the radius keeps the ordinary pen dot, however long the press, so a
@@ -122,7 +122,7 @@ off an "o" and broke cursive joins. The live stroke fixes its first sample's pre
 
 ## Stored strokes
 
-- **Keep notebooks small** (`input.refitStrokes`, default on). `InkView.refitted` runs `StrokeRefit.simplify` as a
+- **Keep notebooks small** (`input.refitStrokes`, default on; it no longer has a switch in Settings). `InkView.refitted` runs `StrokeRefit.simplify` as a
   plain pen stroke is finished: Douglas–Peucker at 0.04 page units, no kept gap over 3 units (the renderer
   stops smoothing across 5), pressure drift counted. On synthetic handwriting (0.6-unit steps) it dropped about 60–80% of samples.
   `HandwritingInkTest` checks the rendered curve stays within 0.2 units of the original.
@@ -148,14 +148,14 @@ On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke t
 4. **Thinner when fast:** with pressure on and off; slow writing keeps the chosen width.
 5. **Soft ends:** on, off, and a notebook with old ink; dots stay dots; toggling while the editor is open restyles the page; PDF/PNG export follows the setting.
 6. **Highlighter tilt:** upright vs. flat contact widths; the stroke width does not change mid-stroke.
-7. **Keep notebooks small:** write a page, close and reopen, undo/redo, export: it must look the same; compare the `.fps` size with the option off.
+7. **Keep notebooks small:** write a page, close and reopen, undo/redo, export: it must look the same; compare the `.fps` size with the preference off (set `input.refitStrokes` by hand; it has no switch).
 8. **Tidy up handwriting:** lasso a few tilted lines with an underline and a highlighter; preview, apply, undo once; a locked layer is untouched.
 9. **Low-latency ink:** on by default, and not yet device-verified. Run [low-latency ink device checks](low-latency-ink-device-checks.md) on a stylus tablet and a finger-only phone. This list item is not a completed device pass.
 10. **Start hold:** choose Highlighter, hold at pen-down, draw and hold again at the end with shape assist enabled. Check saved highlighter colour/width/opacity, straightening and adjustment, undo/redo, then write immediately: the next stroke is pen ink. Repeat with notebook-local tool settings, tilt and the ruler, on a canvas, in split/music/zoom layouts, across a page seam and on a sticky note. Choose Eraser; check its saved diameter, pressure, whole-stroke mode and undo, both on notes and across pages, with no initial pen dot. Quick dots, immediate writing, finger ink, the hardware eraser and eraser button must keep working. Move away and return to the start, pause at a pen stroke's end, cancel a contact, switch tools and leave the editor during the hold: none may trigger a late switch. Off disables the shortcut. Device verification remains required for the physical gesture and haptics.
 
 ## Writing feedback (OnePlus / OPPO Pencil Pro)
 
-With Settings › Stylus & touch › *Buzz while writing* on (`AppPrefs.WRITING_FEEDBACK`, default on; independent of the Bluetooth double-tap buzz), `PenWritingFeedback` asks ColorOS's open capability service for `IPE_PENCIL_CLIENT` and, once granted, calls the pen service's `startFeedBackVibration`/`stopFeedBackVibration` on pen down/up (`InkView.writingFeedback`). Each tool group has its own `WritingFeel` preference (`AppPrefs.WRITING_FEEL`, `WRITING_FEEL_HIGHLIGHTER`, `WRITING_FEEL_ERASER`); an unset choice means Match the tool (ballpoint, marker, eraser respectively), never inheritance from the pen's choice. Explicit saved choices are preserved. Settings shows the live `FeedbackStatus`. Folio asks under the licensed app names (`LICENSED_APPS`: HiPaint, then StarNote), never its own name. If all are refused, it stays silent.
+With Settings › Pen & touch › *Buzz while writing* on (`AppPrefs.WRITING_FEEDBACK`, default on; independent of the Bluetooth double-tap buzz), `PenWritingFeedback` asks ColorOS's open capability service for `IPE_PENCIL_CLIENT` and, once granted, calls the pen service's `startFeedBackVibration`/`stopFeedBackVibration` on pen down/up (`InkView.writingFeedback`). Each tool group has its own `WritingFeel` preference (`AppPrefs.WRITING_FEEL`, `WRITING_FEEL_HIGHLIGHTER`, `WRITING_FEEL_ERASER`); an unset choice means Match the tool (ballpoint, marker, eraser respectively), never inheritance from the pen's choice. Explicit saved choices are preserved. Settings shows the live `FeedbackStatus`. Folio asks under the licensed app names (`LICENSED_APPS`: HiPaint, then StarNote), never its own name. If all are refused, it stays silent.
 
 The tablet's supplied `ocs.apk` distinguishes two authentication paths. The bind-intent path (`s2.a` → `h.b` → `t2.d.e`) reads the stated package's installed manifest AUTH_CODE and signing certificate; the app must therefore be installed with a valid licence. Error **1004** means an empty target package or a missing AUTH_CODE. The direct `IServiceBroker` transaction 1 instead resolves the real Binder caller's UID (`service.b.g` → `h.a`) and checks that app, so calling it from Folio produces a Folio authentication attempt regardless of the bind extras. Do not call that broker as a fallback.
 
