@@ -1,5 +1,6 @@
 package com.folio.notes.ui
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
@@ -19,7 +20,8 @@ import androidx.compose.ui.unit.dp
  * shapes are cut out (even-odd), so detail is negative space rather than a second colour.
  *
  * Nothing here is sized by eye. [icon] measures what was drawn and scales it so its longer side,
- * stroke included, is exactly its size on the 24 dp grid, centred: 20 for a glyph, less only for
+ * stroke included, is exactly its size on the 24 dp grid, centred: 20 for a glyph (18 when it
+ * fills its square to the corners, the usual optical keyline), less only for
  * the bare marks (chevrons, plus, close, the … dots) that would shout at full size. The stroke
  * stays 2 dp whatever the scale, so a redrawn glyph can never come out bigger, smaller or heavier
  * than its neighbours.
@@ -27,6 +29,8 @@ import androidx.compose.ui.unit.dp
 internal object FolioIcons {
     private val ink = SolidColor(Color.Black)
     private const val STROKE = 2f
+    /** How close to a corner of its box, as a share of the box, ink must come to count as filling it. */
+    private const val BOXY_REACH = .22f
 
     /** [mirror] flips a directional glyph in a right-to-left layout. */
     private fun icon(line: String, solid: String = "", size: Float = 20f, mirror: Boolean = false): Lazy<ImageVector> = lazy {
@@ -34,24 +38,36 @@ internal object FolioIcons {
         val solids = addPathNodes(solid)
         // Measured along the flattened outline: the platform's own path bounds include curve control
         // points, which would make every curved glyph come out a little small.
-        fun bounds(nodes: List<PathNode>): Rect? {
-            if (nodes.isEmpty()) return null
-            val points = nodes.toPath().asAndroidPath().approximate(0.02f)
+        fun outline(nodes: List<PathNode>) = if (nodes.isEmpty()) FloatArray(0) else nodes.toPath().asAndroidPath().approximate(0.02f)
+        fun bounds(points: FloatArray): Rect? {
+            if (points.isEmpty()) return null
             val xs = points.filterIndexed { index, _ -> index % 3 == 1 }
             val ys = points.filterIndexed { index, _ -> index % 3 == 2 }
             return Rect(xs.min(), ys.min(), xs.max(), ys.max())
         }
-        val drawn = bounds(lines)
-        val filled = bounds(solids)
-        /** Everything drawn, with the line work grown by [halfStroke], and the scale that fits it to [size]. */
-        fun fit(halfStroke: Float): Pair<Rect, Float> {
+        val linePoints = outline(lines)
+        val solidPoints = outline(solids)
+        val drawn = bounds(linePoints)
+        val filled = bounds(solidPoints)
+        /** Everything drawn, with the line work grown by [halfStroke], and the scale that fits it to [target]. */
+        fun fit(halfStroke: Float, target: Float): Pair<Rect, Float> {
             val box = listOfNotNull(drawn?.inflate(halfStroke), filled).reduce { a, b ->
                 Rect(minOf(a.left, b.left), minOf(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
             }
-            return box to size / maxOf(box.width, box.height)
+            return box to target / maxOf(box.width, box.height)
         }
+        // A glyph that fills its square to the corners looks bigger than a round or leaning one of
+        // the same extent, so it gets Material's square keyline (18) instead of the full 20.
+        val raw = fit(0f, size).first
+        val reach = BOXY_REACH * maxOf(raw.width, raw.height)
+        val corners = listOf(raw.topLeft, raw.topRight, raw.bottomLeft, raw.bottomRight).count { corner ->
+            listOf(linePoints, solidPoints).any { points ->
+                (0 until points.size / 3).any { i -> (Offset(points[i * 3 + 1], points[i * 3 + 2]) - corner).getDistance() < reach }
+            }
+        }
+        val target = if (size == 20f && corners >= 3 && minOf(raw.width, raw.height) > .8f * maxOf(raw.width, raw.height)) 18f else size
         // The stroke's share of the box depends on the scale, so settle it in two passes.
-        val (box, scale) = fit(STROKE / 2f / fit(0f).second)
+        val (box, scale) = fit(STROKE / 2f / fit(0f, target).second, target)
         ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f, autoMirror = mirror).apply {
             addGroup(pivotX = box.center.x, pivotY = box.center.y, scaleX = scale, scaleY = scale,
                 translationX = 12f - box.center.x, translationY = 12f - box.center.y)
@@ -63,18 +79,18 @@ internal object FolioIcons {
     }
 
     // Tools
-    val Pen by icon("", "M3 21L4.2 16.2 14.5 5.9 18.1 9.5 7.8 19.8Z M15.9 4.5L17.6 2.8A1 1 0 0 1 19 2.8L21.2 5A1 1 0 0 1 21.2 6.4L19.5 8.1Z")
-    val Pencil by icon("", "M5.8 14.6L14.5 5.9 18.1 9.5 9.4 18.2Z M3 21L4.4 16.4 7.6 19.6Z M15.9 4.5L17.6 2.8A1 1 0 0 1 19 2.8L21.2 5A1 1 0 0 1 21.2 6.4L19.5 8.1Z")
+    val Pen by icon("", "M18.29 3.44L20.56 5.71L20.56 7.12L18.79 8.89L15.11 5.21L16.88 3.44Z M14.19 6.13L17.87 9.81L10.66 17.02L4.58 19.42L6.98 13.34Z")
+    val Pencil by icon("", "M18.29 3.44L20.56 5.71L20.56 7.12L18.79 8.89L15.11 5.21L16.88 3.44Z M14.19 6.13L17.87 9.81L11.01 16.67L7.33 12.99Z M6.41 13.91L10.09 17.59L4.58 19.42Z")
     val Fountain by icon("", "M12 22L6 12 9.5 3H14.5L18 12Z M10.4 11A1.6 1.6 0 1 0 13.6 11A1.6 1.6 0 1 0 10.4 11ZM11.4 14H12.6V20H11.4Z")
-    val Marker by icon("", "M9 3H15V12L13.5 15H10.5L9 12Z M10.8 16.4H13.2V19L12 21.5 10.8 19Z M9 6.8H15V8H9Z")
+    val Marker by icon("", "M17.59 2.74L21.26 6.41L21.26 7.83L13.84 15.25L11.29 15.82L8.18 12.71L8.75 10.16L16.17 2.74Z M7.69 13.91L10.09 16.31L7.9 18.51L4.58 19.42L5.49 16.1Z")
     val Brush by icon("", "M18.5 3.5C19.5 4.5 19.5 5.7 18.5 6.7L12 13.2 8.8 10 15.3 3.5C16.3 2.5 17.5 2.5 18.5 3.5Z M7.5 11.5C5.2 11.9 4 13.6 4 15.8 4 17.6 3 18.5 2 19 5.8 20.2 10.6 19 10.8 14.6Z")
-    val Highlighter by icon("", "M15.5 3L21 8.5 13 16.5 7.5 11Z M6.3 12.5L11.5 17.7 5 19Z M3 20H13V22H3Z")
-    val Eraser by icon("", "M14.5 3.2L20.3 9 10 19.3 4.2 13.5Z M9.2 8.5L10 7.7 15.8 13.5 15 14.3Z M12 20.2H21V22H12Z")
+    val Highlighter by icon("", "M17.59 2.74L21.26 6.41L21.26 7.83L13.84 15.25L11.29 15.82L8.18 12.71L8.75 10.16L16.17 2.74Z M7.33 13.56L10.44 16.67L8.61 18.51L3.02 17.87Z")
+    val Eraser by icon("", "M15.89 3.87L20.13 8.11L20.13 9.53L13.98 15.68L8.32 10.02L14.47 3.87Z M7.4 10.94L13.06 16.6L10.23 19.42L8.11 19.42L4.58 15.89L4.58 13.77Z")
     val Lasso by icon("M20.42 10.84A8.5 6 0 0 1 18.71 13.68 M16.32 15.17A8.5 6 0 0 1 12.11 16 M8.97 15.61A8.5 6 0 0 1 5.42 13.8 M3.9 11.83A8.5 6 0 0 1 3.69 8.74 M4.93 6.67A8.5 6 0 0 1 8.21 4.63 M11.28 4.02A8.5 6 0 0 1 15.59 4.56 M18.17 5.88A8.5 6 0 0 1 20.26 8.59 M11 16.2C10 18 10.8 19.5 8.5 20.8")
-    val Text by icon("", "M5 4H19V7H13.5V20H10.5V7H5Z")
-    val Hand by icon("", "M8 13V6A1.5 1.5 0 0 1 11 6V4.5A1.5 1.5 0 0 1 14 4.5V5.5A1.5 1.5 0 0 1 17 5.5V8A1.5 1.5 0 0 1 20 8V14.5C20 18.5 17.3 21 13.5 21H12.5C10.1 21 8.6 20.1 7.3 18.3L4.5 14.6C3.9 13.7 4.1 12.7 4.8 12.2 5.6 11.6 6.6 11.8 7.2 12.6Z M10.6 7.5H11.4V12H10.6ZM13.6 6.5H14.4V12H13.6ZM16.6 9H17.4V12H16.6Z")
-    val Sticky by icon("", "M5.5 4H18.5A1.5 1.5 0 0 1 20 5.5V13H13V20H5.5A1.5 1.5 0 0 1 4 18.5V5.5A1.5 1.5 0 0 1 5.5 4Z M14.8 14.8H20L14.8 20Z")
-    val Laser by icon("M3.5 18.5C7 20.5 9.5 12 12 13.5 13.8 14.6 13 17.5 15 16.5 M19 3V4.5 M22.5 9.8H21 M21.6 6L20.6 7", "M14.3 9.8A3.2 3.2 0 1 0 20.7 9.8A3.2 3.2 0 1 0 14.3 9.8Z")
+    val Text by icon("", "M5 4.5H19V7H13.3V20H10.7V7H5Z", 17f)
+    val Hand by icon("", "M8 13V6A1.5 1.5 0 0 1 11 6V4.5A1.5 1.5 0 0 1 14 4.5V5.5A1.5 1.5 0 0 1 17 5.5V8A1.5 1.5 0 0 1 20 8V14.5C20 18.5 17.3 21 13.5 21H12.5C10.1 21 8.6 20.1 7.3 18.3L4.5 14.6C3.9 13.7 4.1 12.7 4.8 12.2 5.6 11.6 6.6 11.8 7.2 12.6Z M10.45 7.5H11.55V12.5H10.45ZM13.45 6.5H14.55V12.5H13.45ZM16.45 9H17.55V12.5H16.45Z")
+    val Sticky by icon("", "M5.5 4H18.5A1.5 1.5 0 0 1 20 5.5V13H13V20H5.5A1.5 1.5 0 0 1 4 18.5V5.5A1.5 1.5 0 0 1 5.5 4Z M14.8 14.8H20L14.8 20Z M7 7.5H17V9H7ZM7 11H11.5V12.5H7Z")
+    val Laser by icon("M15.9 1.5V3 M22.5 8.1H21 M20.6 3.4L19.5 4.5 M11.2 3.4L12.3 4.5 M20.6 12.8L19.5 11.7", "M9.53 11.65L12.35 14.47L6.34 20.49L5.64 20.49L3.51 18.36L3.51 17.66ZM12.9 8.1A3 3 0 1 0 18.9 8.1A3 3 0 1 0 12.9 8.1Z")
     val Ruler by icon("", "M2.9 15.6L15.6 2.9 21.1 8.4 8.4 21.1Z M6.68 11.82L7.52 10.98 9.62 13.08 8.78 13.92Z M9.68 8.82L10.52 7.98 11.92 9.38 11.08 10.22Z M12.68 5.82L13.52 4.98 15.62 7.08 14.78 7.92Z")
     val MarkArea by icon("M4 8.5V5.5A1.5 1.5 0 0 1 5.5 4H8.5 M15.5 4H18.5A1.5 1.5 0 0 1 20 5.5V8.5 M20 15.5V18.5A1.5 1.5 0 0 1 18.5 20H15.5 M8.5 20H5.5A1.5 1.5 0 0 1 4 18.5V15.5 M8.5 12.2L11 14.7 15.5 9.8")
 
