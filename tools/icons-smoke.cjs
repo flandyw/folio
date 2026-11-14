@@ -1,4 +1,4 @@
-// Keep UI glyphs in the custom catalogue, including state variants.
+// Keep UI glyphs in the Lucide/Folio catalogue, including state variants.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -8,6 +8,15 @@ const names = new Set([...source.matchAll(/val (\w+) (?:by icon|get\(\))/g)].map
 const glyphs = new Map([...source.matchAll(/val (\w+) by icon\("([^"]*)"(?:, "([^"]*)")?/g)].map(m => [m[1], [m[2], m[3] || '']]));
 assert(names.size > 150, 'Catalogue was not fully read');
 for (const [name, [line, solid]] of glyphs) assert(line || solid, `${name} is empty`);
+assert.match(source, /defaultWidth = 24\.dp, defaultHeight = 24\.dp/);
+assert.match(source, /viewportWidth = 24f, viewportHeight = 24f/);
+assert.match(source, /strokeLineWidth = 2f/);
+assert.match(source, /strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round/);
+assert(!/addGroup|asAndroidPath/.test(source), 'Do not resize individual Lucide glyphs');
+assert(fs.readFileSync(path.join(root, 'assets/licenses/lucide.txt'), 'utf8').includes('Cole Bemis'), 'Missing upstream license');
+for (const name of ['Back', 'Forward', 'Undo', 'Redo', 'ChevronLeft', 'ChevronRight', 'Return']) {
+    assert.match(source, new RegExp(`val ${name} by icon\\([^\\n]+mirror = true`), `${name} lost RTL mirroring`);
+}
 for (const name of ['Star', 'Bookmark']) {
     const [outline] = glyphs.get(name);
     assert.deepEqual(glyphs.get(`${name}Filled`), [outline, outline], `${name} selection changes its contour`);
@@ -26,4 +35,4 @@ function scan(dir) {
     }
 }
 scan(root);
-console.log(`Custom icons: ${glyphs.size} glyphs, all references and selected contours checked.`);
+console.log(`Lucide/Folio icons: ${glyphs.size} glyphs, references, style, RTL and selected contours checked.`);
