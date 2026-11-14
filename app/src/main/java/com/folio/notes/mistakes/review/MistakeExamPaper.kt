@@ -258,7 +258,6 @@ private val paperInk = Color(0xFF1B1B1B)
         if (tools.select(value, editorPrefs.eraserSingleStroke) && StylusShortcuts.isDrawingTool(value)) tools.previousTool.value = value
     }
     fun optionsFor(t: Tool): ToolOptions = tools.optionsFor(t)
-    fun setPref(key: String, value: Boolean) = prefs.edit().putBoolean(key, value).apply()
     // Pen haptics and writing feedback, as in the editor.
     val app = androidContext.applicationContext as? FolioApplication
     val penHaptics = app?.penHaptics
@@ -490,13 +489,6 @@ private val paperInk = Color(0xFF1B1B1B)
                 tool = tool, onTool = ::selectTool, options = options, onOptions = tools::changeOptions, quick = quick,
                 canUndo = state.canUndo && !busy, canRedo = state.canRedo && !busy, undo = folio::undo, redo = folio::redo,
                 palette = palette, onPalette = { palette = it },
-                snapEnabled = editorPrefs.snapEnabled, onSnap = { setPref("mathSnap", it) },
-                eraserSingleStroke = editorPrefs.eraserSingleStroke, onEraserSingleStroke = { setPref(EditorQuickPrefs.ERASER_SINGLE_STROKE, it) },
-                scribbleToErase = editorPrefs.scribbleToErase, onScribbleToErase = { setPref(EditorQuickPrefs.SCRIBBLE_TO_ERASE, it) },
-                eraserPressureEnabled = editorPrefs.eraserPressure, onEraserPressure = { setPref(EditorQuickPrefs.ERASER_PRESSURE, it) },
-                eraserWholeStroke = editorPrefs.eraserWholeStroke, onEraserWholeStroke = { setPref(EditorQuickPrefs.ERASER_WHOLE_STROKE, it) },
-                shapeMeasurements = editorPrefs.shapeMeasurements, onShapeMeasurements = { setPref(EditorQuickPrefs.SHAPE_MEASUREMENTS, it) },
-                multiTouchUndo = editorPrefs.multiTouchUndo, onMultiTouchUndo = { setPref(EditorQuickPrefs.MULTI_TOUCH_UNDO, it) },
                 presets = presets.presets.filter { it.tool in ExamSheet.TOOLS },
                 onApplyPreset = { preset -> if (preset.tool in ExamSheet.TOOLS) { selectTool(preset.tool); tools.apply(preset) } },
                 toolPresetsState = presets,

@@ -103,7 +103,7 @@ private val ToolbarButton: Dp @Composable get() = if (largeEditorControls()) 48.
 private val ToolbarSlotPitch: Dp @Composable get() = (if (showEditorToolNames()) 76.dp else ToolbarButton) + 2.dp
 
 /** The second-level menus under the toolbar's … menu. */
-private enum class ToolSub { PRESETS, BEHAVIOUR }
+private enum class ToolSub { PRESETS }
 
 @Composable private fun StripDivider(modifier: Modifier = Modifier, height: Dp = 24.dp) {
     Box(modifier.width(1.dp).height(height).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
@@ -114,11 +114,6 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         IconButton(onClick, enabled = enabled, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(22.dp)) }
     }
-}
-
-/** A switch row for the Behaviour menu; a null [set] means this surface has no such setting. */
-@Composable private fun BehaviourSwitch(label: String, on: Boolean, set: ((Boolean) -> Unit)?) {
-    if (set != null) FolioMenuItem({ Text(label) }, { set(!on) }, trailingIcon = { Switch(on, null) })
 }
 
 /**
@@ -132,20 +127,14 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
  * page. That is the only way a tool leaves: what the user hides from the strip waits in the … menu.
  * A null [onRuler] removes the ruler switch; [rulerOn] is its state.
  * [shapeTools] is the shape picker's own list, so a caller can drop [Tool.GRAPH] (a notebook's
- * paper tool rather than an annotation). A null [onSnap] removes the canvas snap switch entirely.
+ * paper tool rather than an annotation). How each tool behaves is set on its own settings page.
  */
 @Composable internal fun FloatingInkToolbar(
     onMainHeight: (Int) -> Unit = {},
     /** Height of everything the toolbar shows, quick bar included, for callers whose page must never sit under it. */
     onFullHeight: (Int) -> Unit = {},
     modifier: Modifier, tool: Tool, onTool: (Tool) -> Unit, options: ToolOptions, onOptions: (ToolOptions) -> Unit, quick: QuickColorsState,
-    canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, snapEnabled: Boolean, onSnap: ((Boolean) -> Unit)? = null, onPalette: (Boolean) -> Unit,
-    eraserSingleStroke: Boolean = false, onEraserSingleStroke: ((Boolean) -> Unit)? = null,
-    scribbleToErase: Boolean = true, onScribbleToErase: ((Boolean) -> Unit)? = null,
-    eraserPressureEnabled: Boolean = true, onEraserPressure: ((Boolean) -> Unit)? = null,
-    eraserWholeStroke: Boolean = false, onEraserWholeStroke: ((Boolean) -> Unit)? = null,
-    shapeMeasurements: Boolean = true, onShapeMeasurements: ((Boolean) -> Unit)? = null,
-    multiTouchUndo: Boolean = true, onMultiTouchUndo: ((Boolean) -> Unit)? = null,
+    canUndo: Boolean, canRedo: Boolean, undo: () -> Unit, redo: () -> Unit, palette: Boolean, onPalette: (Boolean) -> Unit,
     markAreaAvailable: Boolean = false,
     textColor: Int = 0, onTextColor: ((Int) -> Unit)? = null,
     presets: List<ToolPreset> = emptyList(), onApplyPreset: ((ToolPreset) -> Unit)? = null,
@@ -292,19 +281,6 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                     FolioMenuItem({ Text("${preset.name} · ${toolLabel(preset.tool).lowercase()}") }, { onApplyPreset(preset); close() },
                         leadingIcon = { Box(Modifier.size(14.dp).background(Color(preset.color), CircleShape)) })
                 }
-            }
-            // Everything that tunes how the tools behave is a switch in one place; the menu stays open while they are flipped.
-            SubmenuItem("Behaviour…", FolioIcons.Tune, sub == ToolSub.BEHAVIOUR, { openSub(ToolSub.BEHAVIOUR) }) {
-                MenuSectionHeader("Eraser")
-                BehaviourSwitch("Whole-stroke eraser", eraserWholeStroke, onEraserWholeStroke)
-                BehaviourSwitch("Single-stroke eraser", eraserSingleStroke, onEraserSingleStroke)
-                BehaviourSwitch("Eraser pressure", eraserPressureEnabled, onEraserPressure)
-                BehaviourSwitch("Scribble to erase", scribbleToErase, onScribbleToErase)
-                MenuSectionHeader("Shapes & gestures")
-                BehaviourSwitch("Snap to grid", snapEnabled, onSnap)
-                BehaviourSwitch("Measurements", shapeMeasurements, onShapeMeasurements)
-                BehaviourSwitch("Two-finger undo", multiTouchUndo, onMultiTouchUndo)
-                if (isShape) FolioMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, { onOptions(options.copy(style = options.style.next())) })
             }
             if (toolbarLayoutState != null) FolioMenuItem({ Text("Edit toolbar") }, { close(); editToolbar = true }, leadingIcon = { Icon(FolioIcons.Reorder, null) })
         }

@@ -249,16 +249,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         }
     }
     LaunchedEffect(tool) { if (appPrefs.getBoolean(AppPrefs.UX_LOCAL_TOOLS, AppPrefs.DEFAULT_UX_LOCAL_TOOLS) && temporaryTool == null) appPrefs.edit().putString(AppPrefs.UX_NOTE_TOOL_PREFIX + note.id, tool.name).apply() }
-    fun setSnap(v: Boolean) { appPrefs.edit().putBoolean("mathSnap", v).apply() }
-    // Eraser single-stroke + pressure + scribble-to-erase + whole-stroke + measurements + multitouch undo
-    fun setEraserSingleStroke(v: Boolean) {
-        appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_SINGLE_STROKE, v).apply()
-    }
-    fun setEraserPressure(v: Boolean) { appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_PRESSURE, v).apply() }
-    fun setScribbleToErase(v: Boolean) { appPrefs.edit().putBoolean(EditorQuickPrefs.SCRIBBLE_TO_ERASE, v).apply() }
-    fun setEraserWholeStroke(v: Boolean) { appPrefs.edit().putBoolean(EditorQuickPrefs.ERASER_WHOLE_STROKE, v).apply() }
-    fun setShapeMeasurements(v: Boolean) { appPrefs.edit().putBoolean(EditorQuickPrefs.SHAPE_MEASUREMENTS, v).apply() }
-    fun setMultiTouchUndo(v: Boolean) { appPrefs.edit().putBoolean(EditorQuickPrefs.MULTI_TOUCH_UNDO, v).apply() }
     // One encoded string, so the graph sheet and the page never disagree about the dressing.
     // Observe external pref changes (e.g. from ToolOptionsPanel): re-read when screen re-enters foreground
 
@@ -1403,15 +1393,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                     undo = { finishTextEditing(); undoEditor() },
                     redo = { finishTextEditing(); redoEditor() },
                     palette = palette,
-                    snapEnabled = snapEnabled,
-                    onSnap = ::setSnap,
                     onPalette = { palette = it },
-                    eraserSingleStroke = eraserSingleStroke, onEraserSingleStroke = ::setEraserSingleStroke,
-                    scribbleToErase = scribbleToErase, onScribbleToErase = ::setScribbleToErase,
-                    eraserPressureEnabled = eraserPressure, onEraserPressure = ::setEraserPressure,
-                    eraserWholeStroke = eraserWholeStroke, onEraserWholeStroke = ::setEraserWholeStroke,
-                    shapeMeasurements = shapeMeasurements, onShapeMeasurements = ::setShapeMeasurements,
-                    multiTouchUndo = multiTouchUndo, onMultiTouchUndo = ::setMultiTouchUndo,
                     textColor = textColor, onTextColor = ::setTextColor,
                     presets = toolPresets.presets, onApplyPreset = ::applyPreset,
                     toolPresetsState = toolPresets,
