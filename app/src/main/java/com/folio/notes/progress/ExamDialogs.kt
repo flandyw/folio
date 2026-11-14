@@ -1,13 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -160,7 +158,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                     ProgressCard("Question ${index + 1}") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(question.label, { updateQuestion(index, question.copy(label = it)) }, Modifier.weight(1f), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences), label = { Text("Question or section") }, singleLine = true)
-                            IconButton({ questionsRaw = JSONArray(JSONArray(questionsRaw).objects().filterIndexed { i, _ -> i != index }).toString() }) { Icon(Icons.Rounded.DeleteOutline, "Remove question ${index + 1}") }
+                            IconButton({ questionsRaw = JSONArray(JSONArray(questionsRaw).objects().filterIndexed { i, _ -> i != index }).toString() }) { Icon(FolioIcons.Delete, "Remove question ${index + 1}") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             OutlinedTextField(question.awarded, { updateQuestion(index, question.copy(awarded = it)) }, Modifier.weight(1f), label = { Text("Awarded") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next), singleLine = true)
@@ -173,7 +171,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                     }
                 }
                 OutlinedButton({ questionsRaw = JSONArray(questionsRaw).put(JSONObject().put("id", UUID.randomUUID().toString())
-                    .put("label", "Q${questions.size + 1}").put("marksAwarded", "0").put("maxMarks", "1").put("confidence", "medium")).toString() }) { Icon(Icons.Rounded.Add, null); Text("Add question") }
+                    .put("label", "Q${questions.size + 1}").put("marksAwarded", "0").put("maxMarks", "1").put("confidence", "medium")).toString() }) { Icon(FolioIcons.Plus, null); Text("Add question") }
                 TextButton({
                     val values = questions.mapNotNull { q -> val a = q.awarded.toDoubleOrNull(); val m = q.maximum.toDoubleOrNull()
                         if (a != null && m != null && a.isFinite() && m.isFinite() && m > 0 && a in 0.0..m) a to m else null }

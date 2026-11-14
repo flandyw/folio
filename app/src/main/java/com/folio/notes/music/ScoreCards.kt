@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.music
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -9,9 +10,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,7 +48,7 @@ import kotlinx.coroutines.withContext
             // A soft scrim keeps the star legible over busy engraving on the white cover.
             IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp2), shapes = IconButtonDefaults.shapes(),
                 colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = .68f))) {
-                Icon(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites",
+                Icon(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favorites" else "Add to favorites",
                     Modifier.size(21.dp).folioSelected(score.starred),
                     tint = if (score.starred) MaterialTheme.colorScheme.primary else Color(0xFF5F6368))
             }
@@ -68,8 +66,8 @@ import kotlinx.coroutines.withContext
 
 @Composable internal fun ScoreRow(score: MusicScore, model: MusicViewModel, modifier: Modifier, open: () -> Unit, star: () -> Unit, delete: () -> Unit, menu: @Composable () -> Unit) {
     FolioSwipeRow(modifier, shape = FolioShapes.large,
-        startToEnd = SwipeAction(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites", perform = star),
-        endToStart = SwipeAction(Icons.Rounded.DeleteOutline, "Delete score", destructive = true, perform = delete)) {
+        startToEnd = SwipeAction(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favorites" else "Add to favorites", perform = star),
+        endToStart = SwipeAction(FolioIcons.Delete, "Delete score", destructive = true, perform = delete)) {
     Surface(onClick = open, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Box {
             Row(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically,
@@ -80,7 +78,7 @@ import kotlinx.coroutines.withContext
                     Text(scoreMeta(score), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(star, shapes = IconButtonDefaults.shapes()) {
-                    Icon(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (score.starred) "Remove from favorites" else "Add to favorites",
+                    Icon(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favorites" else "Add to favorites",
                         Modifier.folioSelected(score.starred))
                 }
                 menu()
@@ -106,8 +104,8 @@ import kotlinx.coroutines.withContext
                 Text(score.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(scoreMeta(score), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton({ onUp?.invoke() }, enabled = onUp != null, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ArrowUpward, "Play ${score.title} earlier") }
-            IconButton({ onDown?.invoke() }, enabled = onDown != null, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ArrowDownward, "Play ${score.title} later") }
+            IconButton({ onUp?.invoke() }, enabled = onUp != null, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Up, "Play ${score.title} earlier") }
+            IconButton({ onDown?.invoke() }, enabled = onDown != null, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Down, "Play ${score.title} later") }
             menu()
         }
     }
@@ -117,17 +115,17 @@ import kotlinx.coroutines.withContext
     onExport: () -> Unit, onDelete: () -> Unit, onDuplicate: () -> Unit, onMove: () -> Unit, onRemoveFromSet: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${score.title}") }
+        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for ${score.title}") }
         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Score actions") {
-            FolioMenuItem({ Text("Details & rehearsal notes") }, { menu = false; onDetails() }, leadingIcon = { Icon(Icons.Rounded.EditNote, null) })
-            FolioMenuItem({ Text("Add to set list") }, { menu = false; onSets() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) })
-            FolioMenuItem({ Text("Move to folder") }, { menu = false; onMove() }, leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) })
-            FolioMenuItem({ Text("Duplicate score") }, { menu = false; onDuplicate() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+            FolioMenuItem({ Text("Details & rehearsal notes") }, { menu = false; onDetails() }, leadingIcon = { Icon(FolioIcons.EditNote, null) })
+            FolioMenuItem({ Text("Add to set list") }, { menu = false; onSets() }, leadingIcon = { Icon(FolioIcons.ListAdd, null) })
+            FolioMenuItem({ Text("Move to folder") }, { menu = false; onMove() }, leadingIcon = { Icon(FolioIcons.FolderOpen, null) })
+            FolioMenuItem({ Text("Duplicate score") }, { menu = false; onDuplicate() }, enabled = !busy, leadingIcon = { Icon(FolioIcons.Copy, null) })
             if (onRemoveFromSet != null) FolioMenuItem({ Text("Remove from this set list") }, { menu = false; onRemoveFromSet() },
-                leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) }, destructive = true)
-            FolioMenuItem({ Text("Extract instrument parts") }, { menu = false; onExtract() }, enabled = !busy, leadingIcon = { Icon(Icons.Rounded.ContentCut, null) })
-            FolioMenuItem({ Text("Export original PDF") }, { menu = false; onExport() }, leadingIcon = { Icon(Icons.Rounded.IosShare, null) })
-            FolioMenuItem({ Text("Delete") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+                leadingIcon = { Icon(FolioIcons.MinusCircle, null) }, destructive = true)
+            FolioMenuItem({ Text("Extract instrument parts") }, { menu = false; onExtract() }, enabled = !busy, leadingIcon = { Icon(FolioIcons.Cut, null) })
+            FolioMenuItem({ Text("Export original PDF") }, { menu = false; onExport() }, leadingIcon = { Icon(FolioIcons.Share, null) })
+            FolioMenuItem({ Text("Delete") }, { menu = false; onDelete() }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
         }
     }
 }
@@ -186,7 +184,7 @@ internal fun scoreMeta(score: MusicScore): String {
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, FolioShapes.medium)) {
             ManuscriptPage(Modifier.fillMaxSize())
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp8)) {
-                Icon(Icons.Rounded.MusicNote, null, Modifier.padding(FolioSpacing.dp6).size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(FolioIcons.Music, null, Modifier.padding(FolioSpacing.dp6).size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
             }
         }
     }

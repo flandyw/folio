@@ -1,12 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -61,7 +60,7 @@ import com.folio.notes.ui.rememberCustomCoverColors
                     modifier = Modifier.size(40.dp).semanticsLabel(if (on) "Cover colour ${index + 1}, selected" else "Cover colour ${index + 1}"),
                 ) {
                     if (on) Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = if (color.luminance() > .3f) Color(0xFF2E302B) else Color(0xFFF6F1E7))
+                        Icon(FolioIcons.Check, null, Modifier.size(18.dp), tint = if (color.luminance() > .3f) Color(0xFF2E302B) else Color(0xFFF6F1E7))
                     }
                 }
             }

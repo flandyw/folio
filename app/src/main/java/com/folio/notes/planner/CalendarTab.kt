@@ -2,6 +2,7 @@
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.planner
 
+import com.folio.notes.ui.FolioIcons
 import android.content.ClipData
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -11,17 +12,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.Replay
-import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -215,15 +205,15 @@ private class RowActions(val onTask: (String, String) -> Unit, val onEditTask: (
                 Text("CALENDAR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${month.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${month.year}", style = MaterialTheme.typography.headlineMedium)
-                    IconButton({ onShift(-1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous month") }
-                    IconButton({ onShift(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next month") }
+                    IconButton({ onShift(-1) }) { Icon(FolioIcons.ChevronLeft, "Previous month") }
+                    IconButton({ onShift(1) }) { Icon(FolioIcons.ChevronRight, "Next month") }
                 }
                 Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            OutlinedButton(onToday) { Icon(Icons.Rounded.Replay, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Today") }
-            OutlinedButton(onTimetable, enabled = enabled) { Icon(Icons.Rounded.Schedule, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Timetable") }
-            OutlinedButton(onAddTask, enabled = enabled) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Task") }
-            Button(onAddEvent, enabled = enabled) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add event") }
+            OutlinedButton(onToday) { Icon(FolioIcons.RotateLeft, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Today") }
+            OutlinedButton(onTimetable, enabled = enabled) { Icon(FolioIcons.Clock, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Timetable") }
+            OutlinedButton(onAddTask, enabled = enabled) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Task") }
+            Button(onAddEvent, enabled = enabled) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add event") }
         }
         HorizontalDivider()
     }
@@ -323,8 +313,8 @@ private const val CELL_LINES = 3
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Row(verticalAlignment = Alignment.Top) {
                 Text(dayTitle(day, today), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                IconButton({ onShift(-1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous day") }
-                IconButton({ onShift(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next day") }
+                IconButton({ onShift(-1) }) { Icon(FolioIcons.ChevronLeft, "Previous day") }
+                IconButton({ onShift(1) }) { Icon(FolioIcons.ChevronRight, "Next day") }
             }
             Text(listOfNotNull(if (plan.totalCount > 0) "${plan.completedCount} of ${plan.totalCount} done" else "Nothing planned",
                 plan.plannedMinutes.takeIf { it > 0 }?.let { "${formatMinutes(it)} to go" }, plan.completedMinutes.takeIf { it > 0 }?.let { "${formatMinutes(it)} banked" },
@@ -342,7 +332,7 @@ private const val CELL_LINES = 3
             if (open.isNotEmpty()) DaySection("To do", open.size) { open.forEach { DayItemRow(it, actions) } }
             else Column(Modifier.fillMaxWidth().clip(FolioShapes.large).background(MaterialTheme.colorScheme.surfaceContainer).padding(FolioSpacing.dp24),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                Icon(Icons.Rounded.CalendarMonth, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(FolioIcons.Calendar, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if (banked.isNotEmpty()) "All done" else "Nothing planned", style = MaterialTheme.typography.titleSmall)
                 Text(if (banked.isNotEmpty()) "Everything on this day is finished." else "Add an event or task, or plan study in the timeline below.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -407,10 +397,10 @@ private const val CELL_LINES = 3
         when (item.kind) {
             Calendar.Kind.TASK -> {
                 if (item.skipped) Badge("Skipped")
-                if (item.done || item.skipped) IconButton({ a.onTask(item.id, "planned") }, enabled = a.enabled) { Icon(Icons.Rounded.Replay, "Reopen ${item.title}") }
-                else IconButton({ a.onTask(item.id, "completed") }, enabled = a.enabled) { Icon(Icons.Rounded.Check, "Mark ${item.title} done") }
+                if (item.done || item.skipped) IconButton({ a.onTask(item.id, "planned") }, enabled = a.enabled) { Icon(FolioIcons.RotateLeft, "Reopen ${item.title}") }
+                else IconButton({ a.onTask(item.id, "completed") }, enabled = a.enabled) { Icon(FolioIcons.Check, "Mark ${item.title} done") }
                 Box {
-                    IconButton({ menu = true }, enabled = a.enabled) { Icon(Icons.Rounded.MoreHoriz, "More actions for ${item.title}") }
+                    IconButton({ menu = true }, enabled = a.enabled) { Icon(FolioIcons.More, "More actions for ${item.title}") }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem({ Text("Edit or move") }, { menu = false; a.onEditTask(item.id) })
                         if (!item.done && !item.skipped) DropdownMenuItem({ Text("Skip") }, { menu = false; a.onTask(item.id, "skipped") })
@@ -420,12 +410,12 @@ private const val CELL_LINES = 3
             }
             Calendar.Kind.EVENT -> {
                 Badge(item.detail.substringBefore(" · ").ifEmpty { "Event" })
-                if (item.done) IconButton({ a.onEvent(item.id, false) }, enabled = a.enabled) { Icon(Icons.Rounded.Replay, "Mark ${item.title} not done") }
-                else IconButton({ a.onEvent(item.id, true) }, enabled = a.enabled) { Icon(Icons.Rounded.Check, "Mark ${item.title} done") }
+                if (item.done) IconButton({ a.onEvent(item.id, false) }, enabled = a.enabled) { Icon(FolioIcons.RotateLeft, "Mark ${item.title} not done") }
+                else IconButton({ a.onEvent(item.id, true) }, enabled = a.enabled) { Icon(FolioIcons.Check, "Mark ${item.title} done") }
             }
             Calendar.Kind.SAC -> { Badge("SAC"); TextButton(a.onSacs) { Text("Open") } }
             Calendar.Kind.SESSION -> if (item.live) Badge("Studying", filled = true) else if (item.done) Badge("Done", filled = true)
-                else OutlinedButton(a.onStudy) { Icon(Icons.Rounded.Timer, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Start") }
+                else OutlinedButton(a.onStudy) { Icon(FolioIcons.Timer, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Start") }
             Calendar.Kind.REVIEW -> TextButton(a.onMistakes) { Text("Review") }
             Calendar.Kind.LOGGED -> Badge("Logged exam")
         }
@@ -502,7 +492,7 @@ private const val CELL_LINES = 3
         Text(if (current == null) "No timetable yet." else "Replace the timetable (${current.optInt("cycleLength", 10)}-day cycle). Holidays set in Focal are kept.", style = MaterialTheme.typography.bodyMedium)
         Text("Attach a screenshot of your timetable to any chatbot with this prompt, then paste its JSON reply.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Timetable prompt", Calendar.SCREENSHOT_PROMPT))); copied = true } }) {
-            Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
+            Icon(FolioIcons.Copy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
         DateField("Day 1 starts", day1) { day1 = it }
         OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Timetable JSON") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false), minLines = 4, maxLines = 10)
     }

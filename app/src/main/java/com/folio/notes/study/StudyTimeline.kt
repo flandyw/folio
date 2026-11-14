@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,16 +13,6 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentCut
-import androidx.compose.material.icons.rounded.Merge
-import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -438,8 +429,8 @@ internal fun StudyTimeline(
     }
     val dayNav: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ epochDay-- }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous day") }
-            IconButton({ epochDay++ }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next day") }
+            IconButton({ epochDay-- }) { Icon(FolioIcons.ChevronLeft, "Previous day") }
+            IconButton({ epochDay++ }) { Icon(FolioIcons.ChevronRight, "Next day") }
             if (!isToday) TextButton({ epochDay = today.toEpochDay() }) { Text("Today") }
         }
     }
@@ -455,13 +446,13 @@ internal fun StudyTimeline(
     }
     val zoom: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalIconToggleButton(picking, { pick(it) }) { Icon(Icons.Rounded.SelectAll, "Select blocks to merge") }
+            FilledTonalIconToggleButton(picking, { pick(it) }) { Icon(FolioIcons.SelectAll, "Select blocks to merge") }
             FilledTonalIconToggleButton(razor, {
                 razor = it; draft = null; selected = null; cut = null; picking = false; picks = emptySet()
                 message = if (it) "Razor: tap a block to place the cut, drag the tag to fine-tune, tick to split." else null
-            }) { Icon(Icons.Rounded.ContentCut, "Razor tool: split a study block") }
-            OutlinedIconButton({ zoomBy(2f) }, enabled = span < DAY) { Icon(Icons.Rounded.Remove, "Zoom out") }
-            OutlinedIconButton({ zoomBy(.5f) }, enabled = span > MIN_SPAN) { Icon(Icons.Rounded.Add, "Zoom in") }
+            }) { Icon(FolioIcons.Cut, "Razor tool: split a study block") }
+            OutlinedIconButton({ zoomBy(2f) }, enabled = span < DAY) { Icon(FolioIcons.Minus, "Zoom out") }
+            OutlinedIconButton({ zoomBy(.5f) }, enabled = span > MIN_SPAN) { Icon(FolioIcons.Plus, "Zoom in") }
             TextButton({ view = null }, enabled = view != null) { Text("Fit") }
             TextButton({ view = Span(0f, DAY) }, enabled = span < DAY) { Text("24h") }
             if (isToday) TextButton({ view = clampWindow(Span(nowMin - span / 2f, nowMin + span / 2f)) }) { Text("Now") }
@@ -649,7 +640,7 @@ internal fun StudyTimeline(
                             Box(Modifier.align(side).padding(horizontal = if (room >= 14.dp) 4.dp else 0.dp)
                                 .width(3.dp).height(18.dp).background(text.copy(alpha = .5f), CircleShape))
                         }
-                        if (picked && room >= 24.dp) Icon(Icons.Rounded.Check, null, Modifier.align(Alignment.TopEnd).padding(2.dp).size(14.dp)
+                        if (picked && room >= 24.dp) Icon(FolioIcons.Check, null, Modifier.align(Alignment.TopEnd).padding(2.dp).size(14.dp)
                             .background(scheme.primary, CircleShape).padding(1.dp), tint = scheme.onPrimary)
                     }
                 }
@@ -689,7 +680,7 @@ internal fun StudyTimeline(
                                 .padding(start = 8.dp, end = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(clock(minute.roundToInt().toFloat()), style = MaterialTheme.typography.labelSmall, color = scheme.inverseOnSurface, maxLines = 1)
-                                Icon(Icons.Rounded.Check, "Split here", Modifier.size(14.dp), tint = scheme.inverseOnSurface)
+                                Icon(FolioIcons.Check, "Split here", Modifier.size(14.dp), tint = scheme.inverseOnSurface)
                             }
                         }
                     }
@@ -757,10 +748,10 @@ internal fun StudyTimeline(
                         }
                         if (picks.isNotEmpty()) TextButton({ picks = emptySet() }, enabled = !merging) { Text("Clear") }
                         Button({ merge(picks) }, enabled = !merging && picks.size >= 2 && refusal == null) {
-                            Icon(Icons.Rounded.Merge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                            Icon(FolioIcons.Merge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
                             Text(if (merging) "Merging…" else "Merge")
                         }
-                        IconButton({ pick(false) }, enabled = !merging) { Icon(Icons.Rounded.Close, "Stop selecting") }
+                        IconButton({ pick(false) }, enabled = !merging) { Icon(FolioIcons.Close, "Stop selecting") }
                     }
                 }
             }
@@ -792,7 +783,7 @@ internal fun StudyTimeline(
                                 val about = if (entry.planned) focalPlanDetails(entry).first else entry.notes
                                 if (about.isNotBlank()) Text(about.trim(), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
-                            if (!compact) IconButton({ selected = null }) { Icon(Icons.Rounded.Close, "Close details") }
+                            if (!compact) IconButton({ selected = null }) { Icon(FolioIcons.Close, "Close details") }
                         }
                     }) { modifier ->
                         FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, if (compact) Alignment.End else Alignment.Start),
@@ -837,7 +828,7 @@ internal fun StudyTimeline(
                                     colors = ButtonDefaults.buttonColors(containerColor = scheme.error, contentColor = scheme.onError)) { Text("Remove for good?") }
                                 else OutlinedButton({ confirmRemove = true }) { Text("Remove") }
                             }
-                            if (compact) IconButton({ selected = null }) { Icon(Icons.Rounded.Close, "Close details") }
+                            if (compact) IconButton({ selected = null }) { Icon(FolioIcons.Close, "Close details") }
                         }
                     }
                 }
@@ -852,7 +843,7 @@ internal fun StudyTimeline(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${if (done) "Log" else "Schedule"} ${clock(range.start)}–${clock(range.end)} · ${duration(range.end - range.start)}",
                                 Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            IconButton({ draft = null }) { Icon(Icons.Rounded.Close, "Cancel") }
+                            IconButton({ draft = null }) { Icon(FolioIcons.Close, "Cancel") }
                         }
                         val subjectName = subjects.firstOrNull { it.id == subjectId }?.name
                         Split(compact, Modifier, { modifier -> Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {

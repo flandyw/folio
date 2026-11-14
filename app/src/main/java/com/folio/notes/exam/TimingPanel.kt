@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.exam
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,11 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material.icons.rounded.HourglassEmpty
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,11 +69,11 @@ internal fun TimingPanel(
             }
             FilterChip(
                 selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                label = { Text(examState?.let { "Exam timer · $it" } ?: "Exam timer") }, leadingIcon = { Icon(Icons.Rounded.Timer, null) }
+                label = { Text(examState?.let { "Exam timer · $it" } ?: "Exam timer") }, leadingIcon = { Icon(FolioIcons.Timer, null) }
             )
             FilterChip(
                 selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                label = { Text(studyState?.let { "Study stopwatch · $it" } ?: "Study stopwatch") }, leadingIcon = { Icon(Icons.Rounded.HourglassEmpty, null) }
+                label = { Text(studyState?.let { "Study stopwatch · $it" } ?: "Study stopwatch") }, leadingIcon = { Icon(FolioIcons.HourglassEmpty, null) }
             )
         }
         Box(Modifier.weight(1f, fill = false).folioEntrance(selectedTab)) {
@@ -133,7 +129,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Icon(Icons.Rounded.PlayArrow, "Start ${preset.label}")
+                                Icon(FolioIcons.Play, "Start ${preset.label}")
                             }
                         }
                     }
@@ -189,7 +185,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                         }
                     }
                     Button(onPauseResume, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                        Icon(if (timer.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
+                        Icon(if (timer.paused) FolioIcons.Play else FolioIcons.Pause, null)
                         Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (timer.paused) "Resume timer" else "Pause timer")
                     }

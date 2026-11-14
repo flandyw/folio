@@ -3,6 +3,7 @@
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -18,9 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,9 +55,9 @@ import java.util.Locale
 
 /** How the due queue (and therefore the next session) is ordered. */
 internal enum class TodayOrder(val label: String, val icon: ImageVector) {
-    OLDEST("Oldest", Icons.Rounded.History),
-    NEWEST("Newest", Icons.Rounded.Update),
-    SHUFFLE("Shuffle", Icons.Rounded.Shuffle),
+    OLDEST("Oldest", FolioIcons.History),
+    NEWEST("Newest", FolioIcons.History),
+    SHUFFLE("Shuffle", FolioIcons.Shuffle),
 }
 
 /** Session lengths offered on Today; [Int.MAX_VALUE] is "every due question". */
@@ -193,15 +191,15 @@ private fun LazyGridScope.todayQueue(content: TodayContent, actions: TodayAction
     )
     val resumeIds = content.resume.map { it.id }.toSet()
     if (content.resume.isNotEmpty()) {
-        span { QueueHeading("Continue where you left off", content.resume.size, Icons.Rounded.EditNote) }
+        span { QueueHeading("Continue where you left off", content.resume.size, FolioIcons.EditNote) }
         items(content.resume, key = { "resume-${it.id}" }) { Card(it, true, QueueKind.RESUME) }
     }
     if (content.overdue.isNotEmpty()) {
-        span { QueueHeading("Overdue", content.overdue.size, Icons.Rounded.EventBusy, urgent = true) }
+        span { QueueHeading("Overdue", content.overdue.size, FolioIcons.CalendarOff, urgent = true) }
         items(content.overdue, key = { "overdue-${it.id}" }) { Card(it, it.id in resumeIds, QueueKind.OVERDUE) }
     }
     if (content.dueToday.isNotEmpty()) {
-        span { QueueHeading("Due today", content.dueToday.size, Icons.Rounded.Today) }
+        span { QueueHeading("Due today", content.dueToday.size, FolioIcons.Today) }
         items(content.dueToday, key = { "today-${it.id}" }) { Card(it, it.id in resumeIds, QueueKind.DUE) }
     }
     if (showEmpty && content.due == 0 && content.resume.isEmpty()) span { QueueEmpty(content, actions.onBrowse) }
@@ -266,10 +264,10 @@ private fun TodayQueueCard(
             ) {
                 ShapeBadge(badgeShape, badgeColor, badgeContent, Modifier.size(48.dp)) {
                     when {
-                        kind == QueueKind.RESUME -> Icon(Icons.Rounded.EditNote, null, Modifier.size(22.dp))
+                        kind == QueueKind.RESUME -> Icon(FolioIcons.EditNote, null, Modifier.size(22.dp))
                         kind == QueueKind.OVERDUE && overdueDays > 0 ->
                             Text("${overdueDays}d", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        else -> Icon(Icons.Rounded.Today, null, Modifier.size(22.dp))
+                        else -> Icon(FolioIcons.Today, null, Modifier.size(22.dp))
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
@@ -281,19 +279,19 @@ private fun TodayQueueCard(
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 FilledTonalIconButton(hold.click(onPractice), enabled = !working, shapes = IconButtonDefaults.shapes()) {
-                    Icon(if (resume) Icons.Rounded.Edit else Icons.Rounded.PlayArrow,
+                    Icon(if (resume) FolioIcons.Pen else FolioIcons.Play,
                         if (resume) "Continue this question" else "Practise this question")
                 }
             }
         }
         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Review card") {
-            FolioMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
+            FolioMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(FolioIcons.Forward, null) })
             FolioMenuItem(
                 { Text(if (resume) "Continue review" else "Practise this question") },
                 { menu = false; onPractice() },
-                leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                leadingIcon = { Icon(FolioIcons.Pen, null) },
             )
-            FolioMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+            FolioMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
         }
     }
 }
@@ -307,7 +305,7 @@ private fun QueueEmpty(content: TodayContent, onBrowse: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
     ) {
         ShapeBadge(MaterialShapes.Cookie12Sided.toShape(), scheme.secondaryContainer, scheme.onSecondaryContainer, Modifier.size(112.dp)) {
-            Icon(if (content.totalCards == 0) Icons.Rounded.School else Icons.Rounded.DoneAll, null, Modifier.size(44.dp))
+            Icon(if (content.totalCards == 0) FolioIcons.School else FolioIcons.CheckAll, null, Modifier.size(44.dp))
         }
         Text(if (content.totalCards == 0) "Your queue starts here" else "The queue is clear",
             style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
@@ -318,7 +316,7 @@ private fun QueueEmpty(content: TodayContent, onBrowse: () -> Unit) {
         )
         if (content.totalCards > 0) TextButton(onBrowse, shapes = ButtonDefaults.shapes()) {
             Text("Browse the library"); Spacer(Modifier.width(FolioSpacing.dp8))
-            Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Forward, null, Modifier.size(18.dp))
         }
     }
 }
@@ -401,7 +399,7 @@ private fun TodaySessionCard(content: TodayContent, actions: TodayActions, modif
                     contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.MediumContainerHeight),
                 ) {
                     if (content.working) LoadingIndicator(Modifier.size(24.dp))
-                    else Icon(Icons.Rounded.PlayArrow, null, Modifier.size(ButtonDefaults.iconSizeFor(ButtonDefaults.MediumContainerHeight)))
+                    else Icon(FolioIcons.Play, null, Modifier.size(ButtonDefaults.iconSizeFor(ButtonDefaults.MediumContainerHeight)))
                     Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(
                         when {
@@ -414,7 +412,7 @@ private fun TodaySessionCard(content: TodayContent, actions: TodayActions, modif
                 }
             } else if (content.totalCards > 0) FilledTonalButton(actions.onBrowse, shapes = ButtonDefaults.shapes()) {
                 Text("Browse the library"); Spacer(Modifier.width(FolioSpacing.dp8))
-                Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+                Icon(FolioIcons.Forward, null, Modifier.size(18.dp))
             }
         }
     }
@@ -440,11 +438,11 @@ private fun TodayRing(content: TodayContent) {
     Box(Modifier.size(96.dp).clearAndSetSemantics { contentDescription = description }, contentAlignment = Alignment.Center) {
         if (content.totalCards == 0) {
             ShapeBadge(MaterialShapes.Cookie9Sided.toShape(), scheme.primary, scheme.onPrimary, Modifier.fillMaxSize()) {
-                Icon(Icons.Rounded.School, null, Modifier.size(40.dp))
+                Icon(FolioIcons.School, null, Modifier.size(40.dp))
             }
         } else if (done >= goal) {
             ShapeBadge(MaterialShapes.Sunny.toShape(), scheme.primary, scheme.onPrimary, Modifier.fillMaxSize()) {
-                Icon(Icons.Rounded.Check, null, Modifier.size(44.dp))
+                Icon(FolioIcons.Check, null, Modifier.size(44.dp))
             }
         } else {
             CircularWavyProgressIndicator(
@@ -471,7 +469,7 @@ private fun SessionDone(completed: Int, tally: String, pending: Int, onDismiss: 
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
         ) {
             ShapeBadge(MaterialShapes.Sunny.toShape(), scheme.tertiary, scheme.onTertiary, Modifier.size(40.dp)) {
-                Icon(Icons.Rounded.Check, null, Modifier.size(22.dp))
+                Icon(FolioIcons.Check, null, Modifier.size(22.dp))
             }
             Column(Modifier.weight(1f)) {
                 Text("Session complete", style = MaterialTheme.typography.titleSmall)
@@ -482,7 +480,7 @@ private fun SessionDone(completed: Int, tally: String, pending: Int, onDismiss: 
                 )
                 if (tally.isNotEmpty()) Text(tally, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             }
-            IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Dismiss") }
+            IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Dismiss") }
         }
     }
 }
@@ -526,10 +524,10 @@ private fun <T> ConnectedChoice(
 @Composable
 private fun TodayStatsRow(stats: TodayStats, total: Int, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        StatTile(Icons.Rounded.TaskAlt, "${stats.reviewedToday}", "Reviewed today", Modifier.weight(1f).fillMaxHeight())
-        StatTile(Icons.Rounded.LocalFireDepartment, "${stats.streak}", "Day streak",
+        StatTile(FolioIcons.CheckCircle, "${stats.reviewedToday}", "Reviewed today", Modifier.weight(1f).fillMaxHeight())
+        StatTile(FolioIcons.Flame, "${stats.streak}", "Day streak",
             Modifier.weight(1f).fillMaxHeight())
-        StatTile(Icons.Rounded.Style, "$total", "In library", Modifier.weight(1f).fillMaxHeight())
+        StatTile(FolioIcons.Palette, "$total", "In library", Modifier.weight(1f).fillMaxHeight())
     }
 }
 

@@ -1,14 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -127,7 +125,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 StatusPill("$selected of ${shown.size} selected", strong = selected > 0)
-                if (likely > 0) StatusPill("$likely likely logged", Icons.Rounded.ContentCopy)
+                if (likely > 0) StatusPill("$likely likely logged", FolioIcons.Copy)
                 Spacer(Modifier.weight(1f))
                 TextButton({ val all = selected < shown.size; shown.forEach { update(it.id) { d -> d.copy(include = all) } } }, enabled = !busy && shown.isNotEmpty()) {
                     Text(if (selected < shown.size) "Select all" else "Select none")
@@ -148,13 +146,13 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             IconButton({ expanded = if (open) null else d.id }) {
-                                Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.Edit, if (open) "Hide editor" else "Edit ${d.title}")
+                                Icon(if (open) FolioIcons.ChevronUp else FolioIcons.Pen, if (open) "Hide editor" else "Edit ${d.title}")
                             }
                             if (onDismissResult != null) IconButton({
                                 if (expanded == d.id) expanded = null; error = null
                                 onDismissResult(d.id)
                             }, enabled = !busy) {
-                                Icon(Icons.Rounded.Close, "Dismiss ${d.title}")
+                                Icon(FolioIcons.Close, "Dismiss ${d.title}")
                             }
                         }
                         if (match != null) MatchNotice(match)
@@ -191,7 +189,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             IconButton({ error = null; onRestoreResult(d.id) }, enabled = !busy) {
-                                Icon(Icons.Rounded.Restore, "Restore ${d.title}")
+                                Icon(FolioIcons.History, "Restore ${d.title}")
                             }
                         }
                     }
@@ -219,7 +217,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
         contentColor = if (likely) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(if (likely) Icons.Rounded.ContentCopy else Icons.AutoMirrored.Rounded.HelpOutline, null, Modifier.size(16.dp))
+                Icon(if (likely) FolioIcons.Copy else FolioIcons.Help, null, Modifier.size(16.dp))
                 Text("${if (likely) "Likely already logged" else "Possible match"} · ${(match.confidence * 100).roundToInt()}% sure",
                     style = MaterialTheme.typography.labelLarge)
             }

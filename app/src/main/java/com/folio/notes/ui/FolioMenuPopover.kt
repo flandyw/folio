@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -155,7 +153,7 @@ import com.folio.notes.input.guardUiTouches
             Box(Modifier.weight(1f)) {
                 ProvideTextStyle(MaterialTheme.typography.bodyLarge.copy(fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)) { text() }
             }
-            if (active) Icon(Icons.Rounded.Check, null, Modifier.size(20.dp))
+            if (active) Icon(FolioIcons.Check, null, Modifier.size(20.dp))
             else if (trailingIcon != null) Box(contentAlignment = Alignment.Center) { trailingIcon() }
         }
     }

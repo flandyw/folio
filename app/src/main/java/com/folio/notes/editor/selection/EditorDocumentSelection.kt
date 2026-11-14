@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.selection
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -13,7 +14,6 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.EditorInteractionState
 import com.folio.notes.editor.SelectionPlacementPanel
 import com.folio.notes.editor.layout.DocumentInputCoordinator
-import com.folio.notes.editor.toolbar.EditorIcons
 import com.folio.notes.ink.recognition.HandwritingTidyPanel
 import com.folio.notes.ink.recognition.InkConversionDraft
 import com.folio.notes.ink.recognition.InkConversionPreview
@@ -57,21 +57,21 @@ import kotlinx.coroutines.launch
     }
     ContextBar("Selection options", modifier = modifier,
         actions = listOfNotNull(
-            MenuAction(EditorIcons.Copy, "Copy", onClick = input::copySelection),
-            MenuAction(EditorIcons.Duplicate, "Duplicate", onClick = input::duplicateSelection),
-            if (ink.isNotEmpty()) MenuAction(EditorIcons.Style, "Colour and width") { restyling = true } else null,
-            MenuAction(EditorIcons.Delete, "Delete", destructive = true, onClick = input::deleteSelection)),
-        more = listOf(MenuAction(EditorIcons.Align, "Align and distribute…") { aligning = true }) +
+            MenuAction(FolioIcons.Copy, "Copy", onClick = input::copySelection),
+            MenuAction(FolioIcons.Duplicate, "Duplicate", onClick = input::duplicateSelection),
+            if (ink.isNotEmpty()) MenuAction(FolioIcons.Style, "Colour and width") { restyling = true } else null,
+            MenuAction(FolioIcons.Delete, "Delete", destructive = true, onClick = input::deleteSelection)),
+        more = listOf(MenuAction(FolioIcons.Align, "Align and distribute…") { aligning = true }) +
             (if (ink.isEmpty()) emptyList() else listOf(
-                MenuAction(EditorIcons.Tidy, "Tidy up shapes…") { tidying = true },
-                MenuAction(EditorIcons.Handwriting, "Tidy up handwriting…") { tidyingWriting = true },
-                MenuAction(EditorIcons.ToText, if (converting) "Reading handwriting…" else "Convert handwriting to text", !converting, onClick = ::convert))) +
+                MenuAction(FolioIcons.Tidy, "Tidy up shapes…") { tidying = true },
+                MenuAction(FolioIcons.Handwriting, "Tidy up handwriting…") { tidyingWriting = true },
+                MenuAction(FolioIcons.ToText, if (converting) "Reading handwriting…" else "Convert handwriting to text", !converting, onClick = ::convert))) +
             listOf(
-                MenuAction(EditorIcons.RotateRight, "Rotate 90°") { input.transformSelection(1f, 90f) },
-                MenuAction(EditorIcons.Resize, "Resize…") { resizing = true },
-                MenuAction(EditorIcons.MoveToPage, "Move to page…") { moving = true },
+                MenuAction(FolioIcons.RotateRight, "Rotate 90°") { input.transformSelection(1f, 90f) },
+                MenuAction(FolioIcons.Resize, "Resize…") { resizing = true },
+                MenuAction(FolioIcons.MoveToPage, "Move to page…") { moving = true },
                 null,
-                MenuAction(EditorIcons.Close, "Deselect", onClick = input::clearSelection)),
+                MenuAction(FolioIcons.Close, "Deselect", onClick = input::clearSelection)),
         lead = {
             Text(if (pages > 1) "$count selected · $pages pages" else "$count selected", Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp8),
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)

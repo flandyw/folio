@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.backup
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,8 +9,6 @@ import com.folio.notes.library.matchesQuery
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,7 +41,7 @@ import com.folio.notes.ui.FolioSpacing
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; keyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear notebook search") } })
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; keyboard?.hide() }) { Icon(FolioIcons.Close, "Clear notebook search") } })
             if (visible.isEmpty()) {
                 Text(if (notes.isEmpty()) "No notebooks yet." else "No notebooks match “${query.trim()}”.", Modifier.padding(vertical = FolioSpacing.dp12))
                 if (query.isNotBlank()) TextButton({ query = "" }) { Text("Show all notebooks") }

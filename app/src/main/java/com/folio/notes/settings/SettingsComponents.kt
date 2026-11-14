@@ -1,15 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.settings
 
+import com.folio.notes.ui.FolioIcons
 import android.content.SharedPreferences
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -109,7 +107,7 @@ private val RowPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical 
     if (!visible) return
     val hold = rememberLongPressGuard()
     IconButton(onClick = { hold.click(onReset)() }, modifier = Modifier.size(48.dp)) {
-        Icon(Icons.Rounded.RestartAlt, "Reset $title to default", Modifier.size(20.dp))
+        Icon(FolioIcons.RotateLeft, "Reset $title to default", Modifier.size(20.dp))
     }
 }
 
@@ -133,7 +131,7 @@ private val RowPadding = PaddingValues(horizontal = FolioSpacing.dp16, vertical 
         RowText(title, subtitle, enabled, Modifier.weight(1f))
         when {
             trailing != null -> trailing()
-            onClick != null -> Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            onClick != null -> Icon(FolioIcons.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

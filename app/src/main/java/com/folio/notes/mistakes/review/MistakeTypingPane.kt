@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes.review
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -16,9 +17,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -97,7 +95,7 @@ import com.folio.notes.ui.FolioSpacing
         .padding(top = if (compact) FolioSpacing.dp4 else FolioSpacing.dp12, bottom = FolioSpacing.dp8),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         if (!editable) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp), tint = colors.error)
+            Icon(FolioIcons.Lock, null, Modifier.size(16.dp), tint = colors.error)
             Text("This answer is on a hidden or locked layer. Switch to Write to unlock it.",
                 style = MaterialTheme.typography.bodySmall, color = colors.error)
         }
@@ -169,14 +167,14 @@ import com.folio.notes.ui.FolioSpacing
         val words = MistakeTypedResponse.words(text)
         when {
             state.saveFailed -> {
-                Icon(Icons.Rounded.ErrorOutline, null, Modifier.size(16.dp), tint = colors.error)
+                Icon(FolioIcons.Alert, null, Modifier.size(16.dp), tint = colors.error)
                 Text("Not saved", style = MaterialTheme.typography.labelMedium, color = colors.error)
                 TextButton(onRetry, enabled = !state.retryingSave && !busy, shapes = ButtonDefaults.shapes()) {
                     Text(if (state.retryingSave) "Retrying…" else "Retry save")
                 }
             }
             else -> {
-                Icon(if (state.saving) Icons.Rounded.CloudSync else Icons.Rounded.Check, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+                Icon(if (state.saving) FolioIcons.CloudSync else FolioIcons.Check, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
                 Text(when {
                     state.saving -> "Saving…"
                     words == 0 -> "Saves as you type"
@@ -188,10 +186,10 @@ import com.folio.notes.ui.FolioSpacing
         SingleChoiceSegmentedButtonRow {
             SegmentedButton(selected = !preview, onClick = { onPreview(false) }, enabled = !busy,
                 shape = SegmentedButtonDefaults.itemShape(0, 2),
-                icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) }) { Text("Edit") }
+                icon = { Icon(FolioIcons.Pen, null, Modifier.size(16.dp)) }) { Text("Edit") }
             SegmentedButton(selected = preview, onClick = { onPreview(true) }, enabled = !busy && text.isNotBlank(),
                 shape = SegmentedButtonDefaults.itemShape(1, 2),
-                icon = { Icon(Icons.Rounded.Visibility, null, Modifier.size(16.dp)) }) { Text("Preview") }
+                icon = { Icon(FolioIcons.Visible, null, Modifier.size(16.dp)) }) { Text("Preview") }
         }
     }
 }
@@ -204,13 +202,13 @@ import com.folio.notes.ui.FolioSpacing
         val keyModifier = Modifier.focusProperties { canFocus = false }
         FilledTonalButton({ onInsert(TypingBar.MATHS) }, modifier = keyModifier.heightIn(min = 40.dp),
             contentPadding = PaddingValues(horizontal = FolioSpacing.dp12), shapes = ButtonDefaults.shapes()) {
-            Icon(if (inMaths) Icons.Rounded.KeyboardTab else Icons.Rounded.Functions, null, Modifier.size(18.dp))
+            Icon(if (inMaths) FolioIcons.Tab else FolioIcons.Sigma, null, Modifier.size(18.dp))
             Spacer(Modifier.width(FolioSpacing.dp6))
             Text(if (inMaths) "Leave maths" else "Maths")
         }
         OutlinedButton(onList, modifier = keyModifier.heightIn(min = 40.dp), contentPadding = PaddingValues(horizontal = FolioSpacing.dp12),
             shapes = ButtonDefaults.shapes()) {
-            Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "Bulleted list", Modifier.size(18.dp))
+            Icon(FolioIcons.Bullets, "Bulleted list", Modifier.size(18.dp))
         }
         VerticalDivider(Modifier.height(24.dp))
         TypingBar.snippets.forEach { snippet ->

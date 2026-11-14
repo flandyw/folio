@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.music
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -11,11 +12,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.CallMerge
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,7 +72,7 @@ import kotlinx.coroutines.withContext
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     IconButton({ model.dismissReview(source.id) }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Close, if (review.existing) "Cancel" else "Skip this PDF")
+                        Icon(FolioIcons.Close, if (review.existing) "Cancel" else "Skip this PDF")
                     }
                 }
                 FolioExpand(busy) { LinearWavyProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24)) }
@@ -91,7 +87,7 @@ import kotlinx.coroutines.withContext
                                 EditorGlassSurface {
                                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                                         IconButton({ preview(previewPage - 1) }, enabled = previewPage > 0) {
-                                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous PDF page")
+                                            Icon(FolioIcons.ChevronLeft, "Previous PDF page")
                                         }
                                         Column(Modifier.widthIn(min = 120.dp).padding(horizontal = FolioSpacing.dp4), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("PDF page ${previewPage + 1} of ${source.pages}", style = MaterialTheme.typography.labelLarge)
@@ -100,7 +96,7 @@ import kotlinx.coroutines.withContext
                                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
                                         }
                                         IconButton({ preview(previewPage + 1) }, enabled = previewPage < source.pages - 1) {
-                                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next PDF page")
+                                            Icon(FolioIcons.ChevronRight, "Next PDF page")
                                         }
                                     }
                                 }
@@ -144,7 +140,7 @@ import kotlinx.coroutines.withContext
                                     }
                                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                                         Row(Modifier.padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                                            Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                            Icon(FolioIcons.Sparkle, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                                 Text(review.notice, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
                                                 Text("Page numbers count every PDF page, covers included. Parts are whole pages, not single staves.",
@@ -174,7 +170,7 @@ import kotlinx.coroutines.withContext
                                             TextButton({
                                                 if (!busy && parsed[index].isSuccess) { activePart = index; parsed[index].getOrNull()?.firstOrNull()?.let(::preview) }
                                             }, enabled = !busy && parsed[index].isSuccess, shapes = ButtonDefaults.shapes()) {
-                                                Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Show")
+                                                Icon(FolioIcons.Visible, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Show")
                                             }
                                         }
                                         review.suggestions.find { it.instrument == instruments[index] && MusicParts.pageLabel(it.pages) == ranges[index] }?.takeIf { it.inferredPages > 0 }?.let {
@@ -220,10 +216,10 @@ import kotlinx.coroutines.withContext
                                         instruments = instruments + ""; titles = titles + source.title; ranges = ranges + ""; checked = checked + true
                                         activePart = instruments.lastIndex
                                     }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
-                                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a custom part")
+                                        Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add a custom part")
                                     }
                                     if (!review.existing) TextButton({ model.keepWhole(source.id) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
-                                        Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Keep the complete PDF instead")
+                                        Icon(FolioIcons.Paper, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Keep the complete PDF instead")
                                     }
                                     // Several ticked parts as one: page sets are unioned, never guessed at.
                                     val mergeable = selected.size >= 2 && selected.all { parsed[it].isSuccess }
@@ -237,7 +233,7 @@ import kotlinx.coroutines.withContext
                                             activePart = instruments.lastIndex
                                         }
                                     }, enabled = !busy && mergeable, shapes = ButtonDefaults.shapes()) {
-                                        Icon(Icons.AutoMirrored.Rounded.CallMerge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Merge selected parts")
+                                        Icon(FolioIcons.Merge, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Merge selected parts")
                                     }
                                 }
                             }

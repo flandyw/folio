@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.selection
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -27,7 +28,6 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.folio.notes.editor.sticky.StickyNotes
-import com.folio.notes.editor.toolbar.EditorIcons
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.semanticsLabel
 import com.folio.notes.model.NotePage
@@ -114,7 +114,7 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
             Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                 lead?.invoke(this)
                 shown.forEach { BarAction(it) }
-                if (list.isNotEmpty()) BarAction(MenuAction(EditorIcons.More, "More $name".lowercase().replaceFirstChar(Char::uppercase), active = open) { open = !open })
+                if (list.isNotEmpty()) BarAction(MenuAction(FolioIcons.More, "More $name".lowercase().replaceFirstChar(Char::uppercase), active = open) { open = !open })
             }
             if (open && list.isNotEmpty()) Column(Modifier.width(if (availableWidth.isSpecified) minOf(208.dp, availableWidth - 8.dp) else 208.dp).padding(bottom = FolioSpacing.dp4)) {
                 list.forEach { action ->
@@ -223,20 +223,20 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     onPlacement: (() -> Unit)? = null, onSaveSnippet: (() -> Unit)? = null
 ) = ContextBar("Selection options", availableWidth = availableWidth,
     actions = listOfNotNull(
-        MenuAction(EditorIcons.Copy, "Copy", onClick = onCopy),
-        MenuAction(EditorIcons.Duplicate, "Duplicate", onClick = onDuplicate),
-        if (canRestyle) MenuAction(EditorIcons.Style, "Colour and width", onClick = onStyle) else null,
-        MenuAction(EditorIcons.Delete, "Delete", destructive = true, onClick = onDelete)),
+        MenuAction(FolioIcons.Copy, "Copy", onClick = onCopy),
+        MenuAction(FolioIcons.Duplicate, "Duplicate", onClick = onDuplicate),
+        if (canRestyle) MenuAction(FolioIcons.Style, "Colour and width", onClick = onStyle) else null,
+        MenuAction(FolioIcons.Delete, "Delete", destructive = true, onClick = onDelete)),
     more = listOfNotNull(
-        MenuAction(EditorIcons.Cut, "Cut", onClick = onCut),
-        MenuAction(EditorIcons.Paste, "Paste", canPaste, onClick = onPaste),
-        MenuAction(EditorIcons.MoveToPage, "Move to page…", canMove, onClick = onMove),
-        onPlacement?.let { MenuAction(EditorIcons.Align, "Align and distribute…", onClick = it) },
-        onTidyShapes?.let { MenuAction(EditorIcons.Tidy, "Tidy up shapes…", onClick = it) },
-        onTidyHandwriting?.let { MenuAction(EditorIcons.Handwriting, "Tidy up handwriting…", onClick = it) },
-        onConvertText?.let { MenuAction(EditorIcons.ToText, "Convert handwriting to text", onClick = it) },
-        onSaveSnippet?.let { MenuAction(EditorIcons.Snippet, "Save as reusable snippet…", onClick = it) }) +
-        listOf(null, MenuAction(EditorIcons.SelectAll, "Select all", onClick = onSelectAll), MenuAction(EditorIcons.Close, "Deselect", onClick = onDeselect)))
+        MenuAction(FolioIcons.Cut, "Cut", onClick = onCut),
+        MenuAction(FolioIcons.Paste, "Paste", canPaste, onClick = onPaste),
+        MenuAction(FolioIcons.MoveToPage, "Move to page…", canMove, onClick = onMove),
+        onPlacement?.let { MenuAction(FolioIcons.Align, "Align and distribute…", onClick = it) },
+        onTidyShapes?.let { MenuAction(FolioIcons.Tidy, "Tidy up shapes…", onClick = it) },
+        onTidyHandwriting?.let { MenuAction(FolioIcons.Handwriting, "Tidy up handwriting…", onClick = it) },
+        onConvertText?.let { MenuAction(FolioIcons.ToText, "Convert handwriting to text", onClick = it) },
+        onSaveSnippet?.let { MenuAction(FolioIcons.Snippet, "Save as reusable snippet…", onClick = it) }) +
+        listOf(null, MenuAction(FolioIcons.SelectAll, "Select all", onClick = onSelectAll), MenuAction(FolioIcons.Close, "Deselect", onClick = onDeselect)))
 
 /** The picture's actions beside the picture; while cropping, the frame is dragged in place and this ends it. */
 @Composable internal fun PictureContextMenu(
@@ -244,20 +244,20 @@ private fun Rect.menuRect() = SelectionMenuRect(left, top, right, bottom)
     onEndCrop: (apply: Boolean) -> Unit, onFullPhoto: () -> Unit, onCopy: () -> Unit, onDuplicate: () -> Unit,
     onFront: () -> Unit, onBack: () -> Unit, onDelete: () -> Unit
 ) = if (cropping) ContextBar("Crop options", listOf(
-        MenuAction(EditorIcons.Close, "Cancel crop") { onEndCrop(false) },
-        MenuAction(EditorIcons.Check, "Apply crop") { onEndCrop(true) }), availableWidth = availableWidth)
+        MenuAction(FolioIcons.Close, "Cancel crop") { onEndCrop(false) },
+        MenuAction(FolioIcons.Check, "Apply crop") { onEndCrop(true) }), availableWidth = availableWidth)
     else ContextBar("Picture options", availableWidth = availableWidth,
         actions = listOf(
-            MenuAction(EditorIcons.Crop, "Crop", onClick = onCrop),
-            MenuAction(EditorIcons.RotateLeft, "Rotate left", onClick = onRotateLeft),
-            MenuAction(EditorIcons.RotateRight, "Rotate right", onClick = onRotateRight),
-            MenuAction(EditorIcons.Delete, "Remove picture", destructive = true, onClick = onDelete)),
+            MenuAction(FolioIcons.Crop, "Crop", onClick = onCrop),
+            MenuAction(FolioIcons.RotateLeft, "Rotate left", onClick = onRotateLeft),
+            MenuAction(FolioIcons.RotateRight, "Rotate right", onClick = onRotateRight),
+            MenuAction(FolioIcons.Delete, "Remove picture", destructive = true, onClick = onDelete)),
         more = listOfNotNull(
-            MenuAction(EditorIcons.Copy, "Copy", onClick = onCopy),
-            MenuAction(EditorIcons.Duplicate, "Duplicate", onClick = onDuplicate),
-            if (cropped) MenuAction(EditorIcons.Expand, "Show full photo", onClick = onFullPhoto) else null,
-            MenuAction(EditorIcons.ToFront, "Bring to front", onClick = onFront),
-            MenuAction(EditorIcons.ToBack, "Send to back", onClick = onBack)))
+            MenuAction(FolioIcons.Copy, "Copy", onClick = onCopy),
+            MenuAction(FolioIcons.Duplicate, "Duplicate", onClick = onDuplicate),
+            if (cropped) MenuAction(FolioIcons.Expand, "Show full photo", onClick = onFullPhoto) else null,
+            MenuAction(FolioIcons.ToFront, "Bring to front", onClick = onFront),
+            MenuAction(FolioIcons.ToBack, "Send to back", onClick = onBack)))
 
 /** The page commands that used to live behind the page's three-dot button, plus the position-based ones. */
 internal class PageMenuActions(
@@ -280,27 +280,27 @@ internal class PageMenuActions(
     val page = pageActions.page
     PressMenu("Page options", windowX, windowY, onDismiss,
         tiles = listOf(
-            MenuAction(EditorIcons.Paste, "Paste", canPaste, onClick = onPaste),
-            MenuAction(EditorIcons.Text, "Text here", onClick = onText),
-            MenuAction(EditorIcons.Image, "Picture here", onClick = onImage),
-            MenuAction(EditorIcons.SelectAll, "Select all", onClick = onSelectAll),
-            MenuAction(EditorIcons.Undo, "Undo", canUndo, onClick = onUndo),
-            MenuAction(EditorIcons.Redo, "Redo", canRedo, onClick = onRedo),
-            MenuAction(if (page.bookmarked) EditorIcons.BookmarkFilled else EditorIcons.Bookmark,
+            MenuAction(FolioIcons.Paste, "Paste", canPaste, onClick = onPaste),
+            MenuAction(FolioIcons.Text, "Text here", onClick = onText),
+            MenuAction(FolioIcons.Image, "Picture here", onClick = onImage),
+            MenuAction(FolioIcons.SelectAll, "Select all", onClick = onSelectAll),
+            MenuAction(FolioIcons.Undo, "Undo", canUndo, onClick = onUndo),
+            MenuAction(FolioIcons.Redo, "Redo", canRedo, onClick = onRedo),
+            MenuAction(if (page.bookmarked) FolioIcons.BookmarkFilled else FolioIcons.Bookmark,
                 if (page.bookmarked) "Bookmark page, on" else "Bookmark page", active = page.bookmarked, onClick = pageActions.onBookmark),
-            MenuAction(EditorIcons.Flag, if (page.redoFlag) "Flag to redo, on" else "Flag to redo", active = page.redoFlag, onClick = pageActions.onRedoFlag)),
+            MenuAction(FolioIcons.Flag, if (page.redoFlag) "Flag to redo, on" else "Flag to redo", active = page.redoFlag, onClick = pageActions.onRedoFlag)),
         rows = listOfNotNull(
-            MenuAction(EditorIcons.Rename, "Rename page", onClick = pageActions.onName),
-            pageActions.onPaper?.let { MenuAction(EditorIcons.Paper, "Change paper…", onClick = it) },
+            MenuAction(FolioIcons.Rename, "Rename page", onClick = pageActions.onName),
+            pageActions.onPaper?.let { MenuAction(FolioIcons.Paper, "Change paper…", onClick = it) },
             null,
-            MenuAction(EditorIcons.AddPage, "Insert blank page after", onClick = pageActions.onInsert),
-            MenuAction(EditorIcons.Duplicate, "Duplicate page", onClick = pageActions.onDuplicate),
-            MenuAction(EditorIcons.Up, "Move up", pageActions.canMoveUp, onClick = pageActions.onMoveUp),
-            MenuAction(EditorIcons.Down, "Move down", pageActions.canMoveDown, onClick = pageActions.onMoveDown),
-            MenuAction(EditorIcons.Reorder, "Move to position…", onClick = pageActions.onMoveTo)) +
+            MenuAction(FolioIcons.AddPage, "Insert blank page after", onClick = pageActions.onInsert),
+            MenuAction(FolioIcons.Duplicate, "Duplicate page", onClick = pageActions.onDuplicate),
+            MenuAction(FolioIcons.Up, "Move up", pageActions.canMoveUp, onClick = pageActions.onMoveUp),
+            MenuAction(FolioIcons.Down, "Move down", pageActions.canMoveDown, onClick = pageActions.onMoveDown),
+            MenuAction(FolioIcons.Reorder, "Move to position…", onClick = pageActions.onMoveTo)) +
             listOfNotNull(null,
-                pageActions.onClear?.let { MenuAction(EditorIcons.ClearPage, "Clear page", destructive = true, onClick = it) },
-                MenuAction(EditorIcons.Delete, "Delete page", pageActions.canDelete, destructive = true, onClick = pageActions.onDelete)))
+                pageActions.onClear?.let { MenuAction(FolioIcons.ClearPage, "Clear page", destructive = true, onClick = it) },
+                MenuAction(FolioIcons.Delete, "Delete page", pageActions.canDelete, destructive = true, onClick = pageActions.onDelete)))
 }
 
 /** Long-press menu on a typed text box: edit, clipboard, duplicate and delete without opening the editor first. */
@@ -308,12 +308,12 @@ internal class PageMenuActions(
     windowX: Float, windowY: Float, onEdit: () -> Unit, onCopy: () -> Unit, onCut: () -> Unit,
     onDuplicate: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit
 ) = PressMenu("Text options", windowX, windowY, onDismiss, rows = listOf(
-    MenuAction(EditorIcons.Rename, "Edit text", onClick = onEdit),
-    MenuAction(EditorIcons.Copy, "Copy", onClick = onCopy),
-    MenuAction(EditorIcons.Cut, "Cut", onClick = onCut),
-    MenuAction(EditorIcons.Duplicate, "Duplicate", onClick = onDuplicate),
+    MenuAction(FolioIcons.Rename, "Edit text", onClick = onEdit),
+    MenuAction(FolioIcons.Copy, "Copy", onClick = onCopy),
+    MenuAction(FolioIcons.Cut, "Cut", onClick = onCut),
+    MenuAction(FolioIcons.Duplicate, "Duplicate", onClick = onDuplicate),
     null,
-    MenuAction(EditorIcons.Delete, "Delete", destructive = true, onClick = onDelete)))
+    MenuAction(FolioIcons.Delete, "Delete", destructive = true, onClick = onDelete)))
 
 /**
  * Sticky note actions, in the same nonmodal bar as a lasso selection. Tapping away dismisses it.
@@ -329,14 +329,14 @@ internal class PageMenuActions(
     var sizing by remember { mutableStateOf(false) }
     ContextBar("Sticky note options", availableWidth = availableWidth,
         actions = listOfNotNull(
-            if (typing) MenuAction(EditorIcons.Check, "Finish typing", onClick = onDone) else MenuAction(EditorIcons.Text, "Type in sticky note", onClick = onType),
-            onDraw?.let { MenuAction(EditorIcons.Pen, "Draw in sticky note", onClick = it) },
-            MenuAction(EditorIcons.Style, "Sticky note colour", active = colours) { colours = !colours; sizing = false },
-            MenuAction(EditorIcons.TextSize, "Text size", active = sizing) { sizing = !sizing; colours = false },
-            MenuAction(EditorIcons.Duplicate, "Duplicate sticky note", onClick = onDuplicate),
-            MenuAction(EditorIcons.ToFront, "Bring to front", onClick = onFront),
-            onClearInk?.let { MenuAction(EditorIcons.ClearInk, "Clear sticky note drawing", onClick = it) },
-            MenuAction(EditorIcons.Delete, "Delete sticky note", destructive = true, onClick = onDelete))) {
+            if (typing) MenuAction(FolioIcons.Check, "Finish typing", onClick = onDone) else MenuAction(FolioIcons.Text, "Type in sticky note", onClick = onType),
+            onDraw?.let { MenuAction(FolioIcons.Pen, "Draw in sticky note", onClick = it) },
+            MenuAction(FolioIcons.Style, "Sticky note colour", active = colours) { colours = !colours; sizing = false },
+            MenuAction(FolioIcons.TextSize, "Text size", active = sizing) { sizing = !sizing; colours = false },
+            MenuAction(FolioIcons.Duplicate, "Duplicate sticky note", onClick = onDuplicate),
+            MenuAction(FolioIcons.ToFront, "Bring to front", onClick = onFront),
+            onClearInk?.let { MenuAction(FolioIcons.ClearInk, "Clear sticky note drawing", onClick = it) },
+            MenuAction(FolioIcons.Delete, "Delete sticky note", destructive = true, onClick = onDelete))) {
         if (colours) Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp8),
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
             StickyNotes.papers.forEachIndexed { index, value ->
@@ -346,7 +346,7 @@ internal class PageMenuActions(
                         if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.size(32.dp).semanticsLabel("Paper colour ${index + 1}" + if (selected) ", selected" else "")) {
                     if (selected) Box(contentAlignment = Alignment.Center) {
-                        Icon(EditorIcons.Check, null, Modifier.size(16.dp), tint = Color(0xFF2B3440))
+                        Icon(FolioIcons.Check, null, Modifier.size(16.dp), tint = Color(0xFF2B3440))
                     }
                 }
             }

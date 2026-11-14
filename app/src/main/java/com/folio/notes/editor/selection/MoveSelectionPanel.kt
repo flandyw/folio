@@ -1,15 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.folio.notes.editor.selection
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,10 +40,10 @@ import com.folio.notes.ui.FolioSpacing
     }
     FolioPanel(title = "Move ${picked.size} item${if (picked.size == 1) "" else "s"} to page", onDismissRequest = onDismiss) {
         OutlinedTextField(destinationQuery, { destinationQuery = it }, Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24),
-            singleLine = true, label = { Text("Find destination page") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            singleLine = true, label = { Text("Find destination page") }, leadingIcon = { Icon(FolioIcons.Search, null) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { textKeyboard?.hide() }),
-            trailingIcon = { if (destinationQuery.isNotEmpty()) IconButton({ destinationQuery = ""; textKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear destination search") } })
+            trailingIcon = { if (destinationQuery.isNotEmpty()) IconButton({ destinationQuery = ""; textKeyboard?.hide() }) { Icon(FolioIcons.Close, "Clear destination search") } })
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (destinations.isEmpty()) item {
@@ -65,7 +62,7 @@ import com.folio.notes.ui.FolioSpacing
                             Text(destination.displayTitle(index), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("Page ${index + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(FolioIcons.Forward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

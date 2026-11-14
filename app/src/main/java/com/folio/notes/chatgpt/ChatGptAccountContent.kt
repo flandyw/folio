@@ -1,11 +1,10 @@
 package com.folio.notes.chatgpt
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,7 +28,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
 
 @Composable internal fun ChatGptAccountSummary(account: ChatGptAccount, onManage: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        Icon(Icons.Rounded.CheckCircle, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+        Icon(FolioIcons.CheckCircle, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
         Column(Modifier.weight(1f)) {
             Text(account.email, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("Using your ChatGPT plan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -41,7 +40,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
 @Composable internal fun ChatGptConnectCard(account: ChatGptAccount?, enabled: Boolean, onConnect: () -> Unit) {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(32.dp))
+            Icon(FolioIcons.Sparkle, null, Modifier.size(32.dp))
             Text(when {
                 account?.pending == true -> "You're almost connected"
                 account?.connected == true -> "Enable feedback from your ChatGPT plan"
@@ -82,7 +81,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
         if (account?.connected != true || !account.plan) ChatGptConnectCard(account, !state.busy, ::connect)
         else Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
             Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Icon(Icons.Rounded.CheckCircle, null, Modifier.size(32.dp))
+                Icon(FolioIcons.CheckCircle, null, Modifier.size(32.dp))
                 Text("Ready to review", style = MaterialTheme.typography.titleLarge)
                 Text(account.email, style = MaterialTheme.typography.bodyLarge)
                 Text("Folio is connected to your ChatGPT plan. Choose Page review to send a page and keep the feedback you want.", style = MaterialTheme.typography.bodyMedium)
@@ -99,21 +98,21 @@ private fun accountStatus(account: ChatGptAccount): String = when {
                                 if (!selected) manager.selectAccount(saved.client)
                             })) {
                             Row(Modifier.padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.AccountCircle, null, Modifier.size(28.dp))
+                                Icon(FolioIcons.Account, null, Modifier.size(28.dp))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                     Text(if (saved.email == "ChatGPT account" && !saved.registered) "Saved sign-in ${index + 1}" else saved.email,
                                         style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text(accountStatus(saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                if (selected) Icon(Icons.Rounded.Check, "Selected account", Modifier.size(20.dp))
+                                if (selected) Icon(FolioIcons.Check, "Selected account", Modifier.size(20.dp))
                                 if (!saved.connected) IconButton({ manager.removeAccount(saved.client) }, enabled = !state.busy) {
-                                    Icon(Icons.Rounded.Close, "Remove saved sign-in ${index + 1}", Modifier.size(20.dp))
+                                    Icon(FolioIcons.Close, "Remove saved sign-in ${index + 1}", Modifier.size(20.dp))
                                 }
                             }
                         }
                     }
                     TextButton({ manager.signIn(null) }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add another account")
+                        Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add another account")
                     }
                 }
             }
@@ -123,14 +122,14 @@ private fun accountStatus(account: ChatGptAccount): String = when {
             if (state.error != null) TextButton({ manager.signIn() }, enabled = !state.busy) { Text("Sign in again") }
         }
         ChatGptUsageContent(state.usage[state.active])
-        if (state.result != null) ChatGptNotice(if (state.operation == ChatGptOperation.TEST) Icons.Rounded.CheckCircle else Icons.Rounded.Info, state.result)
+        if (state.result != null) ChatGptNotice(if (state.operation == ChatGptOperation.TEST) FolioIcons.CheckCircle else FolioIcons.Info, state.result)
         Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
             Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 TextButton({ tools = !tools }, Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.Tune, null, Modifier.size(20.dp))
+                    Icon(FolioIcons.Tune, null, Modifier.size(20.dp))
                     Text("Connection tools", Modifier.weight(1f).padding(horizontal = FolioSpacing.dp12))
-                    Icon(if (tools) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (tools) "Collapse connection tools" else "Expand connection tools")
+                    Icon(if (tools) FolioIcons.ChevronUp else FolioIcons.ChevronDown, if (tools) "Collapse connection tools" else "Expand connection tools")
                 }
                 if (tools) {
                     Text("Use these if you want to check the connection or available models.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

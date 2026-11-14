@@ -2,13 +2,10 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes.review
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -145,7 +142,7 @@ private fun HandwritingStorageCard(
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
                 if (measuring) LoadingIndicator(Modifier.size(18.dp))
-                else Icon(Icons.Rounded.Storage, null, tint = MaterialTheme.colorScheme.primary)
+                else Icon(FolioIcons.Storage, null, tint = MaterialTheme.colorScheme.primary)
                 Text(
                     if (measuring && notes.isNotEmpty() && usage.isEmpty()) "Measuring practice pages…"
                     else if (notes.isEmpty()) "No practice pages on this device."
@@ -161,7 +158,7 @@ private fun HandwritingStorageCard(
                         modifier = Modifier.weight(1f),
                         shapes = ButtonDefaults.shapes(),
                     ) {
-                        Icon(Icons.Rounded.DeleteSweep, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.DeleteSweep, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp6))
                         Text(if (displayEmpty > 0) "Delete empty ($displayEmpty)" else "No empty pages")
                     }
@@ -171,7 +168,7 @@ private fun HandwritingStorageCard(
                         modifier = Modifier.weight(1f),
                         shapes = ButtonDefaults.shapes(),
                     ) {
-                        Icon(Icons.Rounded.DeleteForever, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.DeleteForever, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp6))
                         Text("Trash all")
                     }
@@ -182,7 +179,7 @@ private fun HandwritingStorageCard(
     if (confirmEmpty) {
         AlertDialog(
             onDismissRequest = { if (!working) confirmEmpty = false },
-            icon = { Icon(Icons.Rounded.DeleteSweep, null) },
+            icon = { Icon(FolioIcons.DeleteSweep, null) },
             title = { Text("Delete empty practice pages?") },
             text = { Text("$displayEmpty notebook${if (displayEmpty == 1) "" else "s"} with no working will be removed. Pages with writing or typed answers are kept.") },
             dismissButton = { TextButton({ confirmEmpty = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
@@ -215,7 +212,7 @@ private fun HandwritingStorageCard(
     if (confirmAll) {
         AlertDialog(
             onDismissRequest = { if (!working) confirmAll = false },
-            icon = { Icon(Icons.Rounded.DeleteForever, null) },
+            icon = { Icon(FolioIcons.DeleteForever, null) },
             title = { Text("Move all practice pages to Trash?") },
             text = { Text("All ${notes.size} practice notebooks (${formatPracticeBytes(totalBytes)}) will move to Trash. Restore them from Library › Trash, or delete them forever there to free device space. Your Focal questions and ratings stay.") },
             dismissButton = { TextButton({ confirmAll = false }, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
@@ -290,7 +287,7 @@ private fun HandwritingNotebookRow(
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(FolioSpacing.dp10), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(FolioIcons.Book, null, Modifier.padding(FolioSpacing.dp10), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
                 Column(Modifier.weight(1f)) {
                     Text(note.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -298,7 +295,7 @@ private fun HandwritingNotebookRow(
                     else if (attempt != null) Text("Question removed from Focal · response kept", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(hold.click { moveToTrash() }, enabled = !working, shapes = IconButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.DeleteOutline, "Delete ${note.title}")
+                    Icon(FolioIcons.Delete, "Delete ${note.title}")
                 }
             }
             Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -315,7 +312,7 @@ private fun HandwritingNotebookRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FilledTonalButton(hold.click { onOpenNotebook(note.id) }, enabled = !working, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Forward, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp6))
                     Text("Open")
                 }
@@ -323,8 +320,8 @@ private fun HandwritingNotebookRow(
         }
     }
     FolioMenuPopover(rowMenu, { rowMenu = false }, modifier = Modifier.guardUiTouches(), title = "Practice page") {
-        FolioMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
-        FolioMenuItem({ Text("Move to Trash") }, { rowMenu = false; moveToTrash() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+        FolioMenuItem({ Text("Open practice page") }, { rowMenu = false; onOpenNotebook(note.id) }, leadingIcon = { Icon(FolioIcons.Forward, null) })
+        FolioMenuItem({ Text("Move to Trash") }, { rowMenu = false; moveToTrash() }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
     }
     }
 }

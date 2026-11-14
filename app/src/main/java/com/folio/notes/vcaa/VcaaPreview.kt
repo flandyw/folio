@@ -1,5 +1,6 @@
 package com.folio.notes.vcaa
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -10,8 +11,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -87,7 +86,7 @@ internal fun VcaaPreview(exam: VcaaExam, owned: Notebook?, canImport: Boolean, o
     FolioPanel(exam.title, onDismiss, actions = {
         if (owned != null) TextButton({ onDismiss(); onOpen() }) { Text("Open") }
         else FilledTonalButton({ onDismiss(); onImport() }, enabled = canImport) {
-            Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Download, null, Modifier.size(18.dp))
             Spacer(Modifier.width(FolioSpacing.dp6))
             Text("Import")
         }

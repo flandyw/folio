@@ -1,13 +1,12 @@
 package com.folio.notes.editor
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -86,7 +85,7 @@ private const val PEEK_TAP_MS = 250L
                 }
             }
         }, contentAlignment = Alignment.Center) {
-        Icon(Icons.Rounded.Visibility, null, Modifier.size(20.dp),
+        Icon(FolioIcons.Visible, null, Modifier.size(20.dp),
             tint = if (open) MaterialTheme.colorScheme.onSecondaryContainer else LocalContentColor.current)
     }
 }

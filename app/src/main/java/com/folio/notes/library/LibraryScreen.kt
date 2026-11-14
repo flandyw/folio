@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import kotlinx.coroutines.flow.first
 import com.folio.notes.model.countOf
 import androidx.activity.compose.BackHandler
@@ -12,9 +13,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -192,7 +190,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
     val swipeRight by rememberPref(libraryPrefs, AppPrefs.UX_SWIPE_RIGHT) { AppPrefs.uxSwipe(it.getString(AppPrefs.UX_SWIPE_RIGHT, null), "FAVOURITE") }
     val swipeLeft by rememberPref(libraryPrefs, AppPrefs.UX_SWIPE_LEFT) { AppPrefs.uxSwipe(it.getString(AppPrefs.UX_SWIPE_LEFT, null), "TRASH") }
     fun swipe(note: Notebook, action: String) = SwipeAction(
-        when (action) { "TRASH" -> Icons.Rounded.DeleteOutline; "TAGS" -> Icons.Rounded.Sell; "MOVE" -> Icons.Rounded.FolderOpen; "SHARE" -> Icons.Rounded.IosShare; else -> Icons.Rounded.Star },
+        when (action) { "TRASH" -> FolioIcons.Delete; "TAGS" -> FolioIcons.Tag; "MOVE" -> FolioIcons.FolderOpen; "SHARE" -> FolioIcons.Share; else -> FolioIcons.StarFilled },
         when (action) { "TRASH" -> "Move to Trash"; "TAGS" -> "Edit tags"; "MOVE" -> "Move notebook"; "SHARE" -> "Share notebook PDF"; else -> if (note.starred) "Remove favourite" else "Add favourite" }, destructive = action == "TRASH") {
         when (action) { "TRASH" -> delete = note; "TAGS" -> notebookTags = setOf(note.id); "MOVE" -> move = note; "SHARE" -> onShareNotebook(note); else -> model.star(note) }
     }
@@ -324,14 +322,14 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
     fun showTrash() { selecting = false; selectedIds = emptyList(); section = LibrarySection.TRASH; onLibrary() }
     BackHandler(enabled = !otherPane && !pickingNotebook && libraryPeer) { section = LibrarySection.LIBRARY }
     @Composable fun CreateMenuItems(close: () -> Unit) {
-        PopoverRow(Icons.Rounded.Add, "New notebook") { close(); onNew() }
-        PopoverRow(Icons.Rounded.EditNote, "Quick note") { close(); onQuickNote() }
-        PopoverRow(Icons.Rounded.AllInclusive, "Infinite canvas") { close(); onQuickCanvas() }
-        PopoverRow(Icons.Rounded.CreateNewFolder, if (openFolder != null) "New folder in ${openFolder.name}" else "New folder") { close(); startNewFolder(openFolder?.id) }
+        PopoverRow(FolioIcons.Plus, "New notebook") { close(); onNew() }
+        PopoverRow(FolioIcons.EditNote, "Quick note") { close(); onQuickNote() }
+        PopoverRow(FolioIcons.Infinity, "Infinite canvas") { close(); onQuickCanvas() }
+        PopoverRow(FolioIcons.FolderAdd, if (openFolder != null) "New folder in ${openFolder.name}" else "New folder") { close(); startNewFolder(openFolder?.id) }
         HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
-        PopoverRow(Icons.Rounded.PictureAsPdf, "Import PDF document") { close(); onImport() }
-        PopoverRow(Icons.Rounded.LocalLibrary, "VCAA exam library") { close(); selecting = false; selectedIds = emptyList(); section = LibrarySection.VCAA; onLibrary() }
-        PopoverRow(Icons.Rounded.FolderZip, "Import Folio backup") { close(); onImportArchive() }
+        PopoverRow(FolioIcons.Pdf, "Import PDF document") { close(); onImport() }
+        PopoverRow(FolioIcons.Book, "VCAA exam library") { close(); selecting = false; selectedIds = emptyList(); section = LibrarySection.VCAA; onLibrary() }
+        PopoverRow(FolioIcons.Archive, "Import Folio backup") { close(); onImportArchive() }
     }
     @Composable fun CreateMenu() {
         if (newButtonMenu) FolioActionPopover("Create or import", { newButtonMenu = false }) { CreateMenuItems { newButtonMenu = false } }
@@ -339,8 +337,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
     @Composable fun SearchBox(modifier: Modifier) {
         OutlinedTextField(query, { query = it }, modifier,
             placeholder = { Text(when { openFolder != null -> "Search ${openFolder.name}"; tag != null -> "Search $tag"; place == LibraryPlace.FAVORITES -> "Search favorites"; else -> "Search notebooks, pages, tags" }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = { if (query.isNotEmpty()) IconButton({ clearQuery() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
+            leadingIcon = { Icon(FolioIcons.Search, null) },
+            trailingIcon = { if (query.isNotEmpty()) IconButton({ clearQuery() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } },
             singleLine = true, shape = FolioShapes.panel,
             colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color.Transparent,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -358,30 +356,30 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
         val roomy = shelfWidth >= 720.dp
         val onShelf = !otherPane && (pickingNotebook || !libraryPeer)
         fun peer(target: LibrarySection) = NavDestination(when (target) { LibrarySection.PROGRESS -> "Progress"; LibrarySection.PLANNER -> "Planner"; LibrarySection.VCAA -> "VCAA"; else -> "Trash" },
-            when (target) { LibrarySection.PROGRESS -> Icons.Rounded.Insights; LibrarySection.PLANNER -> Icons.Rounded.EventAvailable; LibrarySection.VCAA -> Icons.Rounded.LocalLibrary; else -> Icons.Rounded.DeleteOutline },
+            when (target) { LibrarySection.PROGRESS -> FolioIcons.Insights; LibrarySection.PLANNER -> FolioIcons.CalendarCheck; LibrarySection.VCAA -> FolioIcons.Book; else -> FolioIcons.Delete },
             !otherPane && section == target) { if (target == LibrarySection.TRASH) showTrash() else { section = target; onLibrary() } }
         // The sidebar, the rail and the bottom bar all show this one list.
         val destinations = buildList {
-            add(NavDestination("Library", Icons.Rounded.GridView, onShelf) { libraryHome() })
+            add(NavDestination("Library", FolioIcons.Pages, onShelf) { libraryHome() })
             if (!pickingNotebook) {
-                if (navShown(SidebarItem.MISTAKES)) add(NavDestination("Mistakes", Icons.Rounded.School, showMistakes, onMistakes))
-                if (navShown(SidebarItem.STUDY)) add(NavDestination("Study", Icons.Rounded.Timer, showStudy, onStudy))
+                if (navShown(SidebarItem.MISTAKES)) add(NavDestination("Mistakes", FolioIcons.School, showMistakes, onMistakes))
+                if (navShown(SidebarItem.STUDY)) add(NavDestination("Study", FolioIcons.Timer, showStudy, onStudy))
                 if (navShown(SidebarItem.PROGRESS)) add(peer(LibrarySection.PROGRESS))
                 if (navShown(SidebarItem.PLANNER)) add(peer(LibrarySection.PLANNER))
                 if (navShown(SidebarItem.VCAA)) add(peer(LibrarySection.VCAA))
-                if (navShown(SidebarItem.MUSIC)) add(NavDestination("Music", Icons.Rounded.MusicNote, showMusic, onMusic))
+                if (navShown(SidebarItem.MUSIC)) add(NavDestination("Music", FolioIcons.Music, showMusic, onMusic))
             }
         }
-        val footer = listOfNotNull(if (pickingNotebook) null else peer(LibrarySection.TRASH), NavDestination("Settings", Icons.Rounded.Tune, false, onSettings))
+        val footer = listOfNotNull(if (pickingNotebook) null else peer(LibrarySection.TRASH), NavDestination("Settings", FolioIcons.Tune, false, onSettings))
         fun openFiles() { selecting = false; selectedIds = emptyList(); section = LibrarySection.FILES }
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (showSidebar) LibraryNavPanel(destinations, footer, { setSidebar(false) },
                     create = {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            Button(onNew, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New notebook", maxLines = 1) }
+                            Button(onNew, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New notebook", maxLines = 1) }
                             Box {
-                                FilledTonalIconButton({ newButtonMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.ExpandMore, "More ways to create") }
+                                FilledTonalIconButton({ newButtonMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.ChevronDown, "More ways to create") }
                                 CreateMenu()
                             }
                         }
@@ -398,10 +396,10 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     header = {
                         Spacer(Modifier.height(LocalDestinationTopGap.current))
-                        IconButton({ setSidebar(true) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Menu, "Expand sidebar") }
+                        IconButton({ setSidebar(true) }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Menu, "Expand sidebar") }
                         Spacer(Modifier.height(FolioSpacing.dp8))
                         Box {
-                            FloatingActionButton(onClick = { newButtonMenu = true }) { Icon(Icons.Rounded.Add, "Create or import") }
+                            FloatingActionButton(onClick = { newButtonMenu = true }) { Icon(FolioIcons.Plus, "Create or import") }
                             CreateMenu()
                         }
                     }
@@ -427,8 +425,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                     val files = !pickingNotebook && section == LibrarySection.FILES
                     // The title says where the shelf is looking; a folder's arrow goes up one level.
                     val leading: (@Composable () -> Unit)? = when {
-                        files && !showSidebar -> { { IconButton({ section = LibrarySection.LIBRARY }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to notebooks") } } }
-                        !files && openFolder != null -> { { IconButton({ browse(openFolder.parentId) }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Up from ${openFolder.name}") } } }
+                        files && !showSidebar -> { { IconButton({ section = LibrarySection.LIBRARY }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Back to notebooks") } } }
+                        !files && openFolder != null -> { { IconButton({ browse(openFolder.parentId) }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Up from ${openFolder.name}") } } }
                         else -> null
                     }
                     FolioScreenHeading(when {
@@ -441,43 +439,43 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                         if (!files) {
                             if (roomy) SearchBox(Modifier.width(300.dp))
                             if (!wide) Box {
-                                FilledIconButton({ newButtonMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Create or import") }
+                                FilledIconButton({ newButtonMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "Create or import") }
                                 CreateMenu()
                             }
                             Box {
-                                if (roomy) TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) { Icon(Icons.AutoMirrored.Rounded.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label, maxLines = 1) }
-                                else IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, "Sort: ${sort.label}") }
+                                if (roomy) TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) { Icon(FolioIcons.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label, maxLines = 1) }
+                                else IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Sort, "Sort: ${sort.label}") }
                                 if (sortMenu) FolioActionPopover("Sort notebooks", { sortMenu = false }) {
                                     LibrarySort.entries.forEach { option ->
-                                        PopoverRow(if (sort == option) Icons.Rounded.Check else null, option.label, selected = sort == option) { sort = option; sortMenu = false }
+                                        PopoverRow(if (sort == option) FolioIcons.Check else null, option.label, selected = sort == option) { sort = option; sortMenu = false }
                                     }
                                 }
                             }
                             if (wide) IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) {
-                                Icon(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (listView) "Switch to covers" else "Switch to list")
+                                Icon(if (listView) FolioIcons.Pages else FolioIcons.List, if (listView) "Switch to covers" else "Switch to list")
                             }
                             if (wide && !pickingNotebook) IconButton({ selecting = !selecting; selectedIds = emptyList() }, enabled = selecting || notes.isNotEmpty(), shapes = IconButtonDefaults.shapes()) {
-                                Icon(if (selecting) Icons.Rounded.CheckCircle else Icons.Rounded.CheckCircleOutline, if (selecting) "Done selecting" else "Select notebooks")
+                                Icon(if (selecting) FolioIcons.CheckCircle else FolioIcons.CheckCircleOutline, if (selecting) "Done selecting" else "Select notebooks")
                             }
                         }
                         if (!wide || (!pickingNotebook && !files)) Box {
-                            IconButton({ moreMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "More options") }
+                            IconButton({ moreMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "More options") }
                             if (moreMenu) FolioActionPopover(openFolder?.name?.takeIf { !files } ?: "Library", { moreMenu = false }) {
                                 val close = { moreMenu = false }
                                 if (!files && !wide) {
-                                    if (!pickingNotebook) PopoverRow(Icons.Rounded.CheckCircleOutline, if (selecting) "Done selecting" else "Select notebooks", enabled = selecting || notes.isNotEmpty()) { close(); selecting = !selecting; selectedIds = emptyList() }
-                                    PopoverRow(if (listView) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.ViewList, if (listView) "Show covers" else "Show as list") { close(); listView = !listView }
+                                    if (!pickingNotebook) PopoverRow(FolioIcons.CheckCircleOutline, if (selecting) "Done selecting" else "Select notebooks", enabled = selecting || notes.isNotEmpty()) { close(); selecting = !selecting; selectedIds = emptyList() }
+                                    PopoverRow(if (listView) FolioIcons.Pages else FolioIcons.List, if (listView) "Show covers" else "Show as list") { close(); listView = !listView }
                                 }
                                 if (!files && !pickingNotebook) {
-                                    PopoverRow(Icons.Rounded.BookmarkAdd, "Save this view…") { close(); savingView = true }
+                                    PopoverRow(FolioIcons.BookmarkAdd, "Save this view…") { close(); savingView = true }
                                     if (openFolder != null) {
                                         HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
                                         FolderMenuItems(close, { startNewFolder(openFolder.id) }, { renameFolder = openFolder }, { colourFolder = openFolder }, { moveFolder = openFolder }, { deleteFolder = openFolder })
                                     }
-                                    if (!showSidebar) PopoverRow(Icons.Rounded.TabletAndroid, "Tablet files") { close(); openFiles() }
+                                    if (!showSidebar) PopoverRow(FolioIcons.Tablet, "Tablet files") { close(); openFiles() }
                                 }
-                                if (!wide && !pickingNotebook) PopoverRow(Icons.Rounded.DeleteOutline, "Trash") { close(); showTrash() }
-                                if (!wide) PopoverRow(Icons.Rounded.Tune, "Settings") { close(); onSettings() }
+                                if (!wide && !pickingNotebook) PopoverRow(FolioIcons.Delete, "Trash") { close(); showTrash() }
+                                if (!wide) PopoverRow(FolioIcons.Tune, "Settings") { close(); onSettings() }
                             }
                         }
                     }
@@ -526,8 +524,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                             // Home only: pick up where you left off, or start something new in one tap.
                             if (!pickingNotebook && !selecting && !scoped) {
                                 @Composable fun Starters(modifier: Modifier) {
-                                    QuickStartTile(Icons.Rounded.EditNote, "Quick note", "A dated page, ready to write", !state.loading, modifier, onQuickNote)
-                                    QuickStartTile(Icons.Rounded.AllInclusive, "Canvas", "Endless space for working", !state.loading, modifier, onQuickCanvas)
+                                    QuickStartTile(FolioIcons.EditNote, "Quick note", "A dated page, ready to write", !state.loading, modifier, onQuickNote)
+                                    QuickStartTile(FolioIcons.Infinity, "Canvas", "Endless space for working", !state.loading, modifier, onQuickCanvas)
                                 }
                                 if (roomy) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                     ContinueWorkingCard(state.notes, model.thumbnails, onOpenNotebook, Modifier.weight(1f).fillMaxHeight())
@@ -553,12 +551,12 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                                     }
                                     FilterChip(filtersExpanded || examFilter.isActive, shelfHold.click { filtersExpanded = !filtersExpanded }, { Text(if (examFilter.isActive) "Filters • Active" else "Filters") },
                                         modifier = Modifier.heightIn(min = FolioTouch.target).longPressAction(shelfHold) { kind = LibraryKind.ALL; model.setExamFilter(ExamFilter()) },
-                                        leadingIcon = { Icon(Icons.Rounded.FilterList, null, Modifier.size(18.dp)) },
-                                        trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp).folioDisclosure(filtersExpanded)) })
+                                        leadingIcon = { Icon(FolioIcons.Filter, null, Modifier.size(18.dp)) },
+                                        trailingIcon = { Icon(FolioIcons.ChevronDown, null, Modifier.size(18.dp).folioDisclosure(filtersExpanded)) })
                                     state.daysToExam?.let { days ->
                                         Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.errorContainer) {
                                             Row(Modifier.padding(horizontal = FolioSpacing.dp10, vertical = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                                Icon(Icons.Rounded.Event, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
+                                                Icon(FolioIcons.Calendar, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
                                                 Text(if (days == 0) "Exam today" else "Exam in $days day${if (days == 1) "" else "s"}",
                                                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onErrorContainer)
                                             }
@@ -618,7 +616,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                             FolioExpand(state.saveFailed) {
                                 FilledTonalButton(model::retrySave, shapes = ButtonDefaults.shapes(),
                                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
-                                    Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Changes need saving · Retry save")
+                                    Icon(FolioIcons.RotateRight, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Changes need saving · Retry save")
                                 }
                             }
                         }
@@ -669,9 +667,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                                     if (filtersActive) TextButton({ kind = LibraryKind.ALL; model.setExamFilter(ExamFilter()) }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
                                     if (located) TextButton({ clearScope() }, shapes = ButtonDefaults.shapes()) { Text("Show all notebooks") }
                                     if (!pickingNotebook && !searchActive && !filtersActive) {
-                                        Button(onNew, shapes = ButtonDefaults.shapes()) { Text(if (openFolder != null) "New notebook here" else "Create a notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
-                                        if (openFolder != null) TextButton({ startNewFolder(openFolder.id) }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
-                                        if (home && place == LibraryPlace.ALL && state.notes.isEmpty()) OutlinedButton(onImport, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.PictureAsPdf, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import a PDF") }
+                                        Button(onNew, shapes = ButtonDefaults.shapes()) { Text(if (openFolder != null) "New notebook here" else "Create a notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(FolioIcons.Forward, null, Modifier.size(18.dp)) }
+                                        if (openFolder != null) TextButton({ startNewFolder(openFolder.id) }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FolderAdd, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
+                                        if (home && place == LibraryPlace.ALL && state.notes.isEmpty()) OutlinedButton(onImport, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Pdf, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import a PDF") }
                                     }
                                 }
                             }
@@ -714,8 +712,8 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                                     NotebookListThumbnail(note, model.thumbnails, Modifier.width(38.dp).height(50.dp))
                                     Column(Modifier.weight(1f)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                            if (pinned) Icon(Icons.Rounded.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                                            if (note.starred) Icon(Icons.Rounded.Star, "Favorite", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                            if (pinned) Icon(FolioIcons.Pin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                            if (note.starred) Icon(FolioIcons.StarFilled, "Favorite", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                                             Text(note.title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                                         }
                                         Text(listOfNotNull(folder, "${note.pages.size} ${if (note.pages.size == 1) "page" else "pages"}", libraryLastEditedLabel(note.updated)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -745,26 +743,26 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                         shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 6.dp) {
                         Column(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                IconButton({ selecting = false; selectedIds = emptyList() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Done selecting") }
+                                IconButton({ selecting = false; selectedIds = emptyList() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Done selecting") }
                                 Text("${selection.size} selected", Modifier.weight(1f).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.titleSmall)
                                 TextButton({ selectedIds = if (selection.size == notes.size) emptyList() else notes.map { it.id } }, enabled = notes.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Text(if (selection.size == notes.size && notes.isNotEmpty()) "Deselect all" else "Select all") }
                             }
                             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Move") }
-                                TextButton({ notebookTags = selection }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Sell, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Tags") }
+                                TextButton({ bulkMove = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FolderOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Move") }
+                                TextButton({ notebookTags = selection }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Tag, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Tags") }
                                 val allStarred = selection.isNotEmpty() && notes.all { it.id !in selection || it.starred }
-                                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(if (allStarred) Icons.Rounded.StarOutline else Icons.Rounded.Star, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(if (allStarred) "Unfavorite" else "Favorite") }
-                                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Exam details") }
-                                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Palette, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Cover") }
+                                TextButton({ model.favoriteNotebooks(selection, !allStarred) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(if (allStarred) FolioIcons.Star else FolioIcons.StarFilled, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(if (allStarred) "Unfavorite" else "Favorite") }
+                                TextButton({ bulkTags = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FactCheck, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Exam details") }
+                                TextButton({ bulkCover = true }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Palette, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Cover") }
                                 val allExcluded = selection.isNotEmpty() && selection.all { it in state.backupExcludedNotebookIds }
                                 TextButton({ model.setBackupExcluded(selection, !allExcluded) }, enabled = selection.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
-                                    Icon(if (allExcluded) Icons.Rounded.Backup else Icons.Rounded.CloudOff, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(if (allExcluded) "Include in backups" else "Exclude from backups")
+                                    Icon(if (allExcluded) FolioIcons.CloudUpload else FolioIcons.CloudOff, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(if (allExcluded) "Include in backups" else "Exclude from backups")
                                 }
                                 TextButton(
                                     { model.deleteNotebooks(selection); undoTrash = selection.filterTo(mutableSetOf()) { id -> model.state.value.trash.any { it.notebook.id == id } }; selecting = false; selectedIds = emptyList() },
                                     enabled = selection.isNotEmpty(),
                                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                    shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Trash") }
+                                    shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Trash") }
                             }
                         }
                     }
@@ -874,11 +872,11 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                 TextButton(
                     { model.setPageCoverBatch(selection, true); bulkCover = false; selecting = false; selectedIds = emptyList() },
                     enabled = selection.isNotEmpty(),
-                    shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("First page as cover") }
+                    shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Image, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("First page as cover") }
                 TextButton(
                     { model.setPageCoverBatch(selection, false); bulkCover = false; selecting = false; selectedIds = emptyList() },
                     enabled = selection.isNotEmpty(),
-                    shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuBook, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("Default cover") }
+                    shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Book, null); Spacer(Modifier.width(FolioSpacing.dp12)); Text("Default cover") }
             }
         },
         confirmButton = { TextButton({ bulkCover = false }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }

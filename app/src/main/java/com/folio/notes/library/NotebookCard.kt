@@ -1,15 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,7 +39,7 @@ import com.folio.notes.ui.folioSelected
                 modifier = Modifier.align(Alignment.BottomStart).padding(FolioSpacing.dp8),
                 shape = FolioShapes.small,
                 color = MaterialTheme.colorScheme.primaryContainer,
-            ) { Icon(Icons.Rounded.PushPin, "Pinned", Modifier.padding(FolioSpacing.dp4).size(16.dp)) }
+            ) { Icon(FolioIcons.Pin, "Pinned", Modifier.padding(FolioSpacing.dp4).size(16.dp)) }
             if (selecting) {
                 val checked = selected
                 Surface(
@@ -52,14 +50,14 @@ import com.folio.notes.ui.folioSelected
                     modifier = Modifier.align(Alignment.TopStart).padding(FolioSpacing.dp8).size(FolioTouch.target).folioSelected(checked).semanticsLabel(if (checked) "Deselect ${note.title}" else "Select ${note.title}")
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        if (checked) Icon(FolioIcons.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             } else if (note.starred) {
                 // Covers stay clean: only a favorite wears its star, and tapping it takes it off again.
                 IconButton(star, modifier = Modifier.align(Alignment.TopEnd), shapes = IconButtonDefaults.shapes()) {
                     Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
-                        Icon(Icons.Rounded.Star, "Remove from favorites", Modifier.padding(FolioSpacing.dp4).size(16.dp))
+                        Icon(FolioIcons.StarFilled, "Remove from favorites", Modifier.padding(FolioSpacing.dp4).size(16.dp))
                     }
                 }
             }
@@ -80,27 +78,27 @@ import com.folio.notes.ui.folioSelected
 @Composable internal fun NotebookMenu(rename: () -> Unit, move: () -> Unit, delete: () -> Unit, examDetails: () -> Unit = {}, recordMark: (() -> Unit)? = null, duplicate: () -> Unit = {}, backupExcluded: Boolean = false, onBackupToggle: () -> Unit = {}, onChangeCover: () -> Unit = {}, onTags: () -> Unit = {}, title: String = "Notebook options", pinned: Boolean = false, pin: (() -> Unit)? = null, createLike: (() -> Unit)? = null, starred: Boolean = false, star: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $title") }
+        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for $title") }
         if (menu) FolioActionPopover(title, { menu = false }) {
             val run: (() -> Unit) -> Unit = { menu = false; it() }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(rename) }
-                PopoverTile(Icons.Rounded.FolderOpen, "Move", Modifier.weight(1f)) { run(move) }
-                PopoverTile(Icons.Rounded.ContentCopy, "Duplicate", Modifier.weight(1f)) { run(duplicate) }
+                PopoverTile(FolioIcons.Pen, "Rename", Modifier.weight(1f)) { run(rename) }
+                PopoverTile(FolioIcons.FolderOpen, "Move", Modifier.weight(1f)) { run(move) }
+                PopoverTile(FolioIcons.Copy, "Duplicate", Modifier.weight(1f)) { run(duplicate) }
             }
-            star?.let { action -> PopoverRow(if (starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, if (starred) "Remove from favorites" else "Add to favorites") { run(action) } }
-            createLike?.let { action -> PopoverRow(Icons.AutoMirrored.Rounded.NoteAdd, "Create another like this") { run(action) } }
+            star?.let { action -> PopoverRow(if (starred) FolioIcons.StarFilled else FolioIcons.Star, if (starred) "Remove from favorites" else "Add to favorites") { run(action) } }
+            createLike?.let { action -> PopoverRow(FolioIcons.AddPage, "Create another like this") { run(action) } }
             pin?.let { action ->
-                PopoverRow(Icons.Rounded.PushPin, if (pinned) "Unpin" else "Pin to top") { run(action) }
+                PopoverRow(FolioIcons.Pin, if (pinned) "Unpin" else "Pin to top") { run(action) }
             }
-            PopoverRow(Icons.Rounded.Sell, "Tags") { run(onTags) }
-            PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(examDetails) }
-            recordMark?.let { action -> PopoverRow(Icons.AutoMirrored.Rounded.Grading, "Record a mark") { run(action) } }
-            PopoverRow(Icons.Rounded.Palette, "Change cover") { run(onChangeCover) }
-            PopoverRow(if (backupExcluded) Icons.Rounded.Backup else Icons.Rounded.CloudOff,
+            PopoverRow(FolioIcons.Tag, "Tags") { run(onTags) }
+            PopoverRow(FolioIcons.FactCheck, "Exam details") { run(examDetails) }
+            recordMark?.let { action -> PopoverRow(FolioIcons.Grading, "Record a mark") { run(action) } }
+            PopoverRow(FolioIcons.Palette, "Change cover") { run(onChangeCover) }
+            PopoverRow(if (backupExcluded) FolioIcons.CloudUpload else FolioIcons.CloudOff,
                 if (backupExcluded) "Include in library backups" else "Exclude from library backups") { run(onBackupToggle) }
             HorizontalDivider(Modifier.padding(vertical = FolioSpacing.dp8))
-            PopoverRow(Icons.Rounded.DeleteOutline, "Move to Trash", destructive = true) { run(delete) }
+            PopoverRow(FolioIcons.Delete, "Move to Trash", destructive = true) { run(delete) }
         }
     }
 }
@@ -145,7 +143,7 @@ import com.folio.notes.ui.folioSelected
     val isPdf = note.pages.any { it.pdfIndex != null }
     Box(modifier.clip(FolioShapes.small).background(Color.White), contentAlignment = Alignment.Center) {
         if (imageBitmap != null) Image(imageBitmap, "First page preview of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-        else Icon(if (isPdf) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.MenuBook, if (isPdf) "PDF notebook ${note.title}" else "Notebook ${note.title}")
+        else Icon(if (isPdf) FolioIcons.Pdf else FolioIcons.Book, if (isPdf) "PDF notebook ${note.title}" else "Notebook ${note.title}")
     }
 }
 

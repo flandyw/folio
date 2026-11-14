@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector2D
 import androidx.compose.animation.core.MutableTransitionState
@@ -253,7 +254,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2),
         ) {
-            Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(EditorIcons.Home, "Back to notebooks", onHome) }
+            Box(Modifier.padding(end = FolioSpacing.dp4)) { TabAction(FolioIcons.Home, "Back to notebooks", onHome) }
             val stripColor = BarTones.strip
             Box(Modifier.weight(1f, fill = false).fillMaxHeight().drawWithContent {
                 drawContent()
@@ -432,10 +433,10 @@ private enum class TabClose { NONE, TAB, SPLIT }
                     } }
                 }
             }
-            if (onNew != null) TabAction(EditorIcons.Plus, "Open another document", onNew)
+            if (onNew != null) TabAction(FolioIcons.Plus, "Open another document", onNew)
             if (onCloseTabs != null) Box {
                 var menu by remember { mutableStateOf(false) }
-                TabAction(EditorIcons.ChevronDown, "Tab actions") { menu = true }
+                TabAction(FolioIcons.ChevronDown, "Tab actions") { menu = true }
                 DropdownMenu(menu, { menu = false }) {
                     val at = ids.indexOf(activeId)
                     @Composable fun item(label: String, targets: List<String>) =
@@ -485,7 +486,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
         }
         drawPath(edge, colors.primary.copy(alpha = .55f * opacity.value), style = Stroke(1.dp.toPx()))
     }) {
-        Icon(EditorIcons.Split, null,
+        Icon(FolioIcons.Split, null,
             Modifier.align(Alignment.BottomStart).offset {
                 val x = first.placement.displayed(false, Offset.Zero).x
                 // offset is relative in RTL; the placement coordinates above are physical.
@@ -561,7 +562,7 @@ private enum class TabClose { NONE, TAB, SPLIT }
                         tooltip = { PlainTooltip { Text(if (split) "Close split view (both stay open)" else "Close") } }, state = rememberTooltipState()) {
                         IconButton({ if (split) onCloseSplit() else onClose(tab.id) }, enabled = enabled,
                             modifier = Modifier.fillMaxSize(), shapes = IconButtonDefaults.shapes()) {
-                            Icon(EditorIcons.Close, label, Modifier.size(15.dp),
+                            Icon(FolioIcons.Close, label, Modifier.size(15.dp),
                                 tint = if (split) accent else LocalContentColor.current)
                         }
                     }

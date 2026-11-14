@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes.review
 
+import com.folio.notes.ui.FolioIcons
 import android.content.SharedPreferences
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -12,10 +13,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Redo
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -472,7 +469,7 @@ private val paperInk = Color(0xFF1B1B1B)
                 contentColor = MaterialTheme.colorScheme.inverseOnSurface, shadowElevation = 6.dp) {
                 Row(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.Rounded.PhotoSizeSelectLarge, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Resize, null, Modifier.size(18.dp))
                     Text("Drag a picture's corner to resize · double-tap for full width", style = MaterialTheme.typography.bodyMedium)
                     TextButton({ resizing = false }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.inversePrimary)) { Text("Done") }
                 }
@@ -674,7 +671,7 @@ private val paperInk = Color(0xFF1B1B1B)
             if (pace != null) CircularProgressIndicator(
                 progress = { (elapsed.toFloat() / pace).coerceIn(0f, 1f) }, modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
                 color = if (over) colors.error else colors.primary, trackColor = colors.outlineVariant, gapSize = 0.dp)
-            else Icon(Icons.Rounded.HourglassTop, null, Modifier.size(16.dp), tint = colors.primary)
+            else Icon(FolioIcons.Hourglass, null, Modifier.size(16.dp), tint = colors.primary)
             Text(ExamSheet.clock(elapsed) + (pace?.let { " / ${ExamSheet.clock(it)}" } ?: ""),
                 style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
                 color = if (over) colors.onErrorContainer else colors.onSurface)

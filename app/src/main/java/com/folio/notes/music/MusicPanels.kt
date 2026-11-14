@@ -1,14 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.music
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -79,8 +77,8 @@ import com.folio.notes.ui.FolioSpacing
         Column(Modifier.padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text("${set.scores.size} in the set · new scores join at the end", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth().semanticsLabel("Find a score"), placeholder = { Text("Find a score…") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = { if (filter.isNotEmpty()) IconButton({ filter = "" }) { Icon(Icons.Rounded.Close, "Clear score search") } },
+                leadingIcon = { Icon(FolioIcons.Search, null) },
+                trailingIcon = { if (filter.isNotEmpty()) IconButton({ filter = "" }) { Icon(FolioIcons.Close, "Clear score search") } },
                 singleLine = true, shape = FolioShapes.extraLarge,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { filterFocus.clearFocus() }),
@@ -112,13 +110,13 @@ import com.folio.notes.ui.FolioSpacing
             sets.forEach { set ->
                 val included = score.id in set.scores
                 PickRow(included, set.name, "${set.scores.size} ${if (set.scores.size == 1) "score" else "scores"}", {
-                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(FolioIcons.QueueMusic, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }) { model.set(set.id) { s -> s.copy(scores = if (score.id in s.scores) s.scores - score.id else (s.scores + score.id).distinct()) } }
             }
             Surface(onClick = onNewSet, shape = FolioShapes.large, color = Color.Transparent) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(FolioIcons.Plus, null, tint = MaterialTheme.colorScheme.primary)
                     Text("New set list with this score", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -135,17 +133,17 @@ import com.folio.notes.ui.FolioSpacing
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12)) {
             PickRow(score.folder == null, "No folder", "Keep it on the main shelf", {
-                Icon(Icons.Rounded.LibraryMusic, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(FolioIcons.MusicLibrary, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }) { if (score.folder != null) model.moveToFolder(setOf(score.id), null); dismiss() }
             folders.forEach { folder ->
                 PickRow(score.folder == folder.id, folder.name, "Folder", {
-                    Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(FolioIcons.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }) { if (score.folder != folder.id) model.moveToFolder(setOf(score.id), folder.id); dismiss() }
             }
             Surface(onClick = onNewFolder, shape = FolioShapes.large, color = Color.Transparent) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                    Icon(Icons.Rounded.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(FolioIcons.FolderAdd, null, tint = MaterialTheme.colorScheme.primary)
                     Text("New folder with this score", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
                 }
             }

@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
@@ -22,7 +23,7 @@ import com.folio.notes.input.rememberLongPressGuard
     Crossfade(targetState = active, label = "timingChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(EditorIcons.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
+                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE
@@ -37,10 +38,10 @@ import com.folio.notes.input.rememberLongPressGuard
             val clock = if (done) "Pens down" else timer.clockText()
             ToolbarSessionPill(
                 icon = when {
-                    done -> EditorIcons.Flag
-                    timer.paused -> EditorIcons.Pause
-                    reading -> EditorIcons.Book
-                    else -> EditorIcons.Timer
+                    done -> FolioIcons.Flag
+                    timer.paused -> FolioIcons.Pause
+                    reading -> FolioIcons.Book
+                    else -> FolioIcons.Timer
                 },
                 value = clock,
                 tone = when {

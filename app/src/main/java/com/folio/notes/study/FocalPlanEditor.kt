@@ -1,15 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
@@ -129,7 +127,7 @@ internal fun FocalPlanEditor(entry: FocalStudyEntry, subjects: List<FocalSubject
                             Text("Block ${index + 1}" + if (length > 0) " · ${formatStudyMinutes(length)}" else "",
                                 Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
                             if (slots.size > 1) IconButton({ slots = slots.filterIndexed { position, _ -> position != index }; error = null }) {
-                                Icon(Icons.Rounded.Close, "Remove block ${index + 1}")
+                                Icon(FolioIcons.Close, "Remove block ${index + 1}")
                             }
                         }
                         listOf(true, false).forEach { start ->
@@ -159,7 +157,7 @@ internal fun FocalPlanEditor(entry: FocalStudyEntry, subjects: List<FocalSubject
                 val start = requireNotNull(last.endAt) + 15 * 60_000L
                 slots = slots + FocalStudyInterval(start, start + (requireNotNull(last.endAt) - last.startAt).coerceIn(15 * 60_000L, 120 * 60_000L))
             }, enabled = slots.size < 100, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
                 Text("Add block after a 15-minute break")
             }
             OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("Plan notes") }, minLines = 2,

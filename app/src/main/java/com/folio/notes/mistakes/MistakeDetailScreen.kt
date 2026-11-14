@@ -2,15 +2,13 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,7 +74,7 @@ internal fun MistakeDetailCard(
             color = if (!mistake.suspended && dueText.contains("overdue")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         Button(onPractice, enabled = !working && !mistake.suspended, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shapes = ButtonDefaults.shapes()) {
             if (working) LoadingIndicator(Modifier.size(20.dp))
-            else Icon(Icons.Rounded.Edit, null)
+            else Icon(FolioIcons.Pen, null)
             Spacer(Modifier.width(FolioSpacing.dp8))
             Text(if (mistake.suspended) "Unsuspend in Focal to practise" else if (attempts.any { it.second.completedAt == null }) "Continue review" else "Practise this question")
         }
@@ -86,7 +84,7 @@ internal fun MistakeDetailCard(
                     selected = tab == index, onClick = { tab = index },
                     label = { Text(title) },
                     leadingIcon = if (tab == index) {
-                        { Icon(Icons.Rounded.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
+                        { Icon(FolioIcons.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
                     } else null
                 )
             }
@@ -97,7 +95,7 @@ internal fun MistakeDetailCard(
                 else if (mistake.attachments.isEmpty()) EmptyHint("No extra question text saved. Use the question reference above.")
                 AttachmentGallery(mistake, userId, attachments)
                 TextButton({ showMetadata = !showMetadata }, shapes = ButtonDefaults.shapes()) {
-                    Icon(if (showMetadata) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+                    Icon(if (showMetadata) FolioIcons.ChevronUp else FolioIcons.ChevronDown, null)
                     Text(if (showMetadata) "Hide question information" else "Marks, topic & review information")
                 }
                 if (showMetadata) MistakeMetaGrid(mistake, schedule, due, now)
@@ -120,7 +118,7 @@ internal fun MistakeDetailCard(
                     Surface(onClick = { onOpenAttempt(note.id, attempt.practicePageId, attempt.reviewId, done) }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             val rating = attempt.rating?.let(ReviewRating::parse)
-                            Icon(if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PendingActions, null,
+                            Icon(if (done) FolioIcons.CheckCircle else FolioIcons.Clock, null,
                                 tint = when {
                                     !done -> MaterialTheme.colorScheme.tertiary
                                     rating == ReviewRating.AGAIN -> MaterialTheme.colorScheme.error
@@ -131,7 +129,7 @@ internal fun MistakeDetailCard(
                                 Text(attempt.completedAt?.let(::localDateLabel) ?: "Unfinished · your response is saved", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, if (done) "Open response" else "Continue review")
+                            Icon(FolioIcons.Forward, if (done) "Open response" else "Continue review")
                         }
                     }
                 }
@@ -141,7 +139,7 @@ internal fun MistakeDetailCard(
         HorizontalDivider(Modifier.padding(top = FolioSpacing.dp8))
         TextButton({ showDelete = true }, enabled = !working, shapes = ButtonDefaults.shapes(),
             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-            Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Delete, null, Modifier.size(18.dp))
             Spacer(Modifier.width(FolioSpacing.dp6))
             Text("Delete this card")
         }
@@ -156,7 +154,7 @@ internal fun MistakeDetailCard(
 internal fun DeleteCardDialog(question: String, working: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = { if (!working) onDismiss() },
-        icon = { Icon(Icons.Rounded.DeleteOutline, null) },
+        icon = { Icon(FolioIcons.Delete, null) },
         title = { Text("Delete this card?") },
         text = { Text("“${question.trim().take(140)}” leaves your review list on all devices. Your responses on this device are kept.") },
         dismissButton = { TextButton(onDismiss, enabled = !working, shapes = ButtonDefaults.shapes()) { Text("Keep") } },
@@ -260,7 +258,7 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
                 )
             }
             failed -> Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-                Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(FolioIcons.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(Modifier.weight(1f)) {
                     Text(attachment.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("Unavailable offline", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -283,7 +281,7 @@ private fun AttachmentImage(attachment: MistakeAttachment, user: String, attachm
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close attachment") }
+                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Close attachment") }
                     Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton({ zoom = 1f; offset = Offset.Zero }, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                 }

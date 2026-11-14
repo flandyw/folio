@@ -1,15 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.ui.FolioIcons
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -89,14 +86,14 @@ internal fun FocalLoginCard(
         ) {
             if (step != LoginStep.SIGN_IN) {
                 TextButton({ navigate(LoginStep.SIGN_IN) }, enabled = !state.busy, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Back, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp8))
                     Text("Back to sign in")
                 }
             }
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                 Icon(
-                    if (resetting) Icons.Rounded.Lock else Icons.Rounded.School, null,
+                    if (resetting) FolioIcons.Lock else FolioIcons.School, null,
                     Modifier.padding(FolioSpacing.dp16).size(28.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
@@ -121,7 +118,7 @@ internal fun FocalLoginCard(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Email address") },
                 placeholder = { Text("you@example.com") },
-                leadingIcon = { Icon(Icons.Rounded.AlternateEmail, null) },
+                leadingIcon = { Icon(FolioIcons.At, null) },
                 singleLine = true,
                 isError = emailTouched && email.isNotBlank() && !validEmail,
                 supportingText = if (emailTouched && email.isNotBlank() && !validEmail) {
@@ -137,10 +134,10 @@ internal fun FocalLoginCard(
                     onValueChange = { password = it; onClearFeedback() },
                     modifier = Modifier.fillMaxWidth().focusRequester(passwordFocus),
                     label = { Text(if (creating) "Choose a password" else "Password") },
-                    leadingIcon = { Icon(Icons.Rounded.Lock, null) },
+                    leadingIcon = { Icon(FolioIcons.Lock, null) },
                     trailingIcon = {
                         IconButton({ showPassword = !showPassword }, enabled = !state.busy, shapes = IconButtonDefaults.shapes()) {
-                            Icon(if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                            Icon(if (showPassword) FolioIcons.Hidden else FolioIcons.Visible,
                                 if (showPassword) "Hide password" else "Show password")
                         }
                     },
@@ -167,7 +164,7 @@ internal fun FocalLoginCard(
                     color = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
                 ) {
                     Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                        Icon(if (isError) Icons.Rounded.ErrorOutline else Icons.Rounded.MarkEmailRead, null)
+                        Icon(if (isError) FolioIcons.Alert else FolioIcons.MailRead, null)
                         Text(feedback, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
@@ -183,7 +180,7 @@ internal fun FocalLoginCard(
                 } else {
                     Text(step.action)
                     Spacer(Modifier.width(FolioSpacing.dp8))
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Forward, null, Modifier.size(18.dp))
                 }
             }
             if (step == LoginStep.SIGN_IN) {

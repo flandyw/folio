@@ -2,6 +2,7 @@
     androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library.files
 
+import com.folio.notes.ui.FolioIcons
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
@@ -18,9 +19,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -228,9 +226,9 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
             if (wide) Surface(Modifier.width(224.dp).fillMaxHeight().padding(start = FolioDestinationInset, bottom = FolioSpacing.dp12), shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 LazyColumn(contentPadding = PaddingValues(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     item { Text("Locations", Modifier.padding(FolioSpacing.dp8), style = MaterialTheme.typography.titleSmall) }
-                    item { ExplorerPlace("Tablet storage", Icons.Rounded.TabletAndroid, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() } } }
-                    items(locations, key = { it.tree }) { location -> ExplorerPlace(location.name, Icons.Rounded.FolderOpen, activeTree == location.tree) { if (!changing) { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) } } }
-                    item { TextButton({ picker.launch(activeTree?.let(Uri::parse)) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Connect folder") } }
+                    item { ExplorerPlace("Tablet storage", FolioIcons.Tablet, current == null) { if (!changing) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() } } }
+                    items(locations, key = { it.tree }) { location -> ExplorerPlace(location.name, FolioIcons.FolderOpen, activeTree == location.tree) { if (!changing) { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) } } }
+                    item { TextButton({ picker.launch(activeTree?.let(Uri::parse)) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text("Connect folder") } }
                 }
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -241,25 +239,25 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Text("Browse your whole tablet", style = MaterialTheme.typography.titleMedium)
                             Text("Enable all files access once to browse internal storage, Downloads and available SD or USB storage.", style = MaterialTheme.typography.bodyMedium)
-                            Button({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Enable all files access") }
+                            Button({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Enable all files access") }
                         }
                     }
                     if (current != null) ExplorerSearch(query, { query = it }, "Search files in this folder")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                        if (current == null && fullAccess) TextButton({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("All files access") }
-                        if (current == null) FilledTonalButton({ picker.launch(null) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Connect folder") }
+                        if (current == null && fullAccess) TextButton({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.CheckCircle, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("All files access") }
+                        if (current == null) FilledTonalButton({ picker.launch(null) }, enabled = !changing, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Connect folder") }
                         if (current != null) {
                             FilledTonalButton({ newFolder = true }, enabled = !loading && !changing && parent?.supports(DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE) == true,
-                                shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
-                            IconButton({ refresh++ }, enabled = !loading && !changing, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Refresh, "Refresh files") }
+                                shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FolderAdd, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
+                            IconButton({ refresh++ }, enabled = !loading && !changing, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.RotateRight, "Refresh files") }
                             FilterChip(pdfOnly, { pdfOnly = !pdfOnly }, { Text("PDF & Folio") })
                             FilterChip(showHiddenFolders, {
                                 showHiddenFolders = !showHiddenFolders
                                 prefs.edit().putBoolean(AppPrefs.EXPLORER_SHOW_HIDDEN_FOLDERS, showHiddenFolders).apply()
                             }, { Text("Show hidden folders", maxLines = 1, softWrap = false) },
-                                leadingIcon = { Icon(if (showHiddenFolders) Icons.Rounded.Check else Icons.Rounded.VisibilityOff, null, Modifier.size(18.dp)) })
+                                leadingIcon = { Icon(if (showHiddenFolders) FolioIcons.Check else FolioIcons.Hidden, null, Modifier.size(18.dp)) })
                             Box {
-                                TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.Sort, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label) }
+                                TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Sort, null); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label) }
                                 FolioMenuPopover(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches(), title = "Sort files") { FileSort.entries.forEach { option -> FolioMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, selected = sort == option) } }
                             }
                             TextButton({ selecting = !selecting; selectedUris = emptyList() }, enabled = !loading && !changing && (selecting || visible.any { !it.directory }), shapes = ButtonDefaults.shapes()) { Text(if (selecting) "Done" else "Select") }
@@ -282,7 +280,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                     }
                                 }, enabled = current != null && (!clip.move || current != clip.parent) && !loading && !changing && parent?.supports(DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE) == true,
                                     shapes = ButtonDefaults.shapes()) { Text("Paste") }
-                                IconButton({ clipboard = null }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Cancel file transfer") }
+                                IconButton({ clipboard = null }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Cancel file transfer") }
                             }
                         }
                     }
@@ -296,10 +294,10 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                         item { Text("Browse tablet storage or connect a cloud folder. PDFs and Folio notebooks can be copied into your library; other files open in their usual app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         items(locations, key = { it.tree }) { location ->
                             var menu by remember { mutableStateOf(false) }
-                            ExplorerRow(location.name, if (location.available) "Tap to browse files and subfolders" else "Reconnect to restore access", Icons.Rounded.FolderOpen,
+                            ExplorerRow(location.name, if (location.available) "Tap to browse files and subfolders" else "Reconnect to restore access", FolioIcons.FolderOpen,
                                 { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) }, trailing = {
                                     Box {
-                                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Location options") }
+                                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Location options") }
                                         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Storage location") {
                                             if (Uri.parse(location.tree).scheme == "file") FolioMenuItem({ Text("Storage access settings") }, { menu = false; requestAccess() })
                                             else {
@@ -311,20 +309,20 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 })
                         }
                         if (locationsLoading) item { Box(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), contentAlignment = Alignment.Center) { LoadingIndicator() } }
-                        if (locations.isEmpty() && !locationsLoading) item { ExplorerEmpty(Icons.Rounded.TabletAndroid, "Your tablet, within reach", "Enable all files access above, or connect a folder from a document provider.") {
+                        if (locations.isEmpty() && !locationsLoading) item { ExplorerEmpty(FolioIcons.Tablet, "Your tablet, within reach", "Enable all files access above, or connect a folder from a document provider.") {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 TextButton(onImport, shapes = ButtonDefaults.shapes()) { Text("Choose PDF files") }
                                 TextButton(onImportArchive, shapes = ButtonDefaults.shapes()) { Text("Choose Folio file") }
                             }
                         } }
                     } else if (loading) item { Box(Modifier.fillMaxWidth().padding(FolioSpacing.dp32), contentAlignment = Alignment.Center) { ContainedLoadingIndicator() } }
-                    else if (error != null) item { ExplorerEmpty(Icons.Rounded.FolderOff, "Couldn't open this folder", error!!) {
+                    else if (error != null) item { ExplorerEmpty(FolioIcons.FolderOff, "Couldn't open this folder", error!!) {
                         Row { TextButton({ refresh++ }, shapes = ButtonDefaults.shapes()) { Text("Retry") }; Button({ if (Uri.parse(current).scheme == "file") requestAccess() else picker.launch(activeTree?.let(Uri::parse)) }, shapes = ButtonDefaults.shapes()) { Text(if (Uri.parse(current).scheme == "file") "Access settings" else "Reconnect") } }
                     } }
                     else {
                         if (visible.isEmpty()) item {
                             val hiddenFolders = !showHiddenFolders && children.any { it.directory && it.name.startsWith('.') }
-                            ExplorerEmpty(Icons.Rounded.FolderOpen,
+                            ExplorerEmpty(FolioIcons.FolderOpen,
                                 if (query.isNotBlank() || pdfOnly) "No matching files" else if (hiddenFolders) "No visible files" else "This folder is empty",
                                 if (hiddenFolders) "Turn on Show hidden folders to include dot-prefixed folders."
                                 else if (query.isNotBlank() || pdfOnly) "Try another name or turn off the file filter."
@@ -349,15 +347,15 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 actionCount = listOf(canImport, !file.directory, canRename, canDelete).count { it },
                                 enabled = !selecting && !changing, shape = FolioShapes.large,
                                 actions = {
-                                    if (canImport) RevealActionButton(Icons.Rounded.Download, "Import") { revealedUri = null; importFile = file }
-                                    if (!file.directory) RevealActionButton(Icons.Rounded.Share, "Share") { revealedUri = null; launchFile(file, true) }
-                                    if (canRename) RevealActionButton(Icons.Rounded.Edit, "Rename") { revealedUri = null; rename = file }
+                                    if (canImport) RevealActionButton(FolioIcons.Download, "Import") { revealedUri = null; importFile = file }
+                                    if (!file.directory) RevealActionButton(FolioIcons.Share, "Share") { revealedUri = null; launchFile(file, true) }
+                                    if (canRename) RevealActionButton(FolioIcons.Pen, "Rename") { revealedUri = null; rename = file }
                                     if (canDelete) Box(Modifier.width(RevealActionWidth).fillMaxHeight()) {
-                                        RevealActionButton(Icons.Rounded.DeleteOutline, "Delete", destructive = true) { confirmDelete = true }
+                                        RevealActionButton(FolioIcons.Delete, "Delete", destructive = true) { confirmDelete = true }
                                         FolioMenuPopover(confirmDelete, { confirmDelete = false }, modifier = Modifier.guardUiTouches(), title = "Delete “${file.name}”?") {
                                             Text(if (file.directory) "This deletes the folder and its contents. It can't be undone in Folio." else "This deletes the original file from this location. It can't be undone in Folio.",
                                                 Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            FolioMenuItem({ Text("Delete") }, { confirmDelete = false; revealedUri = null; mutate("Deleted") { files.delete(file) } }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+                                            FolioMenuItem({ Text("Delete") }, { confirmDelete = false; revealedUri = null; mutate("Deleted") { files.delete(file) } }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
                                             FolioMenuItem({ Text("Keep") }, { confirmDelete = false })
                                         }
                                     }
@@ -374,21 +372,21 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                         }
                                     }, onLongClick = { if (!file.directory) { selecting = true; toggle(file) } })) {
                                 ListItem(headlineContent = { Text(file.name, maxLines = 2, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    leadingContent = { if (selecting && !file.directory) Checkbox(selected, { toggle(file) }, Modifier.semanticsLabel("Select ${file.name}"), enabled = !changing) else Icon(if (file.directory) Icons.Rounded.Folder else if (file.pdf) Icons.Rounded.PictureAsPdf else if (file.folio) Icons.AutoMirrored.Rounded.MenuBook else Icons.AutoMirrored.Rounded.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary) },
+                                    leadingContent = { if (selecting && !file.directory) Checkbox(selected, { toggle(file) }, Modifier.semanticsLabel("Select ${file.name}"), enabled = !changing) else Icon(if (file.directory) FolioIcons.Folder else if (file.pdf) FolioIcons.Pdf else if (file.folio) FolioIcons.Book else FolioIcons.File, null, tint = MaterialTheme.colorScheme.primary) },
                                     trailingContent = { if (!selecting) Box {
-                                        IconButton({ menu = true }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for ${file.name}") }
+                                        IconButton({ menu = true }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for ${file.name}") }
                                         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "File actions") {
                                             if (!file.directory) {
                                                 if ((file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual) FolioMenuItem({ Text("Import to Folio") }, { menu = false; importFile = file }, enabled = !state.busy && !state.loading && !state.loadFailed)
                                                 FolioMenuItem({ Text("Open with…") }, { menu = false; launchFile(file) })
                                                 if (!file.virtual) {
-                                                    FolioMenuItem({ Text("Copy") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), false) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
-                                                    if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Move") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), true) }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) })
+                                                    FolioMenuItem({ Text("Copy") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), false) }, leadingIcon = { Icon(FolioIcons.Copy, null) })
+                                                    if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Move") }, { menu = false; clipboard = DeviceClipboard(file, current.orEmpty(), true) }, leadingIcon = { Icon(FolioIcons.MoveToPage, null) })
                                                 }
-                                                FolioMenuItem({ Text("Share") }, { menu = false; launchFile(file, true) }, leadingIcon = { Icon(Icons.Rounded.Share, null) })
+                                                FolioMenuItem({ Text("Share") }, { menu = false; launchFile(file, true) }, leadingIcon = { Icon(FolioIcons.Share, null) })
                                             }
-                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)) FolioMenuItem({ Text("Rename") }, { menu = false; rename = file }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Delete") }, { menu = false; delete = file }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_RENAME)) FolioMenuItem({ Text("Rename") }, { menu = false; rename = file }, leadingIcon = { Icon(FolioIcons.Pen, null) })
+                                            if (file.supports(DocumentsContract.Document.FLAG_SUPPORTS_DELETE)) FolioMenuItem({ Text("Delete") }, { menu = false; delete = file }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
                                         }
                                     } }, colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow))
                             }                            }

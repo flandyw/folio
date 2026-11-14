@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -12,11 +13,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -104,7 +100,7 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
             },
                 enabled = blocked == null && state.canStartFocus,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.PlayArrow, null)
+                Icon(FolioIcons.Play, null)
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(subjectName(subjectId)?.let { "Start studying $it" } ?: "Start studying", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -158,7 +154,7 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
             Button({ manager.toggleFocus() },
                 enabled = running || (!examRunning && !otherRunning),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) {
-                Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
+                Icon(if (running) FolioIcons.Pause else FolioIcons.Play, null)
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(if (running) "Pause" else "Resume")
             }
@@ -171,13 +167,13 @@ internal fun StudyStopwatchContent(note: Notebook?, examTimer: ExamTimerState, o
                     notice = saved
                 }, enabled = elapsed >= 1_000L,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Check, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp6))
                     Text("Finish & save")
                 }
                 OutlinedButton({ confirmDiscard = true }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = scheme.error)) {
-                    Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Close, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp6))
                     Text("Discard")
                 }

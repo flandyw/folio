@@ -1,11 +1,10 @@
 package com.folio.notes.chatgpt
 
+import com.folio.notes.ui.FolioIcons
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,7 +54,7 @@ import java.text.NumberFormat
 @Composable internal fun ChatGptUsageLink() {
     val context = LocalContext.current
     TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://chatgpt.com/settings/usage"))) }) {
-        Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Manage usage")
+        Icon(FolioIcons.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Manage usage")
     }
 }
 

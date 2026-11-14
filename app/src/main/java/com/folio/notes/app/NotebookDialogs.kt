@@ -1,13 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.app
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,7 +50,7 @@ import com.folio.notes.ui.FolioSpacing
                 singleLine = true, label = { Text("Name") }, isError = error != null && text.text.isNotEmpty(),
                 keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
-                trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue(""); focusRequester.requestFocus() }) { Icon(Icons.Rounded.Close, "Clear name") } },
+                trailingIcon = { if (text.text.isNotEmpty()) IconButton({ text = TextFieldValue(""); focusRequester.requestFocus() }) { Icon(FolioIcons.Close, "Clear name") } },
                 supportingText = { if (error != null) Text(error) else if (text.text.length >= 90) Text("${text.text.trim().length}/120") })
         }
     }, dismissButton = { TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } }, confirmButton = { Button({ save() }, enabled = error == null, shapes = ButtonDefaults.shapes()) { Text(action) } })
@@ -111,16 +109,16 @@ import com.folio.notes.ui.FolioSpacing
             }
             if (template == null && !infinite) Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Pages", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                IconButton({ pageCount = (pageCount - 1).coerceAtLeast(1) }, enabled = pageCount > 1, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Remove, "Fewer pages") }
+                IconButton({ pageCount = (pageCount - 1).coerceAtLeast(1) }, enabled = pageCount > 1, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Minus, "Fewer pages") }
                 Text("$pageCount", Modifier.widthIn(min = 32.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                IconButton({ pageCount = (pageCount + 1).coerceAtMost(40) }, enabled = pageCount < 40, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "More pages") }
+                IconButton({ pageCount = (pageCount + 1).coerceAtMost(40) }, enabled = pageCount < 40, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "More pages") }
             }
             if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             TextButton({ appearanceExpanded = !appearanceExpanded }, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Palette, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                Icon(FolioIcons.Palette, null); Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(if (appearanceExpanded) "Hide cover options" else "Cover options")
-                Icon(if (appearanceExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+                Icon(if (appearanceExpanded) FolioIcons.ChevronUp else FolioIcons.ChevronDown, null)
             }
             if (appearanceExpanded) {
                 CoverPicker(cover, { cover = it }, title)
@@ -158,7 +156,7 @@ import com.folio.notes.ui.FolioSpacing
                 Button(
                     ::createNotebook,
                     shapes = ButtonDefaults.shapes()
-                ) { Text(if (infinite) "Create canvas" else if (pageCount > 1) "Create · $pageCount pages" else "Create notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp)) }
+                ) { Text(if (infinite) "Create canvas" else if (pageCount > 1) "Create · $pageCount pages" else "Create notebook"); Spacer(Modifier.width(FolioSpacing.dp8)); Icon(FolioIcons.Forward, null, Modifier.size(18.dp)) }
             }
         }
     }

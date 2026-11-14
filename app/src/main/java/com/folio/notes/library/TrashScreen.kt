@@ -1,15 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.model.countOf
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.DeleteForever
-import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,7 +28,7 @@ import java.util.Date
     val enabled = !state.loading && !state.loadFailed && !state.saveFailed
     Column(modifier) {
         FolioScreenHeading("Trash", leading = {
-            IconButton(onBack, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to Library") }
+            IconButton(onBack, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Back to Library") }
         })
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = FolioDestinationInset,
             end = FolioDestinationInset, bottom = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -52,7 +48,7 @@ import java.util.Date
             if (state.trash.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 64.dp), horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    Icon(Icons.Rounded.DeleteOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(FolioIcons.Delete, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (state.loading) "Loading Trash…" else "Trash is empty", style = MaterialTheme.typography.titleMedium)
                     Text("Notebooks you delete will appear here.", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -69,11 +65,11 @@ import java.util.Date
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             TextButton({ model.restoreNotebooks(setOf(note.id)); model.reportNotice("Restored “${note.title}”") }, enabled = enabled && !busy, shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.RestoreFromTrash, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Restore")
+                                Icon(FolioIcons.Restore, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Restore")
                             }
                             TextButton({ deleting = setOf(note.id) }, enabled = enabled && !busy, shapes = ButtonDefaults.shapes(),
                                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                                Icon(Icons.Rounded.DeleteForever, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Delete forever")
+                                Icon(FolioIcons.DeleteForever, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Delete forever")
                             }
                             if (busy) Text("Saving…", Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.labelMedium)
                         }

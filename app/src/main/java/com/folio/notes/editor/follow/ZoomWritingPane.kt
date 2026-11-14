@@ -1,16 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.folio.notes.editor.follow
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.automirrored.rounded.KeyboardReturn
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -49,13 +45,13 @@ internal fun ZoomWritingPane(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = if (hand == WritingHand.RIGHT) Arrangement.Start else Arrangement.End) {
                 Text("Zoom pane", Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
-                PaneButton(Icons.AutoMirrored.Rounded.Undo, "Back view", status.canGoBack, onBack)
-                PaneButton(Icons.AutoMirrored.Rounded.ArrowForward, "Reveal ahead on this line", true, onAhead)
-                PaneButton(Icons.AutoMirrored.Rounded.KeyboardReturn, "Next line", true, onNext)
-                PaneButton(if (status.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                PaneButton(FolioIcons.Undo, "Back view", status.canGoBack, onBack)
+                PaneButton(FolioIcons.Forward, "Reveal ahead on this line", true, onAhead)
+                PaneButton(FolioIcons.Return, "Next line", true, onNext)
+                PaneButton(if (status.paused) FolioIcons.Play else FolioIcons.Pause,
                     if (status.paused) "Resume writing follow" else "Pause writing follow", true, onPause)
-                PaneButton(Icons.Rounded.Tune, "Writing follow options", true, onOptions)
-                PaneButton(Icons.Rounded.Close, "Close zoom pane", true, onClose)
+                PaneButton(FolioIcons.Tune, "Writing follow options", true, onOptions)
+                PaneButton(FolioIcons.Close, "Close zoom pane", true, onClose)
             }
             Text(status.message, Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

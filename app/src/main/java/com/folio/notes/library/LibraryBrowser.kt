@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
@@ -9,10 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
-import androidx.compose.material.icons.automirrored.rounded.MenuOpen
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,9 +52,9 @@ internal class LibraryCounts(notes: List<Notebook>, folders: List<Folder>) {
 }
 
 internal fun LibraryPlace.icon(): ImageVector = when (this) {
-    LibraryPlace.ALL -> Icons.Rounded.GridView
-    LibraryPlace.FAVORITES -> Icons.Rounded.StarOutline
-    LibraryPlace.UNFILED -> Icons.Rounded.FolderOff
+    LibraryPlace.ALL -> FolioIcons.Pages
+    LibraryPlace.FAVORITES -> FolioIcons.Star
+    LibraryPlace.UNFILED -> FolioIcons.FolderOff
 }
 
 /** Dropping on a place: Favorites stars, Unfiled takes notebooks out of their folder; All is just a view. */
@@ -96,7 +93,7 @@ internal val LibraryNavWidth = 280.dp
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 FolioLogo(Modifier.size(36.dp))
                 Text("Folio", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                IconButton(onCollapse, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.MenuOpen, "Fold sidebar") }
+                IconButton(onCollapse, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MenuOpen, "Fold sidebar") }
             }
             create()
             LazyColumn(Modifier.weight(1f).then(if (drag != null) Modifier.notebookDragScroll(drag) { list.scrollBy(it) } else Modifier),
@@ -109,10 +106,10 @@ internal val LibraryNavWidth = 280.dp
                             count = when (item) { LibraryPlace.ALL -> counts.all; LibraryPlace.FAVORITES -> counts.favorites; LibraryPlace.UNFILED -> counts.byFolder[null] ?: 0 },
                             modifier = item.drop()?.let { Modifier.notebookDropTarget(drag, it, onHoverOpen = if (item == LibraryPlace.UNFILED) ({ onHoverOpen(null) }) else null) } ?: Modifier) { onPlace(item) }
                     }
-                    if (onFiles != null) item(key = "files") { LibrarySidebarRow("Tablet files", Icons.Rounded.TabletAndroid, filesActive, onClick = onFiles) }
+                    if (onFiles != null) item(key = "files") { LibrarySidebarRow("Tablet files", FolioIcons.Tablet, filesActive, onClick = onFiles) }
                     item(key = "folders") {
                         LibrarySidebarHeading("Folders") {
-                            IconButton(onNewFolder, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.CreateNewFolder, "New folder", Modifier.size(20.dp)) }
+                            IconButton(onNewFolder, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.FolderAdd, "New folder", Modifier.size(20.dp)) }
                         }
                     }
                     if (rows.isEmpty()) item(key = "no-folders") {
@@ -120,7 +117,7 @@ internal val LibraryNavWidth = 280.dp
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(rows, key = { "folder:${it.first.id}" }) { (folder, depth) ->
-                        LibrarySidebarRow(folder.name, if (openFolder == folder.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder, !filesActive && openFolder == folder.id,
+                        LibrarySidebarRow(folder.name, if (openFolder == folder.id) FolioIcons.FolderOpen else FolioIcons.Folder, !filesActive && openFolder == folder.id,
                             count = counts.byFolder[folder.id] ?: 0, depth = depth, iconTint = FolderPalette.color(folder.color),
                             expanded = if (folder.id in parents) folder.id in expanded else null, onExpand = { onExpand(folder.id) },
                             modifier = Modifier.notebookDragSource(drag, onFinishDrag) { NotebookDragPayload.Folder(folder.id, folder.name) }
@@ -130,7 +127,7 @@ internal val LibraryNavWidth = 280.dp
                     if (tags.isNotEmpty()) {
                         item(key = "tags") { LibrarySidebarHeading("Tags") }
                         items(tags, key = { "tag:$it" }) { label ->
-                            LibrarySidebarRow(label, Icons.Rounded.Sell, !filesActive && tag.equals(label, true), count = counts.tag(label),
+                            LibrarySidebarRow(label, FolioIcons.Tag, !filesActive && tag.equals(label, true), count = counts.tag(label),
                                 modifier = Modifier.notebookDropTarget(drag, NotebookDropDestination.Tag(label))) { onTag(label) }
                         }
                     }
@@ -179,7 +176,7 @@ internal val LibraryNavWidth = 280.dp
             if (expanded != null) {
                 val turn by animateFloatAsState(if (expanded) 90f else 0f, folioSpring(), label = "folderDisclosure")
                 IconButton(onExpand, modifier = Modifier.size(FolioTouch.target), shapes = IconButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.ChevronRight, if (expanded) "Collapse $label" else "Expand $label", Modifier.size(18.dp).rotate(turn))
+                    Icon(FolioIcons.ChevronRight, if (expanded) "Collapse $label" else "Expand $label", Modifier.size(18.dp).rotate(turn))
                 }
             }
         }
@@ -204,7 +201,7 @@ internal val LibraryNavWidth = 280.dp
         tags.forEach { label ->
             val count = counts.tag(label)
             FilterChip(tag.equals(label, true), { onTag(label) }, { Text(if (count > 0) "$label · $count" else label) },
-                leadingIcon = { Icon(Icons.Rounded.Sell, null, Modifier.size(16.dp)) },
+                leadingIcon = { Icon(FolioIcons.Tag, null, Modifier.size(16.dp)) },
                 modifier = Modifier.heightIn(min = FolioTouch.target).notebookDropTarget(drag, NotebookDropDestination.Tag(label)))
         }
     }
@@ -219,7 +216,7 @@ internal val LibraryNavWidth = 280.dp
         Row(Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Surface(shape = FolioShapes.medium, color = tint?.copy(alpha = .22f) ?: MaterialTheme.colorScheme.secondaryContainer) {
-                Icon(Icons.Rounded.Folder, null, Modifier.padding(FolioSpacing.dp8).size(24.dp), tint = tint ?: MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(FolioIcons.Folder, null, Modifier.padding(FolioSpacing.dp8).size(24.dp), tint = tint ?: MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Column(Modifier.weight(1f)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -228,7 +225,7 @@ internal val LibraryNavWidth = 280.dp
             if (menu != null) {
                 var open by remember { mutableStateOf(false) }
                 Box {
-                    IconButton({ open = true }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Options for $name") }
+                    IconButton({ open = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for $name") }
                     if (open) FolioActionPopover(name, { open = false }) { menu { open = false } }
                 }
             } else Spacer(Modifier.width(FolioSpacing.dp8))
@@ -238,11 +235,11 @@ internal val LibraryNavWidth = 280.dp
 
 /** The same four folder actions wherever a folder offers a menu. */
 @Composable internal fun FolderMenuItems(close: () -> Unit, onNewInside: () -> Unit, onRename: () -> Unit, onColour: () -> Unit, onMove: () -> Unit, onRemove: () -> Unit) {
-    PopoverRow(Icons.Rounded.CreateNewFolder, "New folder inside") { close(); onNewInside() }
-    PopoverRow(Icons.Rounded.Edit, "Rename folder") { close(); onRename() }
-    PopoverRow(Icons.Rounded.Palette, "Folder colour") { close(); onColour() }
-    PopoverRow(Icons.AutoMirrored.Rounded.DriveFileMove, "Move folder") { close(); onMove() }
-    PopoverRow(Icons.Rounded.DeleteOutline, "Remove folder", destructive = true) { close(); onRemove() }
+    PopoverRow(FolioIcons.FolderAdd, "New folder inside") { close(); onNewInside() }
+    PopoverRow(FolioIcons.Pen, "Rename folder") { close(); onRename() }
+    PopoverRow(FolioIcons.Palette, "Folder colour") { close(); onColour() }
+    PopoverRow(FolioIcons.MoveToPage, "Move folder") { close(); onMove() }
+    PopoverRow(FolioIcons.Delete, "Remove folder", destructive = true) { close(); onRemove() }
 }
 
 /** Folder colours are palette indices stored on the folder; 0 keeps the theme's default tint. */
@@ -259,7 +256,7 @@ object FolderPalette {
                 val tint = FolderPalette.color(index)
                 val label = if (index == 0) "Default" else FolderPalette.names[index - 1]
                 IconButton({ onPick(index); onDismiss() }, modifier = Modifier.size(FolioTouch.target).semantics { selected = folder.color == index }) {
-                    Icon(if (folder.color == index) Icons.Rounded.CheckCircle else Icons.Rounded.Folder, label, Modifier.size(28.dp),
+                    Icon(if (folder.color == index) FolioIcons.CheckCircle else FolioIcons.Folder, label, Modifier.size(28.dp),
                         tint = tint ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

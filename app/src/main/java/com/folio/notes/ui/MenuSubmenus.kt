@@ -3,8 +3,6 @@ package com.folio.notes.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -77,7 +75,7 @@ internal fun SubmenuItem(
             text = { Text(label) },
             onClick = { onExpandedChange(!expanded) },
             leadingIcon = { Icon(icon, null) },
-            trailingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Open submenu") },
+            trailingIcon = { Icon(FolioIcons.ChevronRight, "Open submenu") },
             enabled = enabled
         )
         if (expanded) Popup(

@@ -1,12 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.follow
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.KeyboardReturn
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -93,23 +89,23 @@ private enum class FollowSub { AREAS, LINES, PEEK }
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer) else ButtonDefaults.textButtonColors(),
         ) { Text(responseLabel) }
         else WritingFollowControl(
-            if (infinite) Icons.Rounded.TextFields else Icons.Rounded.SwipeRight,
+            if (infinite) FolioIcons.Text else FolioIcons.Forward,
             if (infinite) responseLabel else if (enabled) "Writing follow on — tap to turn off" else "Turn on writing follow",
             enabled = !peekOpen && !overview, active = enabled,
             onClick = actions.toggle
         )
         if (layout.overviewControl) WritingFollowControl(
-            if (!overview) Icons.Rounded.FitScreen else Icons.AutoMirrored.Rounded.ArrowBack,
+            if (!overview) FolioIcons.Fit else FolioIcons.Back,
             if (!overview) "See all working" else "Return to working",
             enabled = !peekOpen, active = overview, onClick = actions.overview,
         )
         if (enabled && !layout.overflowActions) {
-            WritingFollowControl(Icons.AutoMirrored.Rounded.KeyboardReturn, "Next writing line",
+            WritingFollowControl(FolioIcons.Return, "Next writing line",
                 enabled = !peekOpen && !overview, onClick = { view?.nextWritingLine() })
-            WritingFollowControl(Icons.AutoMirrored.Rounded.Undo, "Undo the last follow move",
+            WritingFollowControl(FolioIcons.Undo, "Undo the last follow move",
                 enabled = !peekOpen && status.canGoBack, onClick = { view?.backWritingView() })
             WritingFollowControl(
-                if (status.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                if (status.paused) FolioIcons.Play else FolioIcons.Pause,
                 if (status.paused) "Resume writing follow" else "Pause writing follow",
                 enabled = !peekOpen, active = status.paused,
                 onClick = actions.togglePause
@@ -119,18 +115,18 @@ private enum class FollowSub { AREAS, LINES, PEEK }
             var menu by remember { mutableStateOf(false) }
             var followSub by remember { mutableStateOf<FollowSub?>(null) }
             val openSub: (FollowSub) -> Unit = { followSub = if (followSub == it) null else it }
-            WritingFollowControl(Icons.Rounded.Tune, "Writing follow and peek options",
+            WritingFollowControl(FolioIcons.Tune, "Writing follow and peek options",
                 enabled = !peekOpen, onClick = { followSub = null; menu = true })
             FolioMenuPopover(menu, { menu = false; followSub = null }, modifier = Modifier.guardUiTouches(), title = "Writing & peek") {
                 FolioMenuItem({ Text(if (zoomPaneOpen) "Close zoom pane" else "Open zoom pane") },
                     { actions.toggleZoomPane(); menu = false },
                     enabled = !peekOpen && !overview,
-                    leadingIcon = { Icon(Icons.Rounded.ZoomIn, null) })
+                    leadingIcon = { Icon(FolioIcons.ZoomIn, null) })
                 if (infinite) {
                     FolioMenuItem({ Text(responseLabel) },
                         { actions.toggle(); menu = false },
                         enabled = !overview,
-                        leadingIcon = { Icon(Icons.Rounded.TextFields, null) })
+                        leadingIcon = { Icon(FolioIcons.Text, null) })
                     Text("For paragraphs: your first stroke sets the column's margin. Leave it off for maths, short answers and diagrams.",
                         Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                         style = MaterialTheme.typography.bodySmall)
@@ -144,11 +140,11 @@ private enum class FollowSub { AREAS, LINES, PEEK }
                         Modifier.widthIn(max = 280.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SubmenuItem("Lines & indentation…", Icons.AutoMirrored.Rounded.KeyboardReturn, followSub == FollowSub.LINES, { openSub(FollowSub.LINES) }) {
+                    SubmenuItem("Lines & indentation…", FolioIcons.Return, followSub == FollowSub.LINES, { openSub(FollowSub.LINES) }) {
                         FolioMenuItem({ Text("Previous writing line") },
                             { view?.previousWritingLine(); menu = false },
                             enabled = !overview,
-                            leadingIcon = { Icon(Icons.Rounded.KeyboardArrowUp, null) },
+                            leadingIcon = { Icon(FolioIcons.ChevronUp, null) },
                             trailingIcon = { Text("Alt+↑", style = MaterialTheme.typography.labelSmall) })
                         FolioMenuItem({ Text("New paragraph · leave a blank line") },
                             { view?.nextWritingLine(paragraph = true); menu = false }, enabled = !overview)
@@ -161,18 +157,18 @@ private enum class FollowSub { AREAS, LINES, PEEK }
                         FolioMenuItem({ Text("Next writing line") },
                             { view?.nextWritingLine(); menu = false },
                             enabled = !overview,
-                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.KeyboardReturn, null) })
+                            leadingIcon = { Icon(FolioIcons.Return, null) })
                         FolioMenuItem({ Text(if (status.paused) "Resume writing follow" else "Pause writing follow") },
                             { actions.togglePause(); menu = false },
-                            leadingIcon = { Icon(if (status.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null) })
+                            leadingIcon = { Icon(if (status.paused) FolioIcons.Play else FolioIcons.Pause, null) })
                         FolioMenuItem({ Text("Undo the last follow move") },
                             { view?.backWritingView(); menu = false },
                             enabled = status.canGoBack,
-                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Undo, null) })
+                            leadingIcon = { Icon(FolioIcons.Undo, null) })
                     }
                     HorizontalDivider()
                 }
-                if (!infinite) SubmenuItem("Answer areas…", Icons.Rounded.CropFree, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
+                if (!infinite) SubmenuItem("Answer areas…", FolioIcons.Fullscreen, followSub == FollowSub.AREAS, { openSub(FollowSub.AREAS) }) {
                     FolioMenuItem({ Text("Select answer area") }, { actions.enablePageFollow(); view?.selectWritingRegion(); menu = false })
                     FolioMenuItem({ Text("Detect answer areas") }, { actions.enablePageFollow(); view?.suggestWritingRegion(); menu = false })
                     if (hasRegion) FolioMenuItem({ Text("Clear answer areas") }, { view?.clearWritingRegion(); menu = false })
@@ -182,29 +178,29 @@ private enum class FollowSub { AREAS, LINES, PEEK }
                     { actions.toggleAutoReturn(); menu = false },
                     trailingIcon = { Checkbox(checked = response.automaticReturn, onCheckedChange = null) })
                 FolioMenuItem({ Text("Writing follow settings…") }, { actions.openSettings(); menu = false },
-                    leadingIcon = { Icon(Icons.Rounded.Settings, null) })
+                    leadingIcon = { Icon(FolioIcons.Settings, null) })
                 HorizontalDivider()
-                SubmenuItem("Peek view…", Icons.Rounded.PushPin, followSub == FollowSub.PEEK, { openSub(FollowSub.PEEK) }) {
+                SubmenuItem("Peek view…", FolioIcons.Pin, followSub == FollowSub.PEEK, { openSub(FollowSub.PEEK) }) {
                     FolioMenuItem(
                         { Text(if (!pinnedPeek) "Pin this view" else "Replace with this view") },
                         { actions.pinPeek(false); menu = false },
-                        leadingIcon = { Icon(Icons.Rounded.PushPin, null) }
+                        leadingIcon = { Icon(FolioIcons.Pin, null) }
                     )
                     FolioMenuItem(
                         { Text("Pin this whole page") },
                         { actions.pinPeek(true); menu = false },
-                        leadingIcon = { Icon(Icons.Rounded.FitScreen, null) }
+                        leadingIcon = { Icon(FolioIcons.Fit, null) }
                     )
                     if (pinnedPeek) FolioMenuItem(
                         { Text("Remove peek view") },
                         { actions.removePeek(); menu = false },
-                        leadingIcon = { Icon(Icons.Rounded.Close, null) }
+                        leadingIcon = { Icon(FolioIcons.Close, null) }
                     , destructive = true)
                 }
             }
         }
         if (!peekAvailable) {
-            WritingFollowControl(Icons.Rounded.PushPin, "Pin this view to peek at later",
+            WritingFollowControl(FolioIcons.Pin, "Pin this view to peek at later",
                 onClick = { actions.pinPeek(false) })
         } else {
             PeekControl(peekMode, actions.peek)

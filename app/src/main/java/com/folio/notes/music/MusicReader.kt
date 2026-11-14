@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.music
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -16,13 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.rounded.VolumeOff
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -277,14 +271,14 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                 if (!performance) {
                     Box(Modifier.align(Alignment.CenterStart).zIndex(11f).padding(start = FolioSpacing.dp6, top = insets.top, bottom = insets.bottom)) {
                         FloatingRail {
-                            ReaderButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back to Music", onClick = onBack)
+                            ReaderButton(FolioIcons.Back, "Back to Music", onClick = onBack)
                             Box {
-                                ReaderButton(Icons.Rounded.Bookmarks, "Rehearsal marks") { popover = ReaderPopover.MARKS }
+                                ReaderButton(FolioIcons.Bookmarks, "Rehearsal marks") { popover = ReaderPopover.MARKS }
                                 Anchored(ReaderPopover.MARKS) { MarksPopover(score, start, visible, model) { go(it); close() } }
                             }
                             Box {
                                 if (running) BeatButton(score.bpm, beat, metronomeBeatStrength(beat - 1, if (leadBars > 0) emptyList() else score.beatAccents, leadBars > 0 || accent) == 2) { popover = ReaderPopover.METRONOME }
-                                else ReaderButton(Icons.Rounded.Speed, "Metronome") { popover = ReaderPopover.METRONOME }
+                                else ReaderButton(FolioIcons.Speed, "Metronome") { popover = ReaderPopover.METRONOME }
                                 Anchored(ReaderPopover.METRONOME) {
                                     MetronomePopover(score, model, running, ::setRunning, sound, ::setSound, beat,
                                         accent, ::setAccent, subdivision, ::setSubdivision, countInBars, ::setCountInBars,
@@ -292,14 +286,14 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                                 }
                             }
                             FilledTonalIconButton({ turn(false) }, modifier = Modifier.size(48.dp), enabled = start > 0, shapes = IconButtonDefaults.shapes()) {
-                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous page")
+                                Icon(FolioIcons.ChevronLeft, "Previous page")
                             }
                         }
                     }
                     Box(Modifier.align(Alignment.CenterEnd).zIndex(11f).padding(end = FolioSpacing.dp6, top = insets.top, bottom = insets.bottom)) {
                         FloatingRail {
                             Box {
-                                ReaderButton(Icons.Rounded.MoreVert, "Score options") { popover = ReaderPopover.MORE }
+                                ReaderButton(FolioIcons.MoreVertical, "Score options") { popover = ReaderPopover.MORE }
                                 Anchored(ReaderPopover.READING) {
                                     ReadingPopover(score, model, canStart = !last) {
                                         close(); autoTurning = true; onPerformance(true)
@@ -311,31 +305,31 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                                         com.folio.notes.model.countOf(score.pages, "page"), if (score.annotationCount() > 0) com.folio.notes.model.countOf(score.annotationCount(), "pencil mark") else null).joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                        PopoverTile(Icons.Rounded.EditNote, "Details", Modifier.weight(1f)) { close(); onDetails() }
-                                        PopoverTile(if (score.starred) Icons.Rounded.Star else Icons.Rounded.StarOutline, "Favourite", Modifier.weight(1f), active = score.starred) {
+                                        PopoverTile(FolioIcons.EditNote, "Details", Modifier.weight(1f)) { close(); onDetails() }
+                                        PopoverTile(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, "Favourite", Modifier.weight(1f), active = score.starred) {
                                             model.score(score.id) { it.copy(starred = !it.starred) }
                                         }
-                                        PopoverTile(Icons.Rounded.IosShare, "Export", Modifier.weight(1f)) { close(); onExport() }
+                                        PopoverTile(FolioIcons.Share, "Export", Modifier.weight(1f)) { close(); onExport() }
                                     }
                                     if (score.notes.isNotBlank()) PopoverGroup("Rehearsal notes") {
                                         Text(score.notes, Modifier.padding(horizontal = FolioSpacing.dp8), style = MaterialTheme.typography.bodyMedium)
                                     }
                                     Column {
-                                        PopoverRow(Icons.Rounded.AutoStories, "Reading and timed turns") { popover = ReaderPopover.READING }
-                                        PopoverRow(if (showToolbar) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (showToolbar) "Hide the tool strip" else "Show the tool strip") { setShowToolbar(!showToolbar); close() }
-                                        PopoverRow(Icons.Rounded.ContentCut, "Extract instrument parts") { close(); onExtract() }
-                                        PopoverRow(Icons.Rounded.Tune, "App settings") { close(); onSettings() }
-                                        if (annotated) PopoverRow(Icons.Rounded.DeleteSweep, "Clear annotations on these pages") {
+                                        PopoverRow(FolioIcons.Book, "Reading and timed turns") { popover = ReaderPopover.READING }
+                                        PopoverRow(if (showToolbar) FolioIcons.Hidden else FolioIcons.Visible, if (showToolbar) "Hide the tool strip" else "Show the tool strip") { setShowToolbar(!showToolbar); close() }
+                                        PopoverRow(FolioIcons.Cut, "Extract instrument parts") { close(); onExtract() }
+                                        PopoverRow(FolioIcons.Tune, "App settings") { close(); onSettings() }
+                                        if (annotated) PopoverRow(FolioIcons.DeleteSweep, "Clear annotations on these pages") {
                                             close()
                                             folio.clearPagesInk(note.id, visible.mapNotNull { note.pages.getOrNull(it)?.id })
                                         }
-                                        if (score.annotationCount() > 0) PopoverRow(Icons.Rounded.DeleteForever, "Clear every annotation in this score", destructive = true) {
+                                        if (score.annotationCount() > 0) PopoverRow(FolioIcons.DeleteForever, "Clear every annotation in this score", destructive = true) {
                                             close()
                                             folio.clearPagesInk(note.id, note.pages.map { it.id })
                                         }
                                     }
                                     PopoverGroup("Reading light") {
-                                        PopoverRow(if (dim > 0f) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, if (dim > 0f) "Stop dimming the page" else "Dim the page for a dark pit") { setDim(if (dim > 0f) 0f else .35f) }
+                                        PopoverRow(if (dim > 0f) FolioIcons.Sun else FolioIcons.Moon, if (dim > 0f) "Stop dimming the page" else "Dim the page for a dark pit") { setDim(if (dim > 0f) 0f else .35f) }
                                         if (dim > 0f) Slider(dim, ::setDim, valueRange = 0f..AppPrefs.MUSIC_DIM_MAX, modifier = Modifier.semanticsLabel("Score dimming"))
                                     }
                                     HorizontalDivider()
@@ -344,20 +338,20 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                                 }
                             }
                             Box {
-                                ReaderButton(Icons.Rounded.Repeat, "Repeats and codas") { popover = ReaderPopover.JUMPS }
+                                ReaderButton(FolioIcons.Repeat, "Repeats and codas") { popover = ReaderPopover.JUMPS }
                                 Anchored(ReaderPopover.JUMPS) { JumpsPopover(score, start, model) { jump(it); close() } }
                             }
                             if (runningOrder.isNotEmpty()) Box {
-                                ReaderButton(Icons.Rounded.FormatListNumbered, "Running order") { popover = ReaderPopover.ORDER }
+                                ReaderButton(FolioIcons.Numbered, "Running order") { popover = ReaderPopover.ORDER }
                                 Anchored(ReaderPopover.ORDER) {
                                     Text(setLabel.orEmpty(), style = MaterialTheme.typography.titleMedium)
                                     runningOrder.forEachIndexed { index, piece ->
-                                        PopoverRow(Icons.Rounded.MusicNote, "${index + 1}. ${piece.displayTitle()}",
+                                        PopoverRow(FolioIcons.Music, "${index + 1}. ${piece.displayTitle()}",
                                             selected = piece.id == score.id) { close(); if (piece.id != score.id) onChooseScore(piece) }
                                     }
                                 }
                             }
-                            ReaderButton(Icons.Rounded.Fullscreen, "Performance mode") { popover = null; onPerformance(true) }
+                            ReaderButton(FolioIcons.Fullscreen, "Performance mode") { popover = null; onPerformance(true) }
                             Box {
                                 // The position readout is also the way into the page grid.
                                 TextButton({ popover = ReaderPopover.PAGES }, modifier = Modifier.heightIn(min = 40.dp).widthIn(min = 40.dp), shapes = ButtonDefaults.shapes(),
@@ -370,9 +364,9 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                                 Anchored(ReaderPopover.PAGES) { PagesPopover(score, visible) { go(it); close() } }
                             }
                             if (last && next != null) FilledTonalIconButton(onNextScore, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.SkipNext, "Next: ${next.title}")
+                                Icon(FolioIcons.SkipNext, "Next: ${next.title}")
                             } else FilledTonalIconButton({ turn(true) }, modifier = Modifier.size(48.dp), enabled = !last, shapes = IconButtonDefaults.shapes()) {
-                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next page")
+                                Icon(FolioIcons.ChevronRight, "Next page")
                             }
                         }
                     }
@@ -381,7 +375,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                     FilledTonalIconButton({ autoTurning = false; onPerformance(false) }, modifier = Modifier.align(Alignment.TopEnd).zIndex(12f).padding(FolioSpacing.dp12).guardUiTouches(),
                         shapes = IconButtonDefaults.shapes(),
                         colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .72f))) {
-                        Icon(Icons.Rounded.FullscreenExit, "Exit performance mode")
+                        Icon(FolioIcons.FullscreenExit, "Exit performance mode")
                     }
                     Row(Modifier.align(Alignment.BottomCenter).zIndex(12f).padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -390,14 +384,14 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 if (running) {
                                     BeatDots(score.beats, beat, if (leadBars > 0) emptyList() else score.beatAccents, leadBars > 0 || accent)
-                                    IconButton({ setRunning(false) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.Stop, "Stop metronome", Modifier.size(18.dp)) }
+                                    IconButton({ setRunning(false) }, modifier = Modifier.size(32.dp)) { Icon(FolioIcons.Stop, "Stop metronome", Modifier.size(18.dp)) }
                                     if (leadBars > 0) Text("Count in · $leadBars", style = MaterialTheme.typography.labelMedium)
                                 }
                                 Text(pageLabel, style = MaterialTheme.typography.labelLarge)
                             }
                         }
                         if (autoTurning) FilledTonalButton({ autoTurning = false }, modifier = Modifier.guardUiTouches(), shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Stop, null, Modifier.size(18.dp))
+                            Icon(FolioIcons.Stop, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(FolioSpacing.dp4))
                             Text("${turnCountdown}s", Modifier.semanticsLabel("Stop timed page turns, next turn in $turnCountdown seconds"))
                         }
@@ -412,7 +406,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
 @Composable private fun NextScoreButton(next: MusicScore, onClick: () -> Unit) {
     Button(onClick, modifier = Modifier.heightIn(min = 48.dp).guardUiTouches(), shapes = ButtonDefaults.shapes()) {
         Text("Next: ${next.title}", Modifier.widthIn(max = 220.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.width(FolioSpacing.dp8)); Icon(Icons.Rounded.SkipNext, null)
+        Spacer(Modifier.width(FolioSpacing.dp8)); Icon(FolioIcons.SkipNext, null)
     }
 }
 
@@ -467,16 +461,16 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     val previous = previousMark(page, score.marks)
     val following = nextMark(page, score.marks)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Icon(Icons.Rounded.Bookmarks, null, Modifier.size(20.dp))
+        Icon(FolioIcons.Bookmarks, null, Modifier.size(20.dp))
         Text("Rehearsal marks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         // Jump along the marks in order without opening the list again.
         FilledTonalIconButton({ previous?.let { go(it.page) } }, enabled = previous != null,
             shapes = IconButtonDefaults.shapes(), modifier = Modifier.size(36.dp)) {
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous rehearsal mark", Modifier.size(18.dp))
+            Icon(FolioIcons.ChevronLeft, "Previous rehearsal mark", Modifier.size(18.dp))
         }
         FilledTonalIconButton({ following?.let { go(it.page) } }, enabled = following != null,
             shapes = IconButtonDefaults.shapes(), modifier = Modifier.size(36.dp)) {
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next rehearsal mark", Modifier.size(18.dp))
+            Icon(FolioIcons.ChevronRight, "Next rehearsal mark", Modifier.size(18.dp))
         }
     }
     if (score.marks.isEmpty()) Text("Mark movements, codas and rehearsal letters to jump straight back to them.",
@@ -491,7 +485,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                     Text(mark.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("p. ${mark.page + 1}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     IconButton({ model.score(score.id) { it.copy(marks = it.marks - mark) } }, Modifier.size(36.dp)) {
-                        Icon(Icons.Rounded.Close, "Remove ${mark.name}", Modifier.size(18.dp))
+                        Icon(FolioIcons.Close, "Remove ${mark.name}", Modifier.size(18.dp))
                     }
                 }
             }
@@ -502,7 +496,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
         OutlinedTextField(name, { name = it }, Modifier.weight(1f).semanticsLabel("Rehearsal mark name"), singleLine = true, shape = FolioShapes.medium,
             placeholder = { Text("Mark page ${page + 1}, e.g. Coda") },
             keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { add() }))
-        FilledTonalIconButton(::add, enabled = name.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add rehearsal mark") }
+        FilledTonalIconButton(::add, enabled = name.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "Add rehearsal mark") }
     }
 }
 
@@ -510,19 +504,19 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     var seconds by remember(score.id, score.turnSeconds) { mutableFloatStateOf(musicTurnSeconds(score.turnSeconds).toFloat()) }
     Text("Reading and timed turns", style = MaterialTheme.typography.titleMedium)
     PopoverGroup("Landscape layout") {
-        PopoverRow(Icons.Rounded.Description, "One page", selected = !score.twoUp) {
+        PopoverRow(FolioIcons.Paper, "One page", selected = !score.twoUp) {
             model.score(score.id) { it.copy(twoUp = false) }
         }
-        PopoverRow(Icons.Rounded.AutoStories, "Two pages side by side", selected = score.twoUp) {
+        PopoverRow(FolioIcons.Book, "Two pages side by side", selected = score.twoUp) {
             model.score(score.id) { it.copy(twoUp = true) }
         }
         Text("Portrait always shows one page.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (score.twoUp) PopoverGroup("Two-page turns") {
-        PopoverRow(Icons.Rounded.NavigateNext, "Advance one page", selected = score.overlapTurns) {
+        PopoverRow(FolioIcons.ChevronRight, "Advance one page", selected = score.overlapTurns) {
             model.score(score.id) { it.copy(overlapTurns = true) }
         }
-        PopoverRow(Icons.Rounded.SkipNext, "Advance both pages", selected = !score.overlapTurns) {
+        PopoverRow(FolioIcons.SkipNext, "Advance both pages", selected = !score.overlapTurns) {
             model.score(score.id) { it.copy(overlapTurns = false) }
         }
         Text("Advancing one page keeps the right-hand sheet visible on the left after each turn.",
@@ -536,7 +530,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     Text("Start enters performance mode. Manual turns and repeat jumps restart the countdown. Timed turns stop at the final page, when you exit performance mode, or when you leave Folio.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Button(start, enabled = canStart, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-        Icon(Icons.Rounded.PlayArrow, null)
+        Icon(FolioIcons.Play, null)
         Spacer(Modifier.width(FolioSpacing.dp8))
         Text("Start timed turns")
     }
@@ -563,7 +557,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                 Text("${jump.name} · p. ${jump.from + 1} → ${jump.to + 1}", maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             IconButton({ model.score(score.id) { it.copy(jumps = it.jumps - jump) } }) {
-                Icon(Icons.Rounded.Close, "Remove ${jump.name}")
+                Icon(FolioIcons.Close, "Remove ${jump.name}")
             }
         }
     }
@@ -588,24 +582,24 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     fun tempo(value: Int) { val clamped = value.coerceIn(30, 240); bpm = clamped.toFloat(); model.score(score.id) { it.copy(bpm = clamped) } }
     fun meter(value: Int) { model.score(score.id) { it.copy(beats = value.coerceIn(1, 12), beatAccents = emptyList()) } }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Icon(Icons.Rounded.Speed, null, Modifier.size(20.dp))
+        Icon(FolioIcons.Speed, null, Modifier.size(20.dp))
         Text("Metronome", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         BeatDots(score.beats, beat, if (leadBars > 0) emptyList() else score.beatAccents, leadBars > 0 || accent)
     }
     Button({ onRunning(!running) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-        Icon(if (running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (running) "Stop" else "Start")
+        Icon(if (running) FolioIcons.Stop else FolioIcons.Play, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (running) "Stop" else "Start")
     }
     if (audioError != null) Text("Visual only: $audioError. Turn the click off and on to retry.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     if (leadBars > 0) Text("Count in · $leadBars ${if (leadBars == 1) "bar" else "bars"} left", color = MaterialTheme.colorScheme.primary)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        FilledTonalIconButton({ tempo(bpm.roundToInt() - 1) }, enabled = bpm > 30, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Remove, "Slower") }
+        FilledTonalIconButton({ tempo(bpm.roundToInt() - 1) }, enabled = bpm > 30, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Minus, "Slower") }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${bpm.roundToInt()}", style = MaterialTheme.typography.displaySmall)
             Text(tempoName(bpm.roundToInt()), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("beats per minute", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        FilledTonalIconButton({ tempo(bpm.roundToInt() + 1) }, enabled = bpm < 240, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Faster") }
+        FilledTonalIconButton({ tempo(bpm.roundToInt() + 1) }, enabled = bpm < 240, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "Faster") }
     }
     Slider(bpm, { bpm = it }, modifier = Modifier.semanticsLabel("Tempo in beats per minute"), valueRange = 30f..240f, onValueChangeFinished = { tempo(bpm.roundToInt()) })
     // Coarse steps for finding a tempo quickly, then the slider for the exact number.
@@ -663,17 +657,17 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
             modifier = Modifier.semanticsLabel("Metronome click volume"), onValueChangeFinished = { onVolume(level) })
     }
     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        PopoverTile(Icons.Rounded.TouchApp, "Tap tempo", Modifier.weight(1f)) {
+        PopoverTile(FolioIcons.Hand, "Tap tempo", Modifier.weight(1f)) {
             taps.tap(SystemClock.elapsedRealtime())?.let(::tempo)
         }
-        PopoverTile(if (sound) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+        PopoverTile(if (sound) FolioIcons.Volume else FolioIcons.VolumeOff,
             if (sound) "Click on" else "Silent", Modifier.weight(1f), active = sound) { onSound(!sound) }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Beats per bar", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        IconButton({ meter(score.beats - 1) }, enabled = score.beats > 1, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Remove, "Fewer beats per bar") }
+        IconButton({ meter(score.beats - 1) }, enabled = score.beats > 1, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Minus, "Fewer beats per bar") }
         Text("${score.beats}", Modifier.widthIn(min = 24.dp), style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        IconButton({ meter(score.beats + 1) }, enabled = score.beats < 12, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "More beats per bar") }
+        IconButton({ meter(score.beats + 1) }, enabled = score.beats < 12, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "More beats per bar") }
     }
     Text("Tempo, meter and beat pattern are saved with this score. Tap tempo averages up to four intervals. Sound, volume, subdivision and count-in are remembered across scores. The metronome stops when you leave the score or Folio.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -684,7 +678,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     val marked = score.marks.map { it.page }.toSet()
     val counts = score.pencil.withIndex().filter { it.value > 0 }.associate { it.index to it.value }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Icon(Icons.Rounded.GridView, null, Modifier.size(20.dp))
+        Icon(FolioIcons.Pages, null, Modifier.size(20.dp))
         Text("Go to page", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         // Long scores rarely need the middle: jump straight to an end from here.
         TextButton({ go(0) }, enabled = visible.first > 0, shapes = ButtonDefaults.shapes()) { Text("First") }

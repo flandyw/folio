@@ -1,11 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.page
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -259,7 +257,7 @@ import kotlinx.coroutines.CancellationException
 
             } else Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().then(placeholderPaper)) {
                 if (error) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), modifier = Modifier.padding(FolioSpacing.dp24)) {
-                    Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(FolioIcons.Pdf, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Couldn't open this PDF page", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text("Check the file still exists, then try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilledTonalButton({ assets.retry() }, shapes = ButtonDefaults.shapes()) { Text("Try again") }

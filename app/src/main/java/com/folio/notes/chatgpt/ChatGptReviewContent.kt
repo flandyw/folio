@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.chatgpt
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -9,10 +10,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.Note
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,7 +44,7 @@ import com.folio.notes.ui.FolioSpacing
     val scheme = MaterialTheme.colorScheme
     Surface(modifier, shape = FolioShapes.extraLarge, color = scheme.surfaceContainerLow) {
         if (note == null) Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(32.dp), tint = scheme.primary)
+            Icon(FolioIcons.Book, null, Modifier.size(32.dp), tint = scheme.primary)
             Text("Your page, with a second pair of eyes", style = MaterialTheme.typography.titleMedium)
             Text("Open a notebook, then tap the sparkle button beside Share and choose Review page with ChatGPT. You can connect your account here first.",
                 style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
@@ -58,7 +55,7 @@ import com.folio.notes.ui.FolioSpacing
                         if (image != null) Image(image.bitmap.asImageBitmap(), "Preview of ${note.title}, page ${pageIndex + 1}, as shared for review",
                             Modifier.fillMaxSize().padding(FolioSpacing.dp8), contentScale = ContentScale.Fit)
                         else if (error == null) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Rounded.BrokenImage, null, tint = scheme.onSurfaceVariant)
+                        else Icon(FolioIcons.BrokenImage, null, tint = scheme.onSurfaceVariant)
                     }
                 }
             }
@@ -74,7 +71,7 @@ import com.folio.notes.ui.FolioSpacing
                     Text(error, style = MaterialTheme.typography.bodySmall, color = scheme.error)
                     TextButton(onRetry, enabled = enabled) { Text("Retry preview") }
                 } else TextButton({ expanded = true }, enabled = image != null) {
-                    Icon(Icons.Rounded.OpenInFull, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Inspect page")
+                    Icon(FolioIcons.Expand, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Inspect page")
                 }
             }
             if (wide) Column(Modifier.fillMaxSize().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -105,7 +102,7 @@ import com.folio.notes.ui.FolioSpacing
         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             ChatGptReviewIntent.entries.forEach { option ->
                 FilterChip(intent == option, { onIntent(option) }, label = { Text(option.label) }, enabled = enabled,
-                    leadingIcon = if (intent == option) ({ Icon(Icons.Rounded.Check, null, Modifier.size(16.dp)) }) else null)
+                    leadingIcon = if (intent == option) ({ Icon(FolioIcons.Check, null, Modifier.size(16.dp)) }) else null)
             }
         }
         val own = intent == ChatGptReviewIntent.CUSTOM
@@ -137,18 +134,18 @@ import com.folio.notes.ui.FolioSpacing
     val selected = state.models.firstOrNull { it.slug == state.model }
     Box {
         OutlinedButton({ menu = true }, Modifier.fillMaxWidth(), enabled = !state.busy, shape = FolioShapes.large) {
-            Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Sparkle, null, Modifier.size(18.dp))
             Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp12), horizontalAlignment = Alignment.Start) {
                 Text("Model", style = MaterialTheme.typography.labelSmall)
                 Text(selected?.name ?: "Choose an available model", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp))
+            Icon(FolioIcons.ChevronDown, null, Modifier.size(20.dp))
         }
         FolioMenuPopover(menu, { menu = false }, title = "Choose a model") {
             state.models.forEach { available ->
                 FolioMenuItem({ Text(available.name) }, { manager.selectModel(available.slug); menu = false }, selected = available.slug == state.model)
             }
-            FolioMenuItem({ Text("Refresh available models") }, { menu = false; manager.refreshModels() }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) })
+            FolioMenuItem({ Text("Refresh available models") }, { menu = false; manager.refreshModels() }, leadingIcon = { Icon(FolioIcons.RotateRight, null) })
         }
     }
 }
@@ -159,12 +156,12 @@ import com.folio.notes.ui.FolioSpacing
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         if (!model?.efforts.isNullOrEmpty()) Box {
             OutlinedButton({ menu = true }, Modifier.fillMaxWidth(), enabled = !state.busy, shape = FolioShapes.large) {
-                Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp))
+                Icon(FolioIcons.Tune, null, Modifier.size(18.dp))
                 Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp12), horizontalAlignment = Alignment.Start) {
                     Text("Reasoning level", style = MaterialTheme.typography.labelSmall)
                     Text(ChatGptInference.effortLabel(state.effort))
                 }
-                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp))
+                Icon(FolioIcons.ChevronDown, null, Modifier.size(20.dp))
             }
             FolioMenuPopover(menu, { menu = false }, title = "Reasoning level") {
                 FolioMenuItem({ Text("Model default") }, { manager.selectEffort(null); menu = false }, selected = state.effort == null)
@@ -184,14 +181,14 @@ import com.folio.notes.ui.FolioSpacing
 
 @Composable internal fun ChatGptFeedbackContent(feedback: ChatGptFeedback, samePage: Boolean, enabled: Boolean, manager: ChatGptManager) {
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        if (feedback.applied) ChatGptNotice(Icons.Rounded.CheckCircle, "Feedback added beside the page. You can move or edit the notes, or undo them together in the notebook.")
+        if (feedback.applied) ChatGptNotice(FolioIcons.CheckCircle, "Feedback added beside the page. You can move or edit the notes, or undo them together in the notebook.")
         Text(if (feedback.applied) "Your feedback" else "Choose what to keep", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
         Text("${feedback.notebookTitle} · ${feedback.pageLabel} · ${feedback.modelName}", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!feedback.applied) {
             Text("Select useful suggestions and edit the wording before adding them.", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (!samePage) ChatGptNotice(Icons.Rounded.Info, "The reviewed page has changed or is no longer open. Review the current page before adding notes.")
+            if (!samePage) ChatGptNotice(FolioIcons.Info, "The reviewed page has changed or is no longer open. Review the current page before adding notes.")
         }
         if (!feedback.applied) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton({ feedback.drafts.indices.forEach { manager.updateDraft(feedback.request, it, included = true) } }, enabled = enabled) { Text("Select all") }
@@ -209,10 +206,10 @@ import com.folio.notes.ui.FolioSpacing
                         if (!feedback.applied) Checkbox(draft.included, { manager.updateDraft(feedback.request, index, included = it) }, enabled = enabled,
                             modifier = Modifier.semantics { contentDescription = "Include sticky note ${index + 1}" },
                             colors = CheckboxDefaults.colors(checkedColor = ink, checkmarkColor = paper, uncheckedColor = ink))
-                        else Icon(Icons.AutoMirrored.Rounded.Note, null, Modifier.padding(FolioSpacing.dp12).size(20.dp))
+                        else Icon(FolioIcons.Sticky, null, Modifier.padding(FolioSpacing.dp12).size(20.dp))
                         Text("Note ${index + 1}${if (!draft.included) " · not selected" else ""}", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
                         if (!feedback.applied) IconButton({ editing = !editing }, enabled = enabled) {
-                            Icon(if (editing) Icons.Rounded.Check else Icons.Rounded.Edit, if (editing) "Finish editing note ${index + 1}" else "Edit note ${index + 1}", Modifier.size(20.dp))
+                            Icon(if (editing) FolioIcons.Check else FolioIcons.Pen, if (editing) "Finish editing note ${index + 1}" else "Edit note ${index + 1}", Modifier.size(20.dp))
                         }
                     }
                     if (editing && !feedback.applied) OutlinedTextField(draft.text, { manager.updateDraft(feedback.request, index, text = it) },
@@ -250,7 +247,7 @@ import com.folio.notes.ui.FolioSpacing
     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                Icon(Icons.Rounded.ErrorOutline, null, Modifier.size(22.dp))
+                Icon(FolioIcons.Alert, null, Modifier.size(22.dp))
                 Text(when (state.operation) {
                     ChatGptOperation.REVIEW -> "This review couldn't finish"
                     ChatGptOperation.SIGN_IN -> "Sign-in needs another step"
@@ -258,7 +255,7 @@ import com.folio.notes.ui.FolioSpacing
                     ChatGptOperation.TEST, ChatGptOperation.CONNECTION -> "The connection check couldn't finish"
                     else -> "Something needs attention"
                 }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Dismiss error", Modifier.size(18.dp)) }
+                IconButton(onDismiss) { Icon(FolioIcons.Close, "Dismiss error", Modifier.size(18.dp)) }
             }
             Text(if (state.operation == ChatGptOperation.REVIEW) "Your writing is unchanged. You can try this review again." else "Your saved account stays here. Open the details for the exact error.",
                 style = MaterialTheme.typography.bodyMedium)

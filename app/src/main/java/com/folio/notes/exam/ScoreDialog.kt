@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.exam
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -8,9 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -83,7 +81,7 @@ fun ScoreDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.AutoMirrored.Rounded.Grading, null) },
+        icon = { Icon(FolioIcons.Grading, null) },
         title = { Text("Record a mark") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {

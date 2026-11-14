@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.pdf
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -24,13 +25,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
-import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -81,27 +75,27 @@ import com.folio.notes.ui.FolioSpacing
                 placeholder = { Text("e.g. quadratic formula") },
                 singleLine = true,
                 shape = FolioShapes.large,
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                leadingIcon = { Icon(FolioIcons.Search, null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
                 trailingIcon = {
                     if (query.isNotEmpty()) IconButton({ query = ""; onQuery("") }, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Clear, "Clear search")
+                        Icon(FolioIcons.Close, "Clear search")
                     }
                 }
             )
             if (onFindNotes != null) TextButton(onFindNotes) { Text("Search typed notes instead") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Button(::submit, enabled = query.isNotBlank() && !search.searching, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
+                    Icon(FolioIcons.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
                 }
                 val pages = remember(search.results) { PdfReference.hitPages(search.results) }
                 if (pages.size > 1 && !search.searching && search.query.trim() == query.trim()) {
                     OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = false)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous match", Modifier.size(18.dp))
+                        Icon(FolioIcons.Back, "Previous match", Modifier.size(18.dp))
                     }
                     OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = true)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next match", Modifier.size(18.dp))
+                        Icon(FolioIcons.Forward, "Next match", Modifier.size(18.dp))
                     }
                 }
             }
@@ -117,7 +111,7 @@ import com.folio.notes.ui.FolioSpacing
                 search.searched && search.query.isNotBlank() && search.results.isEmpty() -> Column(
                     Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(FolioIcons.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No matches for “${search.query.trim().take(80)}”.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Scanned or locked PDFs have no searchable text.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -138,7 +132,7 @@ import com.folio.notes.ui.FolioSpacing
                                         Text(hit.snippet, style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                     }
-                                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open page ${hit.pageIndex + 1}")
+                                    Icon(FolioIcons.Forward, "Open page ${hit.pageIndex + 1}")
                                 }
                             }
                         }
@@ -168,7 +162,7 @@ import com.folio.notes.ui.FolioSpacing
         } else if (outline.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(FolioIcons.Bullets, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
@@ -185,7 +179,7 @@ import com.folio.notes.ui.FolioSpacing
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${entry.title}")
+                            Icon(FolioIcons.Forward, "Open ${entry.title}")
                         }
                     }
                 }

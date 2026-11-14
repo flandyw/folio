@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.editor
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -8,8 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -59,7 +58,7 @@ internal val editorShortcutHelp = listOf(
                     Key.Escape -> { onDismiss(); true }
                     else -> false
                 }
-            }, label = { Text("Search actions or shortcuts") }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear action search") } }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { run(active) }))
+            }, label = { Text("Search actions or shortcuts") }, trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(FolioIcons.Close, "Clear action search") } }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { run(active) }))
             Column(Modifier.fillMaxWidth().weight(1f, false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (matches.isEmpty()) Text("No matching actions. Try page, tool, search, export or a shortcut such as Ctrl + Z.")
             matches.forEach { command ->
@@ -95,7 +94,7 @@ internal val editorShortcutHelp = listOf(
     FolioPanel("Gestures and shortcuts", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Find a gesture") }, singleLine = true,
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear gesture search") } },
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(FolioIcons.Close, "Clear gesture search") } },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }))
             val matches = gestures.filter { (it.first + it.second).contains(query.trim(), true) }
             if (matches.isEmpty()) {

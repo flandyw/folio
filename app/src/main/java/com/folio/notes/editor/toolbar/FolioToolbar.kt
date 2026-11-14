@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -136,7 +137,7 @@ private val BarGap = FolioSpacing.dp12
     var overflow by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     val fitLabel = (if (onFitAll != null) "Return to origin" else "Reset zoom") + " · $zoomPercent%"
-    val bookmarkIcon = if (bookmarked) EditorIcons.BookmarkFilled else EditorIcons.Bookmark
+    val bookmarkIcon = if (bookmarked) FolioIcons.BookmarkFilled else FolioIcons.Bookmark
     val bookmarkLabel = if (bookmarked) "Remove bookmark" else "Bookmark this page"
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Size against this editor pane. The timer is measured at its natural width so a chip is never
@@ -168,41 +169,41 @@ private val BarGap = FolioSpacing.dp12
             onHome = onClose, onSelectTab = onSelectTab, onCloseTab = onCloseTab, onNewTab = onNewTab, onCloseTabs = onCloseTabs
         ) {
             BarRows(stacked, side, tools = mainTools, left = { DockRow {
-                if (home == 1) DockButton(EditorIcons.Back, "Back to notebooks", onClose)
-                DockButton(EditorIcons.Pages, "Browse pages", onPages)
+                if (home == 1) DockButton(FolioIcons.Back, "Back to notebooks", onClose)
+                DockButton(FolioIcons.Pages, "Browse pages", onPages)
                 if (fold) Box {
-                    DockButton(EditorIcons.More, "Find and layers", { navMenu = true })
+                    DockButton(FolioIcons.More, "Find and layers", { navMenu = true })
                     FolioMenuPopover(navMenu, { navMenu = false }, modifier = Modifier.guardUiTouches(), title = "Find & layers") {
-                        FolioMenuItem({ Text(searchLabel) }, { navMenu = false; onSearch() }, leadingIcon = { Icon(EditorIcons.Search, null) })
-                        FolioMenuItem({ Text("Layers") }, { navMenu = false; onLayers() }, leadingIcon = { Icon(EditorIcons.Layers, null) })
+                        FolioMenuItem({ Text(searchLabel) }, { navMenu = false; onSearch() }, leadingIcon = { Icon(FolioIcons.Search, null) })
+                        FolioMenuItem({ Text("Layers") }, { navMenu = false; onLayers() }, leadingIcon = { Icon(FolioIcons.Layers, null) })
                     }
                     layersPopover()
                 } else {
-                    DockButton(EditorIcons.Search, searchLabel, onSearch)
-                    Box { DockButton(EditorIcons.Layers, "Layers", onLayers); layersPopover() }
+                    DockButton(FolioIcons.Search, searchLabel, onSearch)
+                    Box { DockButton(FolioIcons.Layers, "Layers", onLayers); layersPopover() }
                 }
                 Box {
-                    DockButton(EditorIcons.AddPage, "Add or duplicate page", { addMenu = true })
+                    DockButton(FolioIcons.AddPage, "Add or duplicate page", { addMenu = true })
                     FolioMenuPopover(addMenu, { addMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add a page") {
-                        FolioMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(EditorIcons.Plus, null) })
-                        FolioMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(EditorIcons.AddPage, null) })
-                        FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(EditorIcons.Duplicate, null) })
+                        FolioMenuItem({ Text("Blank page after this") }, { addMenu = false; onInsertPage() }, leadingIcon = { Icon(FolioIcons.Plus, null) })
+                        FolioMenuItem({ Text("Blank page at end") }, { addMenu = false; onAdd() }, leadingIcon = { Icon(FolioIcons.AddPage, null) })
+                        FolioMenuItem({ Text("Duplicate this page") }, { addMenu = false; onDuplicatePage() }, leadingIcon = { Icon(FolioIcons.Duplicate, null) })
                     }
                 }
                 if (dense) DockButton(bookmarkIcon, bookmarkLabel, onBookmark, tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
             } }, right = { DockRow {
                 if (timerInline) timer()
                 if (dense) {
-                    DockButton(EditorIcons.Image, "Insert picture", onInsertImage)
-                    DockButton(EditorIcons.Fit, fitLabel, onFit)
+                    DockButton(FolioIcons.Image, "Insert picture", onInsertImage)
+                    DockButton(FolioIcons.Fit, fitLabel, onFit)
                 }
-                onChatGpt?.let { DockButton(EditorIcons.Sparkle, "Review page with ChatGPT", it) }
+                onChatGpt?.let { DockButton(FolioIcons.Sparkle, "Review page with ChatGPT", it) }
                 // Opens a second document beside this one, or closes the split; lit while the split is open.
-                split?.let { DockButton(EditorIcons.Split, if (it.open) "Close split view" else "Split view — open a document beside",
+                split?.let { DockButton(FolioIcons.Split, if (it.open) "Close split view" else "Split view — open a document beside",
                     it.toggle, tint = if (it.open) MaterialTheme.colorScheme.primary else LocalContentColor.current) }
-                DockButton(EditorIcons.Share, "Share or export", onExport, onLongClick = onShareLongPress)
+                DockButton(FolioIcons.Share, "Share or export", onExport, onLongClick = onShareLongPress)
                 Box {
-                    DockButton(if (saveFailed) EditorIcons.Alert else EditorIcons.MoreVertical,
+                    DockButton(if (saveFailed) FolioIcons.Alert else FolioIcons.MoreVertical,
                         if (saveFailed) "Save failed. Notebook actions" else "Notebook actions", { overflow = true },
                         tint = if (saveFailed) MaterialTheme.colorScheme.error else LocalContentColor.current)
                     if (overflow) FolioPopover({ overflow = false }, width = 320.dp) {
@@ -212,17 +213,17 @@ private val BarGap = FolioSpacing.dp12
                         SaveStatus(saveFailed, retryingSave, saveFailureReason, lastSaveProgressAt, saving, onRetrySave, onClose)
                         if (!timerInline) timer()
                         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            PopoverTile(EditorIcons.Rename, "Rename", Modifier.weight(1f)) { run(onRename) }
-                            PopoverTile(if (starred) EditorIcons.StarFilled else EditorIcons.Star, "Favourite", Modifier.weight(1f), active = starred) { run(onStar) }
+                            PopoverTile(FolioIcons.Rename, "Rename", Modifier.weight(1f)) { run(onRename) }
+                            PopoverTile(if (starred) FolioIcons.StarFilled else FolioIcons.Star, "Favourite", Modifier.weight(1f), active = starred) { run(onStar) }
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             if (onFitAll != null || !dense) {
                                 PopoverGroup("Page") {
                                     // The bar only shows these when it is wide; they must still be reachable here.
                                     if (!dense) PopoverRow(bookmarkIcon, bookmarkLabel) { run(onBookmark) }
-                                    if (!dense) PopoverRow(EditorIcons.Image, "Insert picture") { run(onInsertImage) }
-                                    if (!dense) PopoverRow(EditorIcons.Fit, fitLabel) { run(onFit) }
-                                    if (onFitAll != null) PopoverRow(EditorIcons.FitAll, "Fit all content") { run(onFitAll) }
+                                    if (!dense) PopoverRow(FolioIcons.Image, "Insert picture") { run(onInsertImage) }
+                                    if (!dense) PopoverRow(FolioIcons.Fit, fitLabel) { run(onFit) }
+                                    if (onFitAll != null) PopoverRow(FolioIcons.FitAll, "Fit all content") { run(onFitAll) }
                                 }
                                 HorizontalDivider()
                             }
@@ -230,15 +231,15 @@ private val BarGap = FolioSpacing.dp12
                             HorizontalDivider()
                             PopoverGroup("Workspace") { notebookActions(dismiss) }
                             HorizontalDivider()
-                            PopoverRow(EditorIcons.Keyboard, "Keyboard shortcuts") { run(onKeyboardShortcuts) }
-                            PopoverRow(EditorIcons.Tune, "App settings…") { run(onSettings) }
+                            PopoverRow(FolioIcons.Keyboard, "Keyboard shortcuts") { run(onKeyboardShortcuts) }
+                            PopoverRow(FolioIcons.Tune, "App settings…") { run(onSettings) }
                         }
                     }
                 }
             } })
             if (layerStatus != null) TextButton(onLayers, Modifier.align(Alignment.CenterHorizontally).padding(bottom = FolioSpacing.dp4),
                 colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current)) {
-                Icon(if (layerHidden) EditorIcons.Hidden else EditorIcons.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                Icon(if (layerHidden) FolioIcons.Hidden else FolioIcons.Lock, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(layerStatus, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.width(FolioSpacing.dp8)); Text("Layers")
             }
@@ -277,21 +278,21 @@ private val BarGap = FolioSpacing.dp12
                 // Answer space reads as a count with its own − / +, not as two loose zoom-like buttons.
                 Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        DockButton(EditorIcons.Minus, "Remove answer lines", { onFewerLines?.invoke() }, enabled = onFewerLines != null)
+                        DockButton(FolioIcons.Minus, "Remove answer lines", { onFewerLines?.invoke() }, enabled = onFewerLines != null)
                         Row(Modifier.widthIn(min = 72.dp), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4, Alignment.CenterHorizontally)) {
-                            Icon(EditorIcons.Lines, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(FolioIcons.Lines, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("$lines lines", style = MaterialTheme.typography.labelLarge, maxLines = 1)
                         }
-                        DockButton(EditorIcons.Plus, "Add answer lines", onMoreLines)
+                        DockButton(FolioIcons.Plus, "Add answer lines", onMoreLines)
                     }
                 }
-                if (onResize != null) DockButton(EditorIcons.Resize, if (resizing) "Done resizing pictures" else "Resize pictures", onResize,
+                if (onResize != null) DockButton(FolioIcons.Resize, if (resizing) "Done resizing pictures" else "Resize pictures", onResize,
                     tint = if (resizing) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                DockButton(EditorIcons.Fit, "Fit the page to the screen", onFit)
+                DockButton(FolioIcons.Fit, "Fit the page to the screen", onFit)
             } }, right = { DockRow {
                 timer()
-                DockButton(EditorIcons.Share, "Share a picture of your answer · hold to share the question text", onShare, onLongClick = onShareQuestion)
+                DockButton(FolioIcons.Share, "Share a picture of your answer · hold to share the question text", onShare, onLongClick = onShareQuestion)
             } })
         }
     }
@@ -352,9 +353,9 @@ private val BarGap = FolioSpacing.dp12
         .padding(horizontal = FolioSpacing.dp2, vertical = FolioSpacing.dp2),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(when {
-            saveFailed && !retryingSave -> EditorIcons.Alert
-            saving -> EditorIcons.Timer
-            else -> EditorIcons.Check
+            saveFailed && !retryingSave -> FolioIcons.Alert
+            saving -> FolioIcons.Timer
+            else -> FolioIcons.Check
         }, null, Modifier.size(12.dp), tint = statusColor)
         Spacer(Modifier.width(FolioSpacing.dp4))
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = statusColor)

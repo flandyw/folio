@@ -1,5 +1,6 @@
 package com.folio.notes.editor.page
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.combinedClickable
@@ -12,9 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -199,7 +197,7 @@ import kotlin.math.abs
             .combinedClickable(enabled = enabled, role = Role.Button, onClickLabel = label, onLongClickLabel = hold,
                 onLongClick = { feedback.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() }, onClick = onClick),
             contentAlignment = Alignment.Center) {
-            Icon(if (forward) Icons.AutoMirrored.Rounded.KeyboardArrowRight else Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+            Icon(if (forward) FolioIcons.ChevronRight else FolioIcons.ChevronLeft,
                 label, Modifier.size(20.dp),
                 tint = if (enabled) LocalContentColor.current else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f))
         }

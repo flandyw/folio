@@ -2,8 +2,6 @@
 package com.folio.notes.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,7 +43,7 @@ import com.folio.notes.input.guardUiTouches
                     Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp8, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
                         actions()
-                        IconButton(dismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close $title") }
+                        IconButton(dismiss, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Close $title") }
                     }
                     Column(Modifier.weight(1f, fill = false), content = content)
                 }

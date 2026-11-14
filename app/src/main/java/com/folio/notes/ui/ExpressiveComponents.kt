@@ -5,10 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +13,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.folio.notes.editor.toolbar.EditorIcons
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.input.longPressAction
 import com.folio.notes.input.rememberLongPressGuard
@@ -38,7 +33,7 @@ import com.folio.notes.settings.showEditorToolNames
         overflowIndicator = { overflow ->
             Box {
                 FilledIconButton({ overflow.show() }, shapes = IconButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.MoreVert, "More options", Modifier.size(18.dp))
+                    Icon(FolioIcons.MoreVertical, "More options", Modifier.size(18.dp))
                 }
                 FolioMenuPopover(overflow.isExpanded, overflow::dismiss, modifier = Modifier.guardUiTouches(), title = "More actions") {
                     if (menuItems.isEmpty()) {
@@ -111,21 +106,21 @@ import com.folio.notes.settings.showEditorToolNames
             Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                 Text("Your notebooks", style = MaterialTheme.typography.headlineMedium)
                 FilledTonalButton(onClick = {}, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Add, null)
+                    Icon(FolioIcons.Plus, null)
                     Spacer(Modifier.width(FolioSpacing.dp8))
                     Text("New notebook")
                 }
                 var penSelected by remember { mutableStateOf(true) }
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                     Row(Modifier.padding(FolioSpacing.dp6), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                        FolioToolToggle(penSelected, { penSelected = true }, Icons.Rounded.Edit, "Pen")
-                        FolioToolToggle(!penSelected, { penSelected = false }, EditorIcons.Lasso, "Lasso select")
+                        FolioToolToggle(penSelected, { penSelected = true }, FolioIcons.Pen, "Pen")
+                        FolioToolToggle(!penSelected, { penSelected = false }, FolioIcons.Lasso, "Lasso select")
                     }
                 }
                 LoadingIndicator()
                 FolioButtonGroup {
                     toggleableItem(checked = true, onCheckedChange = {}, label = "Solid",
-                        icon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) })
+                        icon = { Icon(FolioIcons.Pen, null, Modifier.size(16.dp)) })
                     toggleableItem(checked = false, onCheckedChange = {}, label = "Dashed")
                     toggleableItem(checked = false, onCheckedChange = {}, label = "Dotted")
                 }

@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.workspace
 
+import com.folio.notes.ui.FolioIcons
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,10 +12,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.VerticalSplit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,20 +60,20 @@ import com.folio.notes.ui.FolioSpacing
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
             ) {
-                Icon(Icons.Rounded.VerticalSplit, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(FolioIcons.Split, null, tint = MaterialTheme.colorScheme.primary)
                 Text(if (replacing) "Show another document here" else "Open beside", Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 IconButton(onCancel, shapes = IconButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Close, if (replacing) "Keep the current document" else "Cancel split view")
+                    Icon(FolioIcons.Close, if (replacing) "Keep the current document" else "Cancel split view")
                 }
             }
             OutlinedTextField(
                 query, { query = it.take(80) },
                 Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp8),
                 label = { Text("Search notebooks") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                leadingIcon = { Icon(FolioIcons.Search, null) },
                 trailingIcon = if (query.isEmpty()) null else {
-                    { IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } }
+                    { IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } }
                 },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

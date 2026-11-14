@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.planner
 
+import com.folio.notes.ui.FolioIcons
 import android.content.ClipData
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,8 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -111,10 +110,10 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }) {
             IconButton(manager::sync, enabled = state.userId != null && !state.syncing && !state.loading, shapes = IconButtonDefaults.shapes()) {
-                if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(Icons.Rounded.Sync, "Sync with Focal")
+                if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(FolioIcons.Sync, "Sync with Focal")
             }
             FocalAccountButton({ showAccount = true }, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty()))
-            IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
+            IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Tune, "Settings") }
         }
         PrimaryScrollableTabRow(TABS.indexOf(tab), Modifier.padding(horizontal = FolioDestinationInset), containerColor = Color.Transparent, edgePadding = 0.dp) {
             TABS.forEach { Tab(tab == it, { tab = it }, text = { Text(it) }) }
@@ -178,7 +177,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             val start = runCatching { LocalDate.parse(value.trim()) }.getOrDefault(LocalDate.now())
             android.app.DatePickerDialog(context, { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day).toString()) },
                 start.year, start.monthValue - 1, start.dayOfMonth).show()
-        }) { Icon(Icons.Rounded.CalendarMonth, "Choose a date") }
+        }) { Icon(FolioIcons.Calendar, "Choose a date") }
     })
 }
 
@@ -189,7 +188,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             val start = runCatching { java.time.LocalTime.parse(value.trim()) }.getOrDefault(java.time.LocalTime.now())
             android.app.TimePickerDialog(context, { _, hour, minute -> onChange(java.time.LocalTime.of(hour, minute).toString()) },
                 start.hour, start.minute, true).show()
-        }) { Icon(Icons.Rounded.Schedule, "Choose a time") }
+        }) { Icon(FolioIcons.Clock, "Choose a time") }
     })
 }
 
@@ -233,7 +232,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val next = remember(sacs) { Planner.upcoming(sacs).take(6) }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        item { Button({ adding = true }, enabled = enabled) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan or log SAC") } }
+        item { Button({ adding = true }, enabled = enabled) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan or log SAC") } }
         if (sacs.isEmpty()) item { EmptyHint("Plan an upcoming assessment or log a completed result to start building subject statistics.") }
         else {
             item {
@@ -241,10 +240,10 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     "Weighted avg" to pct(stats.average) + (stats.trend?.takeIf { kotlin.math.abs(it) >= 0.5 }?.let { " ${if (it > 0) "▲" else "▼"}${"%.1f".format(kotlin.math.abs(it))}" } ?: ""),
                     "Best" to pct(stats.best), "Upcoming" to "${stats.upcoming}")
             }
-            if (results.isNotEmpty()) item(key = "trend") { ScoreTrend("Results over time", results, "Every completed SAC, as a percentage of its marks", icon = Icons.Rounded.ShowChart) }
+            if (results.isNotEmpty()) item(key = "trend") { ScoreTrend("Results over time", results, "Every completed SAC, as a percentage of its marks", icon = FolioIcons.Chart) }
             bySubject.filter { it.average != null }.takeIf { it.isNotEmpty() }?.let { list ->
                 item(key = "averages") { MetricBars("Average by subject", list.map { it.subject to it.average!! }.sortedByDescending { it.second },
-                    subtitle = "Weighted by each SAC's weighting", maximum = 100.0, icon = Icons.Rounded.BarChart) }
+                    subtitle = "Weighted by each SAC's weighting", maximum = 100.0, icon = FolioIcons.BarChart) }
             }
             if (next.isNotEmpty()) {
                 item { Text("Upcoming", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
@@ -356,21 +355,21 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Button({ importing = true }, enabled = enabled) { Icon(Icons.Rounded.DataObject, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import checklist") }
+                Button({ importing = true }, enabled = enabled) { Icon(FolioIcons.Braces, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import checklist") }
                 if (subject.isNotEmpty()) OutlinedButton({
                     scope.launch {
                         val (next, count) = Planner.planWeek(learning, subject)
                         notice = if (count == 0) "Nothing to plan: every red, amber or re-check item already has a task."
                         else if (save(next)) "Added ${countOf(count, "revision task")} (shown in Focal's calendar)." else "Could not save the tasks. Try again."
                     }
-                }, enabled = enabled) { Icon(Icons.Rounded.EventAvailable, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan this week") }
+                }, enabled = enabled) { Icon(FolioIcons.CalendarCheck, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan this week") }
             }
         }
         notice?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
         if (subject.isEmpty()) item { EmptyHint("Import a checklist from your study design with any chatbot. Each key knowledge and skill becomes an item you can rate red, amber or green.") }
         else {
             item {
-                ProgressCard("Checklist health", "Tap a subject to open its checklist", Icons.Rounded.Traffic) {
+                ProgressCard("Checklist health", "Tap a subject to open its checklist", FolioIcons.Stoplight) {
                     itemSubjects.forEach { s ->
                         val list = bySubject[s].orEmpty()
                         Column(Modifier.fillMaxWidth().clip(com.folio.notes.ui.FolioShapes.medium).clickable { chosen = s }
@@ -436,7 +435,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         Text("Give any chatbot your study design with this prompt, then paste its JSON reply. Re-importing keeps your ratings.", style = MaterialTheme.typography.bodyMedium)
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         OutlinedButton({ scope.launch { clipboard.setClipEntry(androidx.compose.ui.platform.ClipEntry(ClipData.newPlainText("Stoplight prompt", Planner.importPrompt(subject.trim())))); copied = true } },
-            enabled = subject.isNotBlank()) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
+            enabled = subject.isNotBlank()) { Icon(FolioIcons.Copy, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (copied) "Copied" else "Copy prompt") }
         OutlinedTextField(reply, { reply = it }, Modifier.fillMaxWidth(), label = { Text("Chatbot reply (JSON)") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false), minLines = 4, maxLines = 10)
     }
 }
@@ -454,7 +453,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val progressOf = remember(active, exams, atar) { active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar) } }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        item { Button({ adding = true }, enabled = enabled) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
+        item { Button({ adding = true }, enabled = enabled) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
         if (active.isNotEmpty()) item {
             val stats = active.map { progressOf.getValue(it.optString("id")) }
             StatRow("Active" to "${active.size}", "Reached" to "${active.zip(stats).count { (g, p) -> p.current != null && p.current >= g.getDouble("target") }}",
@@ -634,7 +633,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
             } }
         }
         OutlinedButton({ update(rows + JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("code", studies.firstOrNull()?.code.orEmpty())
-            .put("raw", "").put("usePrediction", true)) }, enabled = studies.isNotEmpty()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add study") }
+            .put("raw", "").put("usePrediction", true)) }, enabled = studies.isNotEmpty()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add study") }
         estimate?.let { e ->
             ElevatedCard { Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text(e.label, style = MaterialTheme.typography.displaySmall)
@@ -650,7 +649,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
         } ?: if (rows.isNotEmpty()) Text("Not enough valid studies yet: need four, including English.", style = MaterialTheme.typography.bodySmall) else Unit
         if (saved.isNotEmpty()) {
             val history = saved.reversed().mapNotNull { s -> s.optString("atarLabel").toDoubleOrNull()?.let { "${s.optString("savedAt").take(10)} · ${s.optInt("year")} scaling" to it } }
-            if (history.size >= 2) ScoreTrend("ATAR over time", history, "Your saved estimates, oldest first", icon = Icons.Rounded.ShowChart)
+            if (history.size >= 2) ScoreTrend("ATAR over time", history, "Your saved estimates, oldest first", icon = FolioIcons.Chart)
             Text("Saved estimates", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
             saved.forEach { s -> ListItem(headlineContent = { Text("ATAR ${s.optString("atarLabel")} · ${s.optInt("year")}") },
                 supportingContent = { Text(s.optString("savedAt").take(10)) },

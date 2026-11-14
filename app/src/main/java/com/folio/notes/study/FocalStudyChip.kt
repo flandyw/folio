@@ -1,10 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -80,7 +78,7 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
         // An exam sitting has one pill, the exam timer's; Focal's entry point stays a plain icon beside it.
         if (recording && !examActive) {
             ToolbarSessionPill(
-                icon = if (isPaused) Icons.Rounded.Pause else Icons.Rounded.School,
+                icon = if (isPaused) FolioIcons.Pause else FolioIcons.School,
                 value = formatStudyChipClock(activeElapsed),
                 tone = if (isPaused) SessionTone.PAUSED else SessionTone.RUNNING,
                 description = description,
@@ -93,7 +91,7 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
             IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight).semantics {
                 contentDescription = "$label. $syncStatus. Open study sessions"
             }, shapes = IconButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.School, null, Modifier.size(20.dp))
+                Icon(FolioIcons.School, null, Modifier.size(20.dp))
             }
         }
     }

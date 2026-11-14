@@ -1,11 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +32,7 @@ import com.folio.notes.ui.FolioSpacing
         if (allowAll) FilterChip(selected.isBlank(), { onSelect("") }, { Text("All") })
         options.forEach { option ->
             FilterChip(selected == option, { onSelect(if (allowAll && selected == option) "" else option) }, { Text(option) },
-                leadingIcon = if (selected == option) { { Icon(Icons.Rounded.Check, null, Modifier.size(FilterChipDefaults.IconSize)) } } else null)
+                leadingIcon = if (selected == option) { { Icon(FolioIcons.Check, null, Modifier.size(FilterChipDefaults.IconSize)) } } else null)
         }
     }
 }
@@ -86,19 +84,19 @@ import com.folio.notes.ui.FolioSpacing
                 if (!mistake.suspended) TextButton(hold.click(onPractice), enabled = !working, shapes = ButtonDefaults.shapes()) {
                     Text(if (resume) "Continue" else "Practise")
                     Spacer(Modifier.width(FolioSpacing.dp4))
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Forward, null, Modifier.size(18.dp))
                 }
             }
         }
     }
         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Review card") {
-            FolioMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ArrowForward, null) })
+            FolioMenuItem({ Text("Open details") }, { menu = false; onOpen() }, leadingIcon = { Icon(FolioIcons.Forward, null) })
             if (!mistake.suspended) FolioMenuItem(
                 { Text(if (resume) "Continue review" else "Practise this question") },
                 { menu = false; onPractice() },
-                leadingIcon = { Icon(Icons.Rounded.Edit, null) }
+                leadingIcon = { Icon(FolioIcons.Pen, null) }
             )
-            if (onDelete != null) FolioMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) }, destructive = true)
+            if (onDelete != null) FolioMenuItem({ Text("Delete card") }, { menu = false; onDelete() }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
         }
     }
 }

@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.marking
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,15 +12,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Grading
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Draw
-import androidx.compose.material.icons.rounded.OutlinedFlag
-import androidx.compose.material.icons.rounded.TextFields
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -130,10 +122,10 @@ import kotlin.math.roundToInt
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Button({ onArm(MarkingAction.Note(handwritten = true)) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Draw, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Handwritten")
+                    Icon(FolioIcons.Handwriting, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Handwritten")
                 }
                 FilledTonalButton({ onArm(MarkingAction.Note(handwritten = false)) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.TextFields, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Typed")
+                    Icon(FolioIcons.Text, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Typed")
                 }
             }
 
@@ -152,7 +144,7 @@ import kotlin.math.roundToInt
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 bank.forEach { text ->
                     if (editing) InputChip(false, { onBank(bank - text) }, { Text(text) },
-                        trailingIcon = { Icon(Icons.Rounded.Close, "Remove “$text”", Modifier.size(16.dp)) })
+                        trailingIcon = { Icon(FolioIcons.Close, "Remove “$text”", Modifier.size(16.dp)) })
                     else AssistChip({ use(MarkingAction.Comment(text)) }, { Text(text) })
                 }
                 if (bank.isEmpty()) EmptyHint("No saved comments yet — type one below.")
@@ -170,7 +162,7 @@ import kotlin.math.roundToInt
                     if (draft.isNotBlank()) IconButton({
                         val text = Marking.cleanComment(draft)
                         onBank(Marking.withComment(bank, text)); use(MarkingAction.Comment(text)); draft = ""
-                    }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Save and place comment") }
+                    }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "Save and place comment") }
                 }
             )
 
@@ -180,7 +172,7 @@ import kotlin.math.roundToInt
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Button({ onArm(MarkingAction.Flag) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.OutlinedFlag, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Flag a spot")
+                    Icon(FolioIcons.FlagOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Flag a spot")
                 }
                 OutlinedButton({ onOpenSheet(sheetIndex) }, enabled = sheetIndex >= 0, shapes = ButtonDefaults.shapes()) { Text("Open feedback sheet") }
             }
@@ -197,7 +189,7 @@ import kotlin.math.roundToInt
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Marking.ROOM_AMOUNTS.forEach { (label, amount) ->
                     FilledTonalButton({ onArm(if (removingSpace) MarkingAction.RemoveRoom(amount) else MarkingAction.MakeRoom(amount)) }, enabled = canGrow, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.UnfoldMore, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(label)
+                        Icon(FolioIcons.Unfold, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(label)
                     }
                 }
             }
@@ -252,7 +244,7 @@ import kotlin.math.roundToInt
                 FilledTonalButton({
                     onRecord(ExamAttempt(score = total.roundToInt(), total = available)); recorded = true
                 }, enabled = !recorded && unread == 0, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.AutoMirrored.Rounded.Grading, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Icon(FolioIcons.Grading, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(if (recorded) "Recorded" else if (responseAttempt) "Record this attempt’s mark" else "Record as this paper's mark")
                 }
             }
@@ -296,8 +288,8 @@ import kotlin.math.roundToInt
                     maxLines = 1)
                 if (total != null) Text(Marking.format(total) + (available?.let { " / $it" } ?: "") + " marks",
                     style = MaterialTheme.typography.labelLarge)
-                IconButton(onMore, Modifier.size(40.dp)) { Icon(Icons.Rounded.Tune, "More marking options", Modifier.size(20.dp)) }
-                IconButton(onClose, Modifier.size(40.dp)) { Icon(Icons.Rounded.Close, "Close marking bar", Modifier.size(20.dp)) }
+                IconButton(onMore, Modifier.size(40.dp)) { Icon(FolioIcons.Tune, "More marking options", Modifier.size(20.dp)) }
+                IconButton(onClose, Modifier.size(40.dp)) { Icon(FolioIcons.Close, "Close marking bar", Modifier.size(20.dp)) }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp12),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
@@ -313,9 +305,9 @@ import kotlin.math.roundToInt
                     }
                 }
                 VerticalDivider(Modifier.height(24.dp))
-                DockButton(Icons.Rounded.Draw, "Note", armed == MarkingAction.Note(true)) { toggle(MarkingAction.Note(true)) }
-                DockButton(Icons.Rounded.TextFields, "Typed", armed == MarkingAction.Note(false)) { toggle(MarkingAction.Note(false)) }
-                DockButton(Icons.Rounded.OutlinedFlag, "Flag", armed == MarkingAction.Flag) { toggle(MarkingAction.Flag) }
+                DockButton(FolioIcons.Handwriting, "Note", armed == MarkingAction.Note(true)) { toggle(MarkingAction.Note(true)) }
+                DockButton(FolioIcons.Text, "Typed", armed == MarkingAction.Note(false)) { toggle(MarkingAction.Note(false)) }
+                DockButton(FolioIcons.FlagOutline, "Flag", armed == MarkingAction.Flag) { toggle(MarkingAction.Flag) }
                 VerticalDivider(Modifier.height(24.dp))
                 bank.forEach { text ->
                     val action = MarkingAction.Comment(text)

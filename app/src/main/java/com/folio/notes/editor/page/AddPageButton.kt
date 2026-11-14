@@ -1,9 +1,8 @@
 package com.folio.notes.editor.page
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,7 +42,7 @@ internal fun AddPageButton(label: String, onClick: () -> Unit, onLongClick: () -
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Plus, null, Modifier.size(18.dp))
             Spacer(Modifier.width(FolioSpacing.dp8))
             Text(label, style = MaterialTheme.typography.labelLarge)
         }

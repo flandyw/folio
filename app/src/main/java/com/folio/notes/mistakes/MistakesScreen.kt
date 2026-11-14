@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.model.countOf
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
@@ -17,11 +18,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.TextSnippet
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -561,7 +557,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 val trouble = isSyncTrouble(state.status)
                 // M3e contained loading indicator while a sync is actually running.
                 if (state.status == "Syncing…") ContainedLoadingIndicator(Modifier.size(22.dp))
-                else Icon(if (trouble) Icons.Rounded.CloudOff else Icons.Rounded.CloudUpload, null, Modifier.size(20.dp),
+                else Icon(if (trouble) FolioIcons.CloudOff else FolioIcons.CloudUpload, null, Modifier.size(20.dp),
                     tint = if (trouble) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     if (trouble) state.status
@@ -598,12 +594,12 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     if (selected != null) "Question details" else "Mistakes",
                     leading = if (detail != null) ({
                         IconButton({ detail = null }, shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes")
+                            Icon(FolioIcons.Back, "Back to mistakes")
                         }
                     }) else null,
                 ) {
                     if (state.userId != null && detail == null) IconButton({ showPacing = true }) {
-                        Icon(Icons.Rounded.Tune, "Practice routine & pacing")
+                        Icon(FolioIcons.Tune, "Practice routine & pacing")
                     }
                     FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
                 }
@@ -705,8 +701,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             fullWidthItem {
                                 val searchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search your mistakes") },
-                                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; searchKeyboard?.hide() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } },
+                                    leadingIcon = { Icon(FolioIcons.Search, null) },
+                                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; searchKeyboard?.hide() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } },
                                     singleLine = true, shape = FolioShapes.large,
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { searchKeyboard?.hide() }))
@@ -719,7 +715,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     Text(countLabel(visible.size, "question") + " · " + librarySort.label.lowercase(),
                                         Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Box {
-                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
+                                        TextButton({ showFilters = true }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (scopeCount == 0) "Filters" else "Filters ($scopeCount)") }
                                         if (showFilters) FolioActionPopover("Focus your library", { showFilters = false }) {
                                             MistakeFilterOptions("Sort by", MistakeLibrarySort.entries.map { it.label }, librarySort.label, allowAll = false) { label ->
                                                 sort = MistakeLibrarySort.entries.firstOrNull { it.label == label }?.name ?: MistakeLibrarySort.DUE.name
@@ -735,7 +731,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 }
                                 if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                                    Icon(FolioIcons.Play, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(FolioSpacing.dp6))
                                     Text("Review ${countLabel(minOf(reviewCandidates.size, sessionLimit), "matching due question")}")
                                 }
@@ -760,7 +756,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                     bottom = FolioSpacing.dp24 + toolbarClearance,
                                 )) { DetailContent() }
                             } else Column(Modifier.fillMaxSize().padding(FolioSpacing.dp32), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                                Icon(FolioIcons.Book, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.height(FolioSpacing.dp16))
                                 Text("Room to work through it", style = MaterialTheme.typography.headlineSmall)
                                 Spacer(Modifier.height(FolioSpacing.dp8))
@@ -824,10 +820,10 @@ private fun MistakesDestinationToolbar(
                 destinations.forEach { title ->
                     val isSelected = title == selected
                     val icon = when (title) {
-                        "Today" -> Icons.Rounded.Today
-                        "Library" -> Icons.Rounded.GridView
-                        "Connect" -> Icons.Rounded.CloudOff
-                        else -> Icons.AutoMirrored.Rounded.TextSnippet
+                        "Today" -> FolioIcons.Today
+                        "Library" -> FolioIcons.Pages
+                        "Connect" -> FolioIcons.CloudOff
+                        else -> FolioIcons.Paper
                     }
                     Surface(
                         modifier = Modifier.weight(1f).clip(CircleShape).selectable(
@@ -869,13 +865,13 @@ private fun FilterChipWithCount(label: String, count: Int, selected: Boolean, on
 private fun EmptyMistakesCard(hasCards: Boolean, status: String, narrowed: Boolean, onClear: () -> Unit) {
     // A status filter with nothing in it is good news, not a failed search.
     val (icon, title, body) = when {
-        !hasCards -> Triple(Icons.Rounded.School, "Your library starts here",
+        !hasCards -> Triple(FolioIcons.School, "Your library starts here",
             "New mistakes from Focal will land here. Log one on the web and sync.")
-        !narrowed && status == "Due" -> Triple(Icons.Rounded.DoneAll, "Nothing is due", "Questions return here when their next review is due.")
-        !narrowed && status == "Overdue" -> Triple(Icons.Rounded.DoneAll, "Nothing is overdue", "You're on top of every scheduled review.")
-        !narrowed && status == "Suspended" -> Triple(Icons.Rounded.PauseCircle, "No suspended questions", "Questions you suspend in Focal are listed here.")
-        !narrowed && status == "Upcoming" -> Triple(Icons.Rounded.EventAvailable, "Nothing upcoming", "Every active question is due now.")
-        else -> Triple(Icons.Rounded.SearchOff, "No mistakes match", "Try a different search or clear the filters to see the rest.")
+        !narrowed && status == "Due" -> Triple(FolioIcons.CheckAll, "Nothing is due", "Questions return here when their next review is due.")
+        !narrowed && status == "Overdue" -> Triple(FolioIcons.CheckAll, "Nothing is overdue", "You're on top of every scheduled review.")
+        !narrowed && status == "Suspended" -> Triple(FolioIcons.PauseCircle, "No suspended questions", "Questions you suspend in Focal are listed here.")
+        !narrowed && status == "Upcoming" -> Triple(FolioIcons.CalendarCheck, "Nothing upcoming", "Every active question is due now.")
+        else -> Triple(FolioIcons.SearchOff, "No mistakes match", "Try a different search or clear the filters to see the rest.")
     }
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp32), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {

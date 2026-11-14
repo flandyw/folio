@@ -1,15 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.exam
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -217,7 +215,7 @@ fun ExamDetailsPanel(
                                 )
                             }
                             FilledTonalButton({ scoreDialog = true }, enabled = validMarks, shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.AutoMirrored.Rounded.Grading, null, Modifier.size(18.dp))
+                                Icon(FolioIcons.Grading, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text("Record a mark")
                             }
@@ -239,7 +237,7 @@ fun ExamDetailsPanel(
                                         )
                                     }
                                     IconButton({ deleteAttemptId = attempt.id }, shapes = IconButtonDefaults.shapes()) {
-                                        Icon(Icons.Rounded.Close, "Delete this attempt", Modifier.size(16.dp))
+                                        Icon(FolioIcons.Close, "Delete this attempt", Modifier.size(16.dp))
                                     }
                                 }
                             }

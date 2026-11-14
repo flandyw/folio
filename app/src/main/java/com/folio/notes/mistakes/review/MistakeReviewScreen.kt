@@ -3,14 +3,12 @@
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes.review
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -219,12 +217,12 @@ import kotlinx.coroutines.launch
                             color = if (state.saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
-                    navigationIcon = { IconButton({ finishTyping(); onBack() }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to mistakes · your response is saved") } },
+                    navigationIcon = { IconButton({ finishTyping(); onBack() }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Back to mistakes · your response is saved") } },
                     actions = {
                         if (roomyHeader && previousAttempts.isNotEmpty()) {
                             IconButton({ finishTyping(); showPrevious = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
                                 BadgedBox({ Badge { Text("${previousAttempts.size}") } }) {
-                                    Icon(Icons.Rounded.History, "Compare with your last attempt (${previousAttempts.size} kept, read-only)")
+                                    Icon(FolioIcons.History, "Compare with your last attempt (${previousAttempts.size} kept, read-only)")
                                 }
                             }
                         }
@@ -232,41 +230,41 @@ import kotlinx.coroutines.launch
                         // appears once that row has turned into ratings.
                         if (roomyHeader && revealed && canSkip) {
                             IconButton({ confirmDoubleTap("skipTop", ::skipReview) }, enabled = !busy, shapes = IconButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card",
+                                Icon(FolioIcons.SkipNext, if (pendingAction == "skipTop") "Tap again to skip" else "Double-tap to skip this card",
                                     tint = if (pendingAction == "skipTop") MaterialTheme.colorScheme.primary else LocalContentColor.current)
                             }
                         }
                         MistakeResponseModeSwitch(responseMode, hasInk, hasTyped, !busy, roomyHeader, ::selectResponseMode)
                         IconToggleButton(checked = recordStudy, onCheckedChange = onRecordStudy, enabled = !busy) {
-                            Icon(Icons.Rounded.Timer, "Record in Study timer · ${if (recordStudy) "on" else "off"}")
+                            Icon(FolioIcons.Timer, "Record in Study timer · ${if (recordStudy) "on" else "off"}")
                         }
                         var menu by remember { mutableStateOf(false) }
                         Box {
-                            IconButton({ menu = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "More review options") }
+                            IconButton({ menu = true }, enabled = !busy, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "More review options") }
                             DropdownMenu(menu, { menu = false }) {
                                 if (!roomyHeader && previousAttempts.isNotEmpty()) DropdownMenuItem(
                                     text = { Text("Previous attempts (${previousAttempts.size})") },
-                                    leadingIcon = { Icon(Icons.Rounded.History, null) },
+                                    leadingIcon = { Icon(FolioIcons.History, null) },
                                     onClick = { menu = false; finishTyping(); showPrevious = true }
                                 )
                                 if (!roomyHeader && revealed && canSkip) DropdownMenuItem(
                                     text = { Text(if (pendingAction == "skipTop") "Tap again to skip" else "Skip this card") },
-                                    leadingIcon = { Icon(Icons.Rounded.SkipNext, null) },
+                                    leadingIcon = { Icon(FolioIcons.SkipNext, null) },
                                     onClick = { confirmDoubleTap("skipTop") { menu = false; skipReview() } }
                                 )
                                 DropdownMenuItem(
                                     text = { Text(if (shuffle) "Shuffled · use due order" else "Due order · shuffle") },
-                                    leadingIcon = { Icon(Icons.Rounded.Shuffle, null) },
+                                    leadingIcon = { Icon(FolioIcons.Shuffle, null) },
                                     onClick = { menu = false; onToggleShuffle() }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Question display") },
-                                    leadingIcon = { Icon(Icons.Rounded.Tune, null) },
+                                    leadingIcon = { Icon(FolioIcons.Tune, null) },
                                     onClick = { menu = false; adjustLayout = true }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Delete card", color = MaterialTheme.colorScheme.error) },
-                                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(FolioIcons.Delete, null, tint = MaterialTheme.colorScheme.error) },
                                     onClick = { menu = false; showDelete = true }
                                 )
                             }
@@ -309,18 +307,18 @@ import kotlinx.coroutines.launch
                         val actions: @Composable () -> Unit = {
                             if (canSkip && !(typing && imeVisible)) {
                                 TextButton({ confirmDoubleTap("skipBottom", ::skipReview) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
+                                    Icon(FolioIcons.SkipNext, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(FolioSpacing.dp4))
                                     Text(if (pendingAction == "skipBottom") "Tap again" else "Skip")
                                 }
                             }
                             if (typing && imeVisible) TextButton(::finishTyping, enabled = !busy, shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.KeyboardHide, null, Modifier.size(18.dp))
+                                Icon(FolioIcons.KeyboardHide, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp4))
                                 Text("Done typing")
                             }
                             FilledTonalButton({ confirmDoubleTap("compare", ::revealAnswer) }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp))
+                                Icon(FolioIcons.Visible, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text(if (pendingAction == "compare") "Tap again to compare" else "Compare answer")
                             }
@@ -448,7 +446,7 @@ import kotlinx.coroutines.launch
                                 },
                             )
                             if (!wide) IconButton({ if (!referenceExpanded) { finishTyping(); questionExpanded = true } else questionExpanded = false }, shapes = IconButtonDefaults.shapes()) {
-                                Icon(if (referenceExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (referenceExpanded) "Collapse question" else "Expand question")
+                                Icon(if (referenceExpanded) FolioIcons.ChevronUp else FolioIcons.ChevronDown, if (referenceExpanded) "Collapse question" else "Expand question")
                             }
                         }
                         if (adjustLayout) {
@@ -561,7 +559,7 @@ import kotlinx.coroutines.launch
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     BadgedBox(badge = { if (waiting) Badge(containerColor = colors.primary) }) {
-                        Icon(when (mode) { "type" -> Icons.Rounded.Keyboard; "exam" -> Icons.Rounded.Description; else -> Icons.Rounded.Edit }, null, Modifier.size(18.dp))
+                        Icon(when (mode) { "type" -> FolioIcons.Keyboard; "exam" -> FolioIcons.Paper; else -> FolioIcons.Pen }, null, Modifier.size(18.dp))
                     }
                     if (showLabels) Text(label, maxLines = 1)
                 }
@@ -649,5 +647,5 @@ internal fun shareText(context: android.content.Context, text: String?, image: j
             onClick = { onShare(false) }
         ),
         contentAlignment = Alignment.Center
-    ) { Icon(Icons.Rounded.IosShare, if (typed) "Share your response · hold to share the question text" else "Share working out as a picture and copy the text · hold to share the question text", Modifier.size(24.dp)) }
+    ) { Icon(FolioIcons.Share, if (typed) "Share your response · hold to share the question text" else "Share working out as a picture and copy the text · hold to share the question text", Modifier.size(24.dp)) }
 }

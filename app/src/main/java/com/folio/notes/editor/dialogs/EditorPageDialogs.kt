@@ -1,15 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.dialogs
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -35,7 +33,7 @@ import com.folio.notes.ui.FolioShapes
         namedPage?.let { target ->
             val nameFocus = remember { androidx.compose.ui.focus.FocusRequester() }
             fun savePageName() { if (pageTitle != target.title) model.renamePage(target.id, pageTitle); namedPage = null }
-            FolioPopover("Name page", Icons.Rounded.Edit, onDismiss = { namedPage = null }, actions = {
+            FolioPopover("Name page", FolioIcons.Pen, onDismiss = { namedPage = null }, actions = {
                 TextButton({ namedPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button(::savePageName, shapes = ButtonDefaults.shapes()) { Text("Save") }
             }) {
@@ -59,7 +57,7 @@ import com.folio.notes.ui.FolioShapes
                 if (from >= 0) model.movePage(from, destination - 1)
                 movingPage = null
             }
-            FolioPopover("Move page", Icons.Rounded.LowPriority, onDismiss = { movingPage = null }, actions = {
+            FolioPopover("Move page", FolioIcons.Reorder, onDismiss = { movingPage = null }, actions = {
                 TextButton({ movingPage = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button(::commit, enabled = destination != null, shapes = ButtonDefaults.shapes()) { Text("Move") }
             }) {

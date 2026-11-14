@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.pdf
 
+import com.folio.notes.ui.FolioIcons
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
@@ -10,8 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -91,14 +90,14 @@ internal fun PdfImportDialog(
                     Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Surface(Modifier.size(48.dp), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer) {
-                            Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.FileDownload, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                            Box(contentAlignment = Alignment.Center) { Icon(FolioIcons.Download, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
                         }
                         Column(Modifier.weight(1f)) {
                             Text("Import PDFs", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                             Text(if (files.size == 1) "Review your document" else "${files.size} documents · review and import together",
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Cancel import") }
+                        IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Cancel import") }
                     }
                     ImportDestination(folder, state.folders, { destination = it }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                     if (checkingDuplicates) Text("Checking for existing copies…", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
@@ -155,7 +154,7 @@ internal fun PdfImportDialog(
                         }
                         Button({ onImport(folder, files) }, enabled = valid && !checkingDuplicates && duplicates.keys.all { it in acknowledged }, shapes = ButtonDefaults.shapes(),
                             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)) {
-                            Icon(Icons.Rounded.FileDownload, null, Modifier.size(20.dp))
+                            Icon(FolioIcons.Download, null, Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(if (files.size == 1) "Import" else "Import ${files.size}")
                         }
@@ -173,19 +172,19 @@ private fun ImportDestination(folder: String?, folders: List<Folder>, onSelect: 
         Surface({ expanded = true }, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(FolioIcons.Folder, null, tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)) {
                     Text("Save to", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(LibraryFolders.label(folders, folder).ifBlank { "Library · no folder" },
                         style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                Icon(Icons.Rounded.ExpandMore, "Choose destination")
+                Icon(FolioIcons.ChevronDown, "Choose destination")
             }
         }
         FolioMenuPopover(expanded, { expanded = false }, Modifier.heightIn(max = 320.dp).guardUiTouches(), title = "Save to") {
             (listOf(null to "Library · no folder") + folders.map { it.id to LibraryFolders.label(folders, it.id) }).forEach { (id, name) ->
                 FolioMenuItem({ Text(name) }, { onSelect(id); expanded = false },
-                    leadingIcon = { Icon(Icons.Rounded.Folder, null) }, selected = folder == id)
+                    leadingIcon = { Icon(FolioIcons.Folder, null) }, selected = folder == id)
             }
         }
     }
@@ -205,7 +204,7 @@ private fun ImportFileTile(item: PendingPdfImport, selected: Boolean, onSelect: 
             }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingContent = {
                 if (!item.detected) LoadingIndicator(Modifier.size(28.dp))
-                else Icon(if (item.inspectionError != null) Icons.Rounded.ErrorOutline else Icons.Rounded.PictureAsPdf, null)
+                else Icon(if (item.inspectionError != null) FolioIcons.Alert else FolioIcons.Pdf, null)
             }, colors = ListItemDefaults.colors(containerColor = Color.Transparent,
                 headlineColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface))
     }
@@ -224,7 +223,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                     item.pageCount?.let { Text("$it page${if (it == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                IconButton(onRemove, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.RemoveCircleOutline, "Remove this PDF from import") }
+                IconButton(onRemove, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MinusCircle, "Remove this PDF from import") }
             }
         }
         if (!item.detected) {
@@ -255,7 +254,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                     isError = item.title.isBlank(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     shape = MaterialTheme.shapes.large)
                 if (!item.useSmartTitle) TextButton({ onUpdate(item.copy(useSmartTitle = true).withExam(item.exam)) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Use suggested name")
+                    Icon(FolioIcons.Sparkle, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Use suggested name")
                 }
             }
             item {
@@ -271,7 +270,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(FolioIcons.Sparkle, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                             Text(when {
                                 item.detection.reviewFields.isNotEmpty() -> "Check the suggestions"
                                 item.detection.fieldConfidence.isNotEmpty() -> "Details found on the paper"
@@ -285,7 +284,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                         if (item.detection.reviewFields.isNotEmpty()) Text("Some details are tentative or disagree. Check them before importing.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         TextButton({ editDetails = !editDetails }, shapes = ButtonDefaults.shapes()) {
-                            Icon(if (editDetails) Icons.Rounded.ExpandLess else Icons.Rounded.Edit, null, Modifier.size(18.dp))
+                            Icon(if (editDetails) FolioIcons.ChevronUp else FolioIcons.Pen, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text(if (editDetails) "Hide details" else "Edit details")
                         }
                         AnimatedVisibility(editDetails) {
@@ -350,7 +349,7 @@ private fun ImportExamFields(item: PendingPdfImport, onUpdate: (PendingPdfImport
         Box {
             OutlinedButton({ expanded = true }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                 Text(tags.type?.label ?: "Assessment type · optional", Modifier.weight(1f))
-                Icon(Icons.Rounded.ExpandMore, null)
+                Icon(FolioIcons.ChevronDown, null)
             }
             FolioMenuPopover(expanded, { expanded = false }, modifier = Modifier.guardUiTouches(), title = "Assessment type") {
                 (listOf(null) + ExamType.entries).forEach { type ->

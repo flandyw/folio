@@ -1,5 +1,6 @@
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -61,7 +62,7 @@ object ShapeRecents {
             prefs.edit().putBoolean("shapeRecognition", true).apply()
             onDrawHold()
         }, modifier = Modifier.fillMaxWidth()) {
-            Icon(EditorIcons.Tidy, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Tidy, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Draw & hold with the pen")
         }

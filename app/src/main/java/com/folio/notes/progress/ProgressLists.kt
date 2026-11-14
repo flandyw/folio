@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -8,9 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -137,7 +135,7 @@ private const val FORM_ADD = -1
     val doneCount = papers.count { paperKey(it) in done }
     FolioPanel("Exam progression", ::dismiss, canDismiss = { dismiss(); false }, actions = {
         IconButton({ papersRaw = history.removeAt(history.lastIndex); notice = "Undid the last change."; error = null }, enabled = history.isNotEmpty() && !busy) {
-            Icon(Icons.AutoMirrored.Rounded.Undo, "Undo last change")
+            Icon(FolioIcons.Undo, "Undo last change")
         }
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -155,15 +153,15 @@ private const val FORM_ADD = -1
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 AssistChip({ if (formAt == FORM_ADD) closeForm() else openForm(FORM_ADD) }, { Text("Add papers") },
-                    leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(AssistChipDefaults.IconSize)) })
-                AssistChip({ importOpen = !importOpen }, { Text("Import") }, leadingIcon = { Icon(Icons.Rounded.FileDownload, null, Modifier.size(AssistChipDefaults.IconSize)) })
+                    leadingIcon = { Icon(FolioIcons.Plus, null, Modifier.size(AssistChipDefaults.IconSize)) })
+                AssistChip({ importOpen = !importOpen }, { Text("Import") }, leadingIcon = { Icon(FolioIcons.Download, null, Modifier.size(AssistChipDefaults.IconSize)) })
                 AssistChip({
                     val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("Focal progression", ProgressionEdit.encode(name, papers).toString(2)))
                     notice = "Copied the list as Focal JSON."
-                }, { Text("Copy JSON") }, enabled = papers.isNotEmpty(), leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(AssistChipDefaults.IconSize)) })
+                }, { Text("Copy JSON") }, enabled = papers.isNotEmpty(), leadingIcon = { Icon(FolioIcons.Copy, null, Modifier.size(AssistChipDefaults.IconSize)) })
                 if (doneCount > 0) AssistChip({ commit(papers.filterNot { paperKey(it) in done }, "Removed $doneCount completed ${if (doneCount == 1) "paper" else "papers"}.") },
-                    { Text("Clear completed") }, leadingIcon = { Icon(Icons.Rounded.TaskAlt, null, Modifier.size(AssistChipDefaults.IconSize)) })
+                    { Text("Clear completed") }, leadingIcon = { Icon(FolioIcons.CheckCircle, null, Modifier.size(AssistChipDefaults.IconSize)) })
             }
             notice?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
 
@@ -235,11 +233,11 @@ private const val FORM_ADD = -1
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search this list") },
                     keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { listSearchKeyboard?.hide() }),
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; listSearchKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear search") } })
+                    leadingIcon = { Icon(FolioIcons.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; listSearchKeyboard?.hide() }) { Icon(FolioIcons.Close, "Clear search") } })
                 val subjectsInPlan = papers.map { it.optString("subject") }.distinct()
                 if (subjectsInPlan.size > 1) Row(Modifier.horizontalScroll(rememberScrollState())) {
-                    MenuChip("Subject", subjectFilter, listOf(ALL_SUBJECTS) + subjectsInPlan, { subjectFilter = it }, Icons.Rounded.School)
+                    MenuChip("Subject", subjectFilter, listOf(ALL_SUBJECTS) + subjectsInPlan, { subjectFilter = it }, FolioIcons.School)
                 }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -257,23 +255,23 @@ private const val FORM_ADD = -1
                     Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp4)) {
                         Row(Modifier.fillMaxWidth().clickable { if (open) collapsed += s else collapsed -= s }.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4, top = FolioSpacing.dp4, bottom = FolioSpacing.dp4),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (open) "Collapse $s" else "Expand $s")
+                            Icon(if (open) FolioIcons.ChevronUp else FolioIcons.ChevronDown, if (open) "Collapse $s" else "Expand $s")
                             Column(Modifier.weight(1f).padding(start = FolioSpacing.dp8)) {
                                 Text(s, style = MaterialTheme.typography.titleSmall)
                                 Text("$finished of ${all.size} done", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Box {
-                                IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "More for $s") }
+                                IconButton({ menu = true }) { Icon(FolioIcons.MoreVertical, "More for $s") }
                                 FolioMenuPopover(menu, { menu = false }, title = "Subject actions") {
                                     FolioMenuItem({ Text("Sort oldest first") }, { menu = false; commit(ProgressionEdit.sortSubject(papers, s, true)) },
-                                        leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
+                                        leadingIcon = { Icon(FolioIcons.Up, null) })
                                     FolioMenuItem({ Text("Sort newest first") }, { menu = false; commit(ProgressionEdit.sortSubject(papers, s, false)) },
-                                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
+                                        leadingIcon = { Icon(FolioIcons.Down, null) })
                                     FolioMenuItem({ Text("Add a paper") }, { menu = false; subject = s; openForm(FORM_ADD); subject = s; suggest() },
-                                        leadingIcon = { Icon(Icons.Rounded.Add, null) })
+                                        leadingIcon = { Icon(FolioIcons.Plus, null) })
                                     FolioMenuItem({ Text("Remove subject", color = MaterialTheme.colorScheme.error) },
                                         { menu = false; commit(ProgressionEdit.removeSubject(papers, s), "Removed $s.") },
-                                        leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
+                                        leadingIcon = { Icon(FolioIcons.Delete, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
                                 }
                             }
                         }
@@ -284,7 +282,7 @@ private const val FORM_ADD = -1
                                     var rowMenu by remember { mutableStateOf(false) }
                                     Row(Modifier.fillMaxWidth().clickable { openForm(index) }.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4),
                                         verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(if (finishedPaper) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, if (finishedPaper) "Completed" else "To do",
+                                        Icon(if (finishedPaper) FolioIcons.CheckCircle else FolioIcons.Ellipse, if (finishedPaper) "Completed" else "To do",
                                             Modifier.size(20.dp), tint = if (finishedPaper) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                                         Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8)) {
                                             Text("${exam.optString("provider")} ${exam.optInt("examYear")} · ${exam.optString("paper")}", style = MaterialTheme.typography.bodyMedium)
@@ -292,18 +290,18 @@ private const val FORM_ADD = -1
                                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                         Box {
-                                            IconButton({ rowMenu = true }) { Icon(Icons.Rounded.MoreVert, "More for ${exam.optString("provider")} ${exam.optInt("examYear")} ${exam.optString("paper")}") }
+                                            IconButton({ rowMenu = true }) { Icon(FolioIcons.MoreVertical, "More for ${exam.optString("provider")} ${exam.optInt("examYear")} ${exam.optString("paper")}") }
                                             FolioMenuPopover(rowMenu, { rowMenu = false }, title = "Paper actions") {
-                                                FolioMenuItem({ Text("Edit") }, { rowMenu = false; openForm(index) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                                                FolioMenuItem({ Text("Edit") }, { rowMenu = false; openForm(index) }, leadingIcon = { Icon(FolioIcons.Pen, null) })
                                                 FolioMenuItem({ Text("Move up") }, { rowMenu = false; commit(ProgressionEdit.move(papers, index, -1)) },
-                                                    leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) })
+                                                    leadingIcon = { Icon(FolioIcons.Up, null) })
                                                 FolioMenuItem({ Text("Move down") }, { rowMenu = false; commit(ProgressionEdit.move(papers, index, 1)) },
-                                                    leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) })
+                                                    leadingIcon = { Icon(FolioIcons.Down, null) })
                                                 FolioMenuItem({ Text("Duplicate to next year") }, { rowMenu = false
                                                     ProgressionEdit.duplicate(papers, index)?.let { commit(it) } ?: run { error = "No free year to duplicate into." } },
-                                                    leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
+                                                    leadingIcon = { Icon(FolioIcons.Copy, null) })
                                                 FolioMenuItem({ Text("Remove", color = MaterialTheme.colorScheme.error) }, { rowMenu = false; commit(papers.filterIndexed { i, _ -> i != index }, "Removed a paper.") },
-                                                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
+                                                    leadingIcon = { Icon(FolioIcons.Delete, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
                                             }
                                         }
                                     }

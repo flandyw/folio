@@ -1,15 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.ShowChart
-import androidx.compose.material.icons.automirrored.rounded.TrendingDown
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -32,7 +28,7 @@ import org.json.JSONObject
 internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: List<ExamTrackMistake>, references: List<ExamReference>,
     settings: JSONObject?, onMistakes: () -> Unit) {
     if (exams.isEmpty()) {
-        wide("insights-empty") { EmptyState(Icons.Rounded.Insights, "Start building evidence",
+        wide("insights-empty") { EmptyState(FolioIcons.Insights, "Start building evidence",
             "Log completed papers, mark questions and label topics to unlock trends, outlooks and focus areas.") }
         return
     }
@@ -46,14 +42,14 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
         val recall = if (reviews.isEmpty()) null else reviews.count { it.result == ReviewRating.GOOD || it.result == ReviewRating.EASY } * 100.0 / reviews.size
         StatTiles(listOf(
             StatTileData(trendIcon(primary?.momentum), primary?.momentum?.let { "${signed(it)} pts" } ?: "—", "Momentum${primary?.let { " · ${it.subject}" } ?: ""}"),
-            StatTileData(Icons.Rounded.Straighten, primary?.spread?.let { "±${it.display()}" } ?: "—", "Consistency (pts spread)"),
-            StatTileData(Icons.Rounded.Psychology, recall?.let { "${it.display(0)}%" } ?: "—", "30-day recall${if (reviews.isNotEmpty()) " · ${reviews.size} reviews" else ""}"),
-            StatTileData(Icons.Rounded.PriorityHigh, focus.firstOrNull()?.priority?.display(0) ?: "—", focus.firstOrNull()?.let { "Top priority · ${it.topic}" } ?: "Top priority"),
+            StatTileData(FolioIcons.Ruler, primary?.spread?.let { "±${it.display()}" } ?: "—", "Consistency (pts spread)"),
+            StatTileData(FolioIcons.Idea, recall?.let { "${it.display(0)}%" } ?: "—", "30-day recall${if (reviews.isNotEmpty()) " · ${reviews.size} reviews" else ""}"),
+            StatTileData(FolioIcons.Priority, focus.firstOrNull()?.priority?.display(0) ?: "—", focus.firstOrNull()?.let { "Top priority · ${it.topic}" } ?: "Top priority"),
         ))
     }
 
     wide("h-outlook") { SectionHeader("Outlook", "Focal's recency-weighted trend model. Ranges are planning estimates.") }
-    item("outlook") { ProgressCard("Next result", icon = Icons.Rounded.Insights) {
+    item("outlook") { ProgressCard("Next result", icon = FolioIcons.Insights) {
         outlooks.forEach { OutlookRange(it) }
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             ChartKey(MaterialTheme.colorScheme.primary.copy(alpha = .35f), "Likely range"); ChartKey(MaterialTheme.colorScheme.tertiary, "Recent form")
@@ -61,7 +57,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     } }
     val benchmarks = exams.groupBy { it.subject }.mapValues { (_, attempts) ->
         attempts.mapNotNull { exam -> referenceFor(exam, references)?.let { ref -> exam.percentage - ref.stats.mean / ref.maxScore * 100 } } }.filterValues { it.isNotEmpty() }
-    if (benchmarks.isNotEmpty()) item("benchmark") { ProgressCard("Against the cohort", "Matched to official VCAA distributions. Estimates use grade-band midpoints.", Icons.Rounded.Groups) {
+    if (benchmarks.isNotEmpty()) item("benchmark") { ProgressCard("Against the cohort", "Matched to official VCAA distributions. Estimates use grade-band midpoints.", FolioIcons.People) {
         benchmarks.forEach { (subject, values) ->
             val difference = values.average()
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -79,22 +75,22 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
         val ordered = attempts.sortedBy { it.completedAt }
         item("trend:$subject") { ScoreTrend(subject, ordered.map { "${it.completedAt.take(10)} · ${it.paper}" to it.percentage },
             "${ordered.size} ${if (ordered.size == 1) "result" else "results"} · provider alignment is an estimate", ordered.map { performance(it, settings).aligned },
-            Icons.AutoMirrored.Rounded.ShowChart) }
+            FolioIcons.Chart) }
         val linked = ordered.mapNotNull { exam -> referenceFor(exam, references)?.let { ref ->
             analyseExam(exam, ref).percentile?.let { percentile -> exam.completedAt.take(10) to percentile } } }
         if (linked.isNotEmpty()) item("percentile:$subject") { ScoreTrend("$subject · VCAA percentile", linked,
-            "Estimated against each attempt's exam-year official distribution.", icon = Icons.Rounded.Leaderboard) }
+            "Estimated against each attempt's exam-year official distribution.", icon = FolioIcons.BarChart) }
         val papers = attempts.groupBy { it.paper }
         if (papers.size > 1) item("papers:$subject") { MetricBars("$subject · by paper", papers.map { (paper, group) -> paper to group.map { it.percentage }.average() },
-            maximum = 100.0, subtitle = "Raw averages; compare papers independently.", icon = Icons.Rounded.Description) }
+            maximum = 100.0, subtitle = "Raw averages; compare papers independently.", icon = FolioIcons.Paper) }
     }
 
     wide("h-topics") { SectionHeader("Topics", "Where marks are being won and lost") }
     item("focus") { MetricBars("Focus priorities", focus.map { "${it.subject} · ${it.topic}" to it.priority }, suffix = "/100", maximum = 100.0,
-        subtitle = "60% mark risk, 25% confidence risk, 15% unresolved mistakes and lapses.", icon = Icons.Rounded.PriorityHigh) }
+        subtitle = "60% mark risk, 25% confidence risk, 15% unresolved mistakes and lapses.", icon = FolioIcons.Priority) }
     item("mastery") {
         var all by remember { mutableStateOf(false) }
-        ProgressCard("Topic mastery", "Marked questions and mistakes by area of study", Icons.Rounded.School) {
+        ProgressCard("Topic mastery", "Marked questions and mistakes by area of study", FolioIcons.School) {
             if (focus.isEmpty()) Text("Add areas of study to your question marks or mistakes.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             (if (all) focus else focus.take(6)).forEach { value ->
                 MeterRow("${value.subject} · ${value.topic}", value.mastery?.let { "${it.display(0)}%" } ?: "—", ((value.mastery ?: 0.0) / 100).toFloat(),
@@ -107,17 +103,17 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     val paperTopics = questions.filter { it.topic.isNotBlank() }.groupBy { Triple(it.exam.subject, it.topic, it.exam.paper) }
     item("weak") { MetricBars("Weakest by paper", paperTopics.entries.sortedBy { (_, q) -> q.sumOf { it.earned } / q.sumOf { it.maximum } }
         .map { (key, q) -> "${key.first} · ${key.third} · ${key.second}" to q.sumOf { it.earned } / q.sumOf { it.maximum } * 100 },
-        maximum = 100.0, subtitle = "Mastery per topic within each paper, lowest first.", icon = Icons.AutoMirrored.Rounded.TrendingDown) }
+        maximum = 100.0, subtitle = "Mastery per topic within each paper, lowest first.", icon = FolioIcons.TrendDown) }
     item("lost") { MetricBars("Lost marks", questions.filter { it.topic.isNotBlank() }.groupBy { "${it.exam.subject} · ${it.topic}" }
         .map { (topic, q) -> topic to q.sumOf { it.lost } }.sortedByDescending { it.second }, suffix = " marks",
-        subtitle = "Marked questions only, so linked mistake cards never double-count a mark.", icon = Icons.Rounded.RemoveCircleOutline) }
+        subtitle = "Marked questions only, so linked mistake cards never double-count a mark.", icon = FolioIcons.MinusCircle) }
     item("calibration") { MetricBars("Confidence calibration", listOf("low", "medium", "high").mapNotNull { confidence -> val q = questions.filter { it.confidence == confidence }
         if (q.isEmpty()) null else "${confidence.replaceFirstChar(Char::uppercase)} confidence · ${q.size} questions" to q.sumOf { it.earned } / q.sumOf { it.maximum } * 100 }, maximum = 100.0,
-        subtitle = "Marks earned at each confidence. High-confidence errors reveal blind spots.", icon = Icons.Rounded.Tune) }
+        subtitle = "Marks earned at each confidence. High-confidence errors reveal blind spots.", icon = FolioIcons.Tune) }
 
     wide("h-habits") { SectionHeader("Habits", "How you sit papers") }
     val context = contextInsights(exams)
-    item("context") { ProgressCard("Performance context", "Associations, not causes.", Icons.Rounded.Bedtime) {
+    item("context") { ProgressCard("Performance context", "Associations, not causes.", FolioIcons.Moon) {
         if (context.isEmpty()) Text("Record sleep, energy, focus, stress, confidence or preparation on at least three exams, with varied ratings.",
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         context.forEach { factor ->
@@ -132,7 +128,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
         }
     } }
     val timing = exams.mapNotNull { e -> e.json.optJSONObject("timing")?.let { e to it } }
-    item("timing") { ProgressCard("Timing and pacing", icon = Icons.Rounded.Timer) {
+    item("timing") { ProgressCard("Timing and pacing", icon = FolioIcons.Timer) {
         if (timing.isEmpty()) Text("Record writing time or use a timed notebook sitting.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         timing.take(8).forEach { (exam, t) ->
             val overtime = t.optDouble("overtimeSeconds") / 60
@@ -142,7 +138,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
                     Text("${friendlyDate(exam.completedAt)} · ${(t.optDouble("actualWritingSeconds") / 60).display(0)} min writing · ${exam.percentage.display()}%",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (overtime > 0) StatusPill("+${overtime.display(0)} min", Icons.Rounded.MoreTime)
+                if (overtime > 0) StatusPill("+${overtime.display(0)} min", FolioIcons.ClockAdd)
             }
         }
     } }
@@ -154,7 +150,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
         val due = examDate(MistakeScheduler.getMistakeSchedule(mistake).dueAt)
         if (due != null) { val index = ChronoUnit.DAYS.between(today, due).coerceAtLeast(0).toInt(); if (index < forecast.size) forecast[index]++ }
     }
-    item("forecast") { ProgressCard("Review forecast", "Next 14 days; today includes overdue cards. Suspended cards are excluded.", Icons.Rounded.CalendarMonth,
+    item("forecast") { ProgressCard("Review forecast", "Next 14 days; today includes overdue cards. Suspended cards are excluded.", FolioIcons.Calendar,
         action = { TextButton(onMistakes) { Text("Review") } }) {
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
             listOf("${forecast[0]}" to "due today", "${forecast.take(7).sum()}" to "this week", "${mistakes.size}" to "linked cards").forEach { (value, label) ->
@@ -166,7 +162,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     } }
     item("revision") { MetricBars("Revision priorities", mistakes.filterNot { it.suspended || MistakeScheduler.getMistakeSchedule(it).resolved }
         .groupBy { it.areaOfStudy?.takeIf(String::isNotBlank) ?: it.category }.map { (topic, group) -> topic to group.size.toDouble() }.sortedByDescending { it.second }, suffix = " cards",
-        subtitle = "Unresolved mistakes grouped by topic or category.", icon = Icons.Rounded.Replay) }
+        subtitle = "Unresolved mistakes grouped by topic or category.", icon = FolioIcons.RotateLeft) }
 }
 
 @Composable internal fun ExamDetailDialog(exam: LoggedExam, catalog: ExamCatalog, mistakes: List<ExamTrackMistake>, onDismiss: () -> Unit,
@@ -182,7 +178,7 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
             Text("${exam.paper} · ${exam.completedAt.take(10)} · ${exam.rawScore.display()}/${exam.rawMax.display()} (${exam.percentage.display()}%)")
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 OutlinedButton(onEdit) { Text("Edit") }; Button(onAddMistake) { Text("Add mistake") }
-                if (hasNotebook) IconButton(onOpenNotebook) { Icon(Icons.AutoMirrored.Rounded.MenuBook, "Open linked notebook") }
+                if (hasNotebook) IconButton(onOpenNotebook) { Icon(FolioIcons.Book, "Open linked notebook") }
             }
             if (exam.json.optString("comment").isNotBlank()) Text(exam.json.optString("comment"))
             if (references.isEmpty()) ProgressCard("No official distribution", "No matching VCAA subject/paper distribution is bundled for this result.") { Text("Your raw mark remains ${exam.percentage.display()}%.") }
@@ -240,9 +236,9 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
             Text("Light: 1 point/rank · Balanced: 1.5 · Strong: 2", style = MaterialTheme.typography.bodySmall)
             providers.forEachIndexed { index, provider -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(provider, Modifier.weight(1f))
-                IconButton({ providers = providers.toMutableList().apply { java.util.Collections.swap(this, index, index - 1) } }, enabled = index > 0) { Icon(Icons.Rounded.ArrowUpward, "Move $provider harder") }
-                IconButton({ providers = providers.toMutableList().apply { java.util.Collections.swap(this, index, index + 1) } }, enabled = index < providers.lastIndex) { Icon(Icons.Rounded.ArrowDownward, "Move $provider easier") }
-                IconButton({ providers = providers.filterIndexed { i, _ -> i != index } }, enabled = comparisonName(provider) != "vcaa") { Icon(Icons.Rounded.DeleteOutline, "Remove $provider") }
+                IconButton({ providers = providers.toMutableList().apply { java.util.Collections.swap(this, index, index - 1) } }, enabled = index > 0) { Icon(FolioIcons.Up, "Move $provider harder") }
+                IconButton({ providers = providers.toMutableList().apply { java.util.Collections.swap(this, index, index + 1) } }, enabled = index < providers.lastIndex) { Icon(FolioIcons.Down, "Move $provider easier") }
+                IconButton({ providers = providers.filterIndexed { i, _ -> i != index } }, enabled = comparisonName(provider) != "vcaa") { Icon(FolioIcons.Delete, "Remove $provider") }
             } }
             OutlinedTextField(newProvider, { newProvider = it }, Modifier.fillMaxWidth(), singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Done),

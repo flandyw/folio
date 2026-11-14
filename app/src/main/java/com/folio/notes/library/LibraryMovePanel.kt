@@ -1,14 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,12 +42,12 @@ import com.folio.notes.ui.FolioSpacing
     FolioPanel(title, onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a folder") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                leadingIcon = { Icon(FolioIcons.Search, null) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { searchKeyboard?.hide() }),
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; searchKeyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear folder search") } })
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; searchKeyboard?.hide() }) { Icon(FolioIcons.Close, "Clear folder search") } })
             TextButton({ onMove(null) }, enabled = !single || currentFolder != null) {
-                Icon(Icons.Rounded.FolderOff, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (single && currentFolder == null) "$rootLabel · current" else rootLabel)
+                Icon(FolioIcons.FolderOff, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (single && currentFolder == null) "$rootLabel · current" else rootLabel)
             }
         }
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24),
@@ -62,7 +61,7 @@ import com.folio.notes.ui.FolioSpacing
                 ListItem(modifier = Modifier.clickable(enabled = !here, onClickLabel = "Move to ${folder.name}") { onMove(folder.id) },
                     headlineContent = { Text(folder.name, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                     supportingContent = { if (folder.parentId != null) Text(LibraryFolders.label(folders, folder.parentId)) },
-                    leadingContent = { Icon(if (here) Icons.Rounded.Check else Icons.Rounded.FolderOpen, null, tint = if (here) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingContent = { Icon(if (here) FolioIcons.Check else FolioIcons.FolderOpen, null, tint = if (here) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                     trailingContent = { if (here) Text("Current", style = MaterialTheme.typography.labelMedium) })
             }
         }
@@ -80,7 +79,7 @@ import com.folio.notes.ui.FolioSpacing
                     TextButton({ creating = false; newFolder = ""; createFailed = false }) { Text("Cancel new folder") }
                     Button({ createAndMove() }, enabled = nameError == null) { Text("Create & move") }
                 }
-            } else TextButton({ creating = true }) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
+            } else TextButton({ creating = true }) { Icon(FolioIcons.FolderAdd, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("New folder") }
         }
     }
 }

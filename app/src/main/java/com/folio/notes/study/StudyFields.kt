@@ -1,13 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -31,10 +29,10 @@ internal fun FocalSubjectPicker(subjects: List<FocalSubject>, selected: String?,
         var open by remember { mutableStateOf(false) }
         Box {
             OutlinedButton({ open = true }, modifier = Modifier.fillMaxWidth(), shape = FolioShapes.large) {
-                Icon(Icons.Rounded.School, null, Modifier.size(18.dp))
+                Icon(FolioIcons.School, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp10))
                 Text(subjects.firstOrNull { it.id == selected }?.name ?: emptyLabel, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Icon(Icons.Rounded.ExpandMore, null)
+                Icon(FolioIcons.ChevronDown, null)
             }
             FolioMenuPopover(open, { open = false }, title = "Subject") {
                 FolioMenuItem({ Text(emptyLabel) }, { onSelect(null); open = false }, selected = selected == null)

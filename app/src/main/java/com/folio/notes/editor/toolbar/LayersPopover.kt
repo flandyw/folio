@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.*
@@ -39,16 +40,16 @@ import com.folio.notes.ui.FolioSpacing
     var renaming by remember { mutableStateOf<PageLayer?>(null) }
     FolioPopover(onDismiss = onDismiss, width = 360.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(EditorIcons.Layers, null, Modifier.size(20.dp))
+            Icon(FolioIcons.Layers, null, Modifier.size(20.dp))
             Text("Layers", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.titleMedium)
-            IconButton(onDismiss) { Icon(EditorIcons.Close, "Close layers") }
+            IconButton(onDismiss) { Icon(FolioIcons.Close, "Close layers") }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
             Text(if (layers.size == PageLayers.MAX_LAYERS) "Layer limit reached"
                     else "${layers.size} of ${PageLayers.MAX_LAYERS} layers", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             FilledTonalButton({ model.addLayer() }, enabled = layers.size < PageLayers.MAX_LAYERS, shapes = ButtonDefaults.shapes()) {
-                Icon(EditorIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("New layer")
+                Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("New layer")
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
@@ -63,11 +64,11 @@ import com.folio.notes.ui.FolioSpacing
                     Column(Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton({ model.setLayerVisible(layer.id, !layer.visible) }, Modifier.size(48.dp)) {
-                                Icon(if (layer.visible) EditorIcons.Visible else EditorIcons.Hidden,
+                                Icon(if (layer.visible) FolioIcons.Visible else FolioIcons.Hidden,
                                     if (layer.visible) "Hide ${layer.name}" else "Show ${layer.name}", Modifier.size(20.dp))
                             }
                             IconButton({ model.setLayerLocked(layer.id, !layer.locked) }, Modifier.size(48.dp)) {
-                                Icon(if (layer.locked) EditorIcons.Lock else EditorIcons.Unlock,
+                                Icon(if (layer.locked) FolioIcons.Lock else FolioIcons.Unlock,
                                     if (layer.locked) "Unlock ${layer.name}" else "Lock ${layer.name}", Modifier.size(20.dp))
                             }
                             Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp6)) {
@@ -84,14 +85,14 @@ import com.folio.notes.ui.FolioSpacing
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.End) {
                             IconButton({ model.moveLayer(layer.id, up = true) }, Modifier.size(48.dp), enabled = index < layers.lastIndex) {
-                                Icon(EditorIcons.Up, "Move ${layer.name} up", Modifier.size(20.dp))
+                                Icon(FolioIcons.Up, "Move ${layer.name} up", Modifier.size(20.dp))
                             }
                             IconButton({ model.moveLayer(layer.id, up = false) }, Modifier.size(48.dp), enabled = index > 0) {
-                                Icon(EditorIcons.Down, "Move ${layer.name} down", Modifier.size(20.dp))
+                                Icon(FolioIcons.Down, "Move ${layer.name} down", Modifier.size(20.dp))
                             }
-                            IconButton({ renaming = layer }, Modifier.size(48.dp)) { Icon(EditorIcons.Rename, "Rename ${layer.name}", Modifier.size(18.dp)) }
+                            IconButton({ renaming = layer }, Modifier.size(48.dp)) { Icon(FolioIcons.Rename, "Rename ${layer.name}", Modifier.size(18.dp)) }
                             IconButton({ model.deleteLayer(layer.id) }, Modifier.size(48.dp), enabled = layers.size > 1) {
-                                Icon(EditorIcons.Delete, "Delete ${layer.name}", Modifier.size(18.dp))
+                                Icon(FolioIcons.Delete, "Delete ${layer.name}", Modifier.size(18.dp))
                             }
                         }
                         if (selectionCount > 0) {

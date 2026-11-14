@@ -1,5 +1,6 @@
 package com.folio.notes.editor
 
+import com.folio.notes.ui.FolioIcons
 import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -20,11 +21,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.FormatAlignLeft
-import androidx.compose.material.icons.automirrored.rounded.FormatAlignRight
-import androidx.compose.material.icons.automirrored.rounded.WrapText
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -218,7 +214,7 @@ private class PageTextField(context: Context) : EditText(context) {
             .pointerInput(box.id, frame.scale) {
                 detectDragGestures { event, delta -> event.consume(); move(delta.x / frame.scale, delta.y / frame.scale) }
             }, colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-            Icon(Icons.Rounded.OpenWith, "Move text box", Modifier.size(18.dp))
+            Icon(FolioIcons.Move, "Move text box", Modifier.size(18.dp))
         }
         IconButton({}, Modifier.offset { IntOffset((frame.left + frame.width - 20.dp.toPx()).roundToInt(), (frame.top + frame.height + 5.dp.toPx()).roundToInt()) }
             .size(40.dp)
@@ -230,7 +226,7 @@ private class PageTextField(context: Context) : EditText(context) {
             .pointerInput(box.id, frame.scale) {
                 detectDragGestures { event, delta -> event.consume(); resize(delta.x / frame.scale) }
             }, colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-            Icon(Icons.AutoMirrored.Rounded.WrapText, "Resize text wrap width", Modifier.size(18.dp))
+            Icon(FolioIcons.Wrap, "Resize text wrap width", Modifier.size(18.dp))
         }
     }
 }
@@ -246,22 +242,22 @@ private class PageTextField(context: Context) : EditText(context) {
         Column {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                TextButton(onDone) { Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)); Text("Done") }
-                TextFormatButton(Icons.Rounded.FormatBold, "Bold", box.bold) { onChange(box.copy(bold = !box.bold)) }
-                TextFormatButton(Icons.Rounded.FormatItalic, "Italic", box.italic) { onChange(box.copy(italic = !box.italic)) }
-                TextFormatButton(Icons.Rounded.FormatUnderlined, "Underline", box.underline) { onChange(box.copy(underline = !box.underline)) }
-                TextFormatButton(Icons.Rounded.Remove, "Smaller text", false, box.size > TextBox.MIN_SIZE) { onChange(box.copy(size = (box.size - 2f).coerceAtLeast(TextBox.MIN_SIZE))) }
+                TextButton(onDone) { Icon(FolioIcons.Check, null, Modifier.size(18.dp)); Text("Done") }
+                TextFormatButton(FolioIcons.Bold, "Bold", box.bold) { onChange(box.copy(bold = !box.bold)) }
+                TextFormatButton(FolioIcons.Italic, "Italic", box.italic) { onChange(box.copy(italic = !box.italic)) }
+                TextFormatButton(FolioIcons.Underline, "Underline", box.underline) { onChange(box.copy(underline = !box.underline)) }
+                TextFormatButton(FolioIcons.Minus, "Smaller text", false, box.size > TextBox.MIN_SIZE) { onChange(box.copy(size = (box.size - 2f).coerceAtLeast(TextBox.MIN_SIZE))) }
                 Text("${box.size.roundToInt()} pt", style = MaterialTheme.typography.labelMedium)
-                TextFormatButton(Icons.Rounded.Add, "Larger text", false, box.size < TextBox.MAX_SIZE) { onChange(box.copy(size = (box.size + 2f).coerceAtMost(TextBox.MAX_SIZE))) }
-                TextFormatButton(Icons.Rounded.Tune, "More text formatting", expanded) { expanded = !expanded }
-                TextFormatButton(Icons.Rounded.ContentCopy, "Duplicate text box", false, box.text.isNotBlank(), onDuplicate)
-                TextFormatButton(Icons.Rounded.DeleteOutline, "Delete text box", false, onClick = onDelete)
+                TextFormatButton(FolioIcons.Plus, "Larger text", false, box.size < TextBox.MAX_SIZE) { onChange(box.copy(size = (box.size + 2f).coerceAtMost(TextBox.MAX_SIZE))) }
+                TextFormatButton(FolioIcons.Tune, "More text formatting", expanded) { expanded = !expanded }
+                TextFormatButton(FolioIcons.Copy, "Duplicate text box", false, box.text.isNotBlank(), onDuplicate)
+                TextFormatButton(FolioIcons.Delete, "Delete text box", false, onClick = onDelete)
             }
             if (expanded) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    TextFormatButton(Icons.AutoMirrored.Rounded.FormatAlignLeft, "Align left", box.align == TextAlignMode.LEFT) { onChange(box.copy(align = TextAlignMode.LEFT)) }
-                    TextFormatButton(Icons.Rounded.FormatAlignCenter, "Align centre", box.align == TextAlignMode.CENTER) { onChange(box.copy(align = TextAlignMode.CENTER)) }
-                    TextFormatButton(Icons.AutoMirrored.Rounded.FormatAlignRight, "Align right", box.align == TextAlignMode.RIGHT) { onChange(box.copy(align = TextAlignMode.RIGHT)) }
+                    TextFormatButton(FolioIcons.AlignLeft, "Align left", box.align == TextAlignMode.LEFT) { onChange(box.copy(align = TextAlignMode.LEFT)) }
+                    TextFormatButton(FolioIcons.AlignCenter, "Align centre", box.align == TextAlignMode.CENTER) { onChange(box.copy(align = TextAlignMode.CENTER)) }
+                    TextFormatButton(FolioIcons.AlignRight, "Align right", box.align == TextAlignMode.RIGHT) { onChange(box.copy(align = TextAlignMode.RIGHT)) }
                     colors.forEach { color -> InkColorDot(color, color == box.color, { onChange(box.copy(color = color)) }, touch = 40.dp, dot = 24.dp, label = "Text colour") }
                 }
                 Row(Modifier.padding(horizontal = FolioSpacing.dp12), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

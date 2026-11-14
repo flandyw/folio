@@ -6,8 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -158,7 +156,7 @@ fun ColorSwatch(color: Color, selected: Boolean, label: String, onClick: () -> U
         border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            if (selected) Icon(Icons.Rounded.Check, contentDescription = null, Modifier.size(20.dp), tint = if (check) Color(0xFF2E302B) else Color.White)
+            if (selected) Icon(FolioIcons.Check, contentDescription = null, Modifier.size(20.dp), tint = if (check) Color(0xFF2E302B) else Color.White)
         }
     }
 }

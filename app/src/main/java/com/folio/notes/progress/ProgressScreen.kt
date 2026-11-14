@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.ui.FolioIcons
 import android.content.ClipData
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -11,13 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.automirrored.rounded.Assignment
-import androidx.compose.material.icons.automirrored.rounded.ListAlt
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.automirrored.rounded.Sort
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -185,13 +179,13 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                 contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = 0.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 (state.error ?: actionError ?: state.catalogError)?.let { message -> wide("banner:error") {
-                    ProgressBanner(Icons.Rounded.ErrorOutline, message, error = state.error != null || !state.readable) {
+                    ProgressBanner(FolioIcons.Alert, message, error = state.error != null || !state.readable) {
                         if (!state.readable) TextButton(manager::retryLoad, enabled = !state.loading) { Text("Retry loading") }
                         else if (actionError != null) TextButton({ actionError = null }) { Text("Dismiss") }
                     }
                 } }
                 state.cache.conflicts.forEach { (key, remote) -> wide("conflict:$key") {
-                    ProgressBanner(Icons.Rounded.SyncProblem, "Changed on another device · ${remote.entity} · " +
+                    ProgressBanner(FolioIcons.Alert, "Changed on another device · ${remote.entity} · " +
                         "${remote.payload?.optString("title")?.ifBlank { remote.rowId } ?: remote.rowId}. Your local edit is still saved.") {
                         TextButton({ scope.launch { manager.resolve(key, false, state.userId) } }) { Text("Use Focal version") }
                         Button({ scope.launch { manager.resolve(key, true, state.userId) } }, enabled = remote.operation != "delete",
@@ -209,14 +203,14 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 SearchField(query, { query = it }, "Search titles, papers and comments")
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, Icons.Rounded.School)
+                                    MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, FolioIcons.School)
                                     MenuChip("Provider", provider, listOf("All providers") + exams.map { it.provider }.distinct().sorted(), { provider = it })
                                     MenuChip("Paper", paperFilter, listOf("All papers") + exams.map { it.paper }.distinct().sorted(), { paperFilter = it })
                                     MenuChip("Year", yearFilter, listOf("All years") + exams.map { it.examYear.toString() }.distinct().sortedDescending(), { yearFilter = it })
-                                    MenuChip("Sort", sort, listOf("Newest first", "Oldest first", "Highest mark", "Lowest mark"), { sort = it }, Icons.AutoMirrored.Rounded.Sort)
+                                    MenuChip("Sort", sort, listOf("Newest first", "Oldest first", "Highest mark", "Lowest mark"), { sort = it }, FolioIcons.Sort)
                                     if (subject != ALL_SUBJECTS || provider != "All providers" || paperFilter != "All papers" || yearFilter != "All years" || query.isNotEmpty())
                                         AssistChip({ subject = ALL_SUBJECTS; provider = "All providers"; paperFilter = "All papers"; yearFilter = "All years"; query = "" },
-                                            { Text("Clear") }, leadingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(AssistChipDefaults.IconSize)) })
+                                            { Text("Clear") }, leadingIcon = { Icon(FolioIcons.Close, null, Modifier.size(AssistChipDefaults.IconSize)) })
                                 }
                                 Text(if (filtered.isEmpty()) "No results" else "${filtered.size} ${if (filtered.size == 1) "result" else "results"} · " +
                                     "${filtered.map { it.percentage }.average().display()}% raw average",
@@ -224,7 +218,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                             }
                         }
                         if (filtered.isEmpty()) wide("exams-empty") {
-                            EmptyState(Icons.AutoMirrored.Rounded.Assignment, if (exams.isEmpty()) "No results yet" else "No matching exams",
+                            EmptyState(FolioIcons.Clipboard, if (exams.isEmpty()) "No results yet" else "No matching exams",
                                 if (exams.isEmpty()) "Log a completed practice paper. Notebook marks with a known total appear here too." else "Change the filters or search.") {
                                 if (exams.isEmpty()) Button({ draft = "{}" }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Text("Log exam") }
                             }
@@ -244,13 +238,13 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                         wide("list-controls") {
                             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                 FolioButtonGroup(Modifier.fillMaxWidth()) {
-                                    listOf("Progression" to Icons.Rounded.Route, "Notebooks" to Icons.AutoMirrored.Rounded.MenuBook).forEach { (label, icon) ->
+                                    listOf("Progression" to FolioIcons.Route, "Notebooks" to FolioIcons.Book).forEach { (label, icon) ->
                                         toggleableItem(listSection == label, label, { listSection = label }, icon = { Icon(icon, null, Modifier.size(18.dp)) })
                                     }
                                 }
                                 SearchField(query, { query = it }, if (listSection == "Progression") "Search planned papers" else "Search exam notebooks")
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, Icons.Rounded.School)
+                                    MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, FolioIcons.School)
 
                                 }
                             }
@@ -264,7 +258,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                                     "${it.title} ${it.exam.summaryLine()}".contains(query, true) }.sortedByDescending { it.exam.year ?: 0 }
                                 items(notebookList, key = { "note:${it.id}" }) { note -> NotebookRow(note) { onOpenNotebook(note.id) } }
                                 if (notebookList.isEmpty()) wide("notebooks-empty") {
-                                    EmptyState(Icons.AutoMirrored.Rounded.MenuBook, "No exam notebooks", "Tag a notebook with its subject and exam details to include it here.")
+                                    EmptyState(FolioIcons.Book, "No exam notebooks", "Tag a notebook with its subject and exam details to include it here.")
                                 }
                             }
                         }
@@ -272,8 +266,8 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                     else -> {
                         wide("insight-filters") {
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, Icons.Rounded.School)
-                                AssistChip({ showDifficulty = true }, { Text("Provider difficulty") }, leadingIcon = { Icon(Icons.Rounded.Tune, null, Modifier.size(AssistChipDefaults.IconSize)) })
+                                MenuChip("Subject", subject, listOf(ALL_SUBJECTS) + subjects, { subject = it }, FolioIcons.School)
+                                AssistChip({ showDifficulty = true }, { Text("Provider difficulty") }, leadingIcon = { Icon(FolioIcons.Tune, null, Modifier.size(AssistChipDefaults.IconSize)) })
                             }
                         }
                         insightsItems(exams.filter { subject == ALL_SUBJECTS || it.subject == subject }, mistakes, state.catalog.references,
@@ -286,7 +280,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                 ProgressToolbar(destination, { destination = it }, Modifier.weight(1f, fill = false).widthIn(max = 400.dp))
                 FloatingActionButton({ if (enabled) draft = "{}" }, shape = FolioShapes.large,
                     containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
-                    Icon(Icons.Rounded.Add, "Log exam")
+                    Icon(FolioIcons.Plus, "Log exam")
                 }
             }
         }
@@ -310,7 +304,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         onOpenNotebook = { exam.notebookId?.let(onOpenNotebook) }, hasNotebook = notes.any { it.id == exam.notebookId }) }
     exams.find { it.id == mistakeId }?.let { exam -> LogMistakeDialog(exam, state.userId, manager, { mistakeId = null }) }
     exams.find { it.id == deleteId }?.let { exam -> AlertDialog(onDismissRequest = { if (!busy) deleteId = null },
-        icon = { Icon(Icons.Rounded.DeleteOutline, null) },
+        icon = { Icon(FolioIcons.Delete, null) },
         title = { Text("Delete exam result?") }, text = { Text("${exam.title} · ${exam.paper}. The linked mistake cards and notebook will be kept.") },
         confirmButton = { TextButton({ val owner = state.userId; busy = true; scope.launch {
             try { if (manager.save("attempts", exam.id, null, owner)) { exam.notebookId?.let { model.deleteAttempt(it, exam.id) }; deleteId = null } }
@@ -324,11 +318,11 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
 @Composable private fun ProgressHeader(state: ProgressState, enabled: Boolean, onSync: () -> Unit, onShare: () -> Unit,
     onAccount: () -> Unit, onSettings: () -> Unit) {
     val (statusIcon, status) = when {
-        state.loading -> Icons.Rounded.HourglassTop to "Loading saved exams…"
-        state.syncing -> Icons.Rounded.Sync to "Syncing with Focal…"
-        state.userId == null -> Icons.Rounded.PhoneAndroid to "Saved on this device · connect Focal to sync"
-        state.cache.outbox.isNotEmpty() -> Icons.Rounded.CloudUpload to "${com.folio.notes.model.countOf(state.cache.outbox.size, "change")} waiting to sync"
-        else -> Icons.Rounded.CloudDone to "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
+        state.loading -> FolioIcons.Hourglass to "Loading saved exams…"
+        state.syncing -> FolioIcons.Sync to "Syncing with Focal…"
+        state.userId == null -> FolioIcons.Phone to "Saved on this device · connect Focal to sync"
+        state.cache.outbox.isNotEmpty() -> FolioIcons.CloudUpload to "${com.folio.notes.model.countOf(state.cache.outbox.size, "change")} waiting to sync"
+        else -> FolioIcons.CloudDone to "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
     }
     FolioScreenHeading(
         title = "Progress",
@@ -341,11 +335,11 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         },
     ) {
         IconButton(onSync, enabled = state.userId != null && !state.syncing && !state.loading, shapes = IconButtonDefaults.shapes()) {
-            if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(Icons.Rounded.Sync, "Sync exam results")
+            if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(FolioIcons.Sync, "Sync exam results")
         }
-        IconButton(onShare, enabled = enabled, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.IosShare, "Export progress report") }
+        IconButton(onShare, enabled = enabled, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Share, "Export progress report") }
         FocalAccountButton(onAccount, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty()))
-        IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Tune, "Settings") }
+        IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Tune, "Settings") }
     }
 }
 
@@ -355,8 +349,8 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     Surface(modifier, shape = CircleShape, color = standard.toolbarContainerColor,
         contentColor = standard.toolbarContentColor, tonalElevation = 6.dp, shadowElevation = 6.dp) {
         Row(Modifier.padding(FolioSpacing.dp6).selectableGroup()) {
-            listOf("Overview" to Icons.Rounded.SpaceDashboard, "Exams" to Icons.AutoMirrored.Rounded.Assignment,
-                "Lists" to Icons.AutoMirrored.Rounded.ListAlt, "Insights" to Icons.Rounded.Insights).forEach { (label, icon) ->
+            listOf("Overview" to FolioIcons.Dashboard, "Exams" to FolioIcons.Clipboard,
+                "Lists" to FolioIcons.List, "Insights" to FolioIcons.Insights).forEach { (label, icon) ->
                 val active = selected == label
                 Surface(Modifier.weight(1f).clip(CircleShape).selectable(active, onClick = { onSelect(label) }, role = Role.Tab),
                     shape = CircleShape, color = if (active) vibrant.toolbarContainerColor else Color.Transparent,
@@ -377,8 +371,8 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { keyboard?.hide() }),
-        leadingIcon = { Icon(Icons.Rounded.Search, null) },
-        trailingIcon = { if (value.isNotEmpty()) IconButton({ onChange(""); keyboard?.hide() }) { Icon(Icons.Rounded.Close, "Clear search") } },
+        leadingIcon = { Icon(FolioIcons.Search, null) },
+        trailingIcon = { if (value.isNotEmpty()) IconButton({ onChange(""); keyboard?.hide() }) { Icon(FolioIcons.Close, "Clear search") } },
         colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, unfocusedBorderColor = Color.Transparent))
 }
@@ -400,15 +394,15 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     wide("tiles") {
         val mature = mistakes.count { MistakeScheduler.getMistakeSchedule(it).resolved }
         StatTiles(listOf(
-            StatTileData(Icons.AutoMirrored.Rounded.Assignment, exams.size.toString(), "Practice papers") { onDestination("Exams") },
-            StatTileData(Icons.Rounded.EmojiEvents, exams.maxOfOrNull { it.percentage }?.let { "${it.display()}%" } ?: "—", "Best mark"),
-            StatTileData(Icons.Rounded.Replay, "${due.size}", "Mistakes due · $mature of ${mistakes.size} mastered", onMistakes),
-            StatTileData(Icons.Rounded.School, exams.map { it.subject }.distinct().size.toString(), "Subjects practised"),
+            StatTileData(FolioIcons.Clipboard, exams.size.toString(), "Practice papers") { onDestination("Exams") },
+            StatTileData(FolioIcons.Trophy, exams.maxOfOrNull { it.percentage }?.let { "${it.display()}%" } ?: "—", "Best mark"),
+            StatTileData(FolioIcons.RotateLeft, "${due.size}", "Mistakes due · $mature of ${mistakes.size} mastered", onMistakes),
+            StatTileData(FolioIcons.School, exams.map { it.subject }.distinct().size.toString(), "Subjects practised"),
         ))
     }
     item("subjects") { SubjectsCard(exams, settings, onSubject) }
     item("recent") {
-        ProgressCard("Recent results", icon = Icons.Rounded.History, action = {
+        ProgressCard("Recent results", icon = FolioIcons.History, action = {
             if (exams.isNotEmpty()) TextButton({ onDestination("Exams") }) { Text("All ${exams.size}") }
         }) {
             if (exams.isEmpty()) EmptyHint("No results yet. Notebook marks with a known total appear here too.")
@@ -419,7 +413,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     val today = LocalDate.now()
     val upcoming = notes.filter { it.countsAsExam && (it.exam.examDate ?: 0) >= System.currentTimeMillis() }.sortedBy { it.exam.examDate }
     if (upcoming.isNotEmpty()) item("upcoming") {
-        ProgressCard("Upcoming exams", icon = Icons.Rounded.Event) {
+        ProgressCard("Upcoming exams", icon = FolioIcons.Calendar) {
             upcoming.take(6).forEach { note ->
                 val date = examDate(com.folio.notes.mistakes.isoTime(note.exam.examDate!!))
                 val days = date?.let { ChronoUnit.DAYS.between(today, it) }
@@ -437,7 +431,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
                             Text(date?.let { "${it.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}" } ?: "",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open notebook", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(FolioIcons.Forward, "Open notebook", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -447,10 +441,10 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     val ready = pending.size
     val likelyLogged = pending.count { LoggedMatcher.best(ResultFacts.of(it), state.cache.exams)?.level == MatchLevel.LIKELY }
     if (ready > 0 || state.userId != null) item("notebook-results") {
-        ProgressCard("Notebook results", "Notebook marks show here straight away. Add them to the exam log to sync them with Focal.", Icons.Rounded.CloudSync) {
+        ProgressCard("Notebook results", "Notebook marks show here straight away. Add them to the exam log to sync them with Focal.", FolioIcons.CloudSync) {
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 StatusPill("${local.size} recorded"); StatusPill("$ready ready to add", strong = ready > 0)
-                if (likelyLogged > 0) StatusPill("$likelyLogged likely logged", Icons.Rounded.ContentCopy)
+                if (likelyLogged > 0) StatusPill("$likelyLogged likely logged", FolioIcons.Copy)
             }
             FilledTonalButton(onLogNotebooks, enabled = enabled && ready > 0, shapes = ButtonDefaults.shapes()) { Text("Review and add to log") }
             if (state.userId != null) TextButton(onCopyLogs, enabled = enabled) { Text("Copy device logs to this account") }
@@ -465,7 +459,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
             Text("Your progress starts here", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
             Text("Log a completed practice paper to see your average, trends and what to work on next.", style = MaterialTheme.typography.bodyLarge)
             Button(onLog, enabled = enabled, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Log first exam")
+                Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Log first exam")
             }
             return@ProgressHero
         }
@@ -509,7 +503,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
 
 @Composable private fun SubjectsCard(exams: List<LoggedExam>, settings: JSONObject?, onSubject: (String) -> Unit) {
     val outlooks = remember(exams, settings) { subjectOutlooks(exams, settings).associateBy { it.subject } }
-    ProgressCard("Subjects", "VCAA-aligned, relevance-weighted averages. Planning estimates.", Icons.Rounded.School) {
+    ProgressCard("Subjects", "VCAA-aligned, relevance-weighted averages. Planning estimates.", FolioIcons.School) {
         if (exams.isEmpty()) Text("Log papers to see each subject's average and coverage.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         exams.groupBy { it.subject }.entries.sortedByDescending { it.value.size }.forEach { (subject, attempts) ->
             val average = performanceAverage(attempts, settings)
@@ -538,7 +532,7 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
     }
     val total = weeks.sumOf { it.second }.toInt(); val active = weeks.count { it.second > 0 }
     var streak = 0; for (week in weeks.reversed()) { if (week.second > 0) streak++ else if (streak > 0 || week !== weeks.last()) break }
-    ProgressCard("Weekly activity", "Papers completed over the past 12 weeks", Icons.Rounded.CalendarMonth) {
+    ProgressCard("Weekly activity", "Papers completed over the past 12 weeks", FolioIcons.Calendar) {
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
             listOf("$total" to "papers", "$active" to "active weeks", "$streak" to "week streak").forEach { (value, label) ->
                 Column { Text(value, style = MaterialTheme.typography.titleLarge); Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -553,13 +547,13 @@ private fun LazyGridScope.overviewItems(exams: List<LoggedExam>, mistakes: List<
 @Composable private fun ExamActions(title: String, enabled: Boolean, editable: Boolean, onEdit: () -> Unit, onMistake: () -> Unit, onDelete: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton({ open = true }, enabled = enabled) { Icon(Icons.Rounded.MoreVert, "Actions for $title") }
+        IconButton({ open = true }, enabled = enabled) { Icon(FolioIcons.MoreVertical, "Actions for $title") }
         FolioMenuPopover(open, { open = false }, Modifier.guardUiTouches(), title = "Result actions") {
-            FolioMenuItem({ Text("Edit result") }, { open = false; onEdit() }, enabled = editable, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
-            FolioMenuItem({ Text("Add mistake") }, { open = false; onMistake() }, leadingIcon = { Icon(Icons.Rounded.AddTask, null) })
+            FolioMenuItem({ Text("Edit result") }, { open = false; onEdit() }, enabled = editable, leadingIcon = { Icon(FolioIcons.Pen, null) })
+            FolioMenuItem({ Text("Add mistake") }, { open = false; onMistake() }, leadingIcon = { Icon(FolioIcons.AddTask, null) })
             HorizontalDivider()
             FolioMenuItem({ Text("Delete", color = MaterialTheme.colorScheme.error) }, { open = false; onDelete() },
-                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
+                leadingIcon = { Icon(FolioIcons.Delete, null, tint = MaterialTheme.colorScheme.error) }, destructive = true)
         }
     }
 }
@@ -582,7 +576,7 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 FilledTonalButton(onEdit, enabled = canEdit, shapes = ButtonDefaults.shapes()) {
-                    Icon(if (progression == null) Icons.Rounded.Add else Icons.Rounded.Edit, null, Modifier.size(18.dp))
+                    Icon(if (progression == null) FolioIcons.Plus else FolioIcons.Pen, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (progression == null) "Create" else "Edit")
                 }
             }
@@ -590,7 +584,7 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
     }
     plan.groupBy { it.optString("subject") }.filterKeys { subject == ALL_SUBJECTS || subject == it }.forEach { (s, papers) -> item("plan:$s") {
         val count = papers.count { paperKey(it) in done }
-        ProgressCard(s, "$count of ${papers.size} complete", action = { if (count == papers.size) StatusPill("Done", Icons.Rounded.Check, strong = true) }) {
+        ProgressCard(s, "$count of ${papers.size} complete", action = { if (count == papers.size) StatusPill("Done", FolioIcons.Check, strong = true) }) {
             Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
                 Box(Modifier.fillMaxWidth(count.toFloat() / papers.size).fillMaxHeight().clip(CircleShape).background(MaterialTheme.colorScheme.primary))
             }
@@ -602,7 +596,7 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
                     color = MaterialTheme.colorScheme.primary)
                 phase = label
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    Icon(if (finished) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, if (finished) "Completed" else "To do", Modifier.size(22.dp),
+                    Icon(if (finished) FolioIcons.CheckCircle else FolioIcons.Ellipse, if (finished) "Completed" else "To do", Modifier.size(22.dp),
                         tint = if (finished) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                     Text("${paper.optString("provider")} ${paper.optInt("examYear")} · ${paper.optString("paper")}", Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMedium, color = if (finished) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
@@ -614,7 +608,7 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
         }
     } }
     if (plan.isEmpty()) wide("plan-empty") {
-        EmptyState(Icons.Rounded.Route, "No papers planned yet", "Build a list by hand or import a Focal progression. Logged papers tick off automatically.")
+        EmptyState(FolioIcons.Route, "No papers planned yet", "Build a list by hand or import a Focal progression. Logged papers tick off automatically.")
     }
 }
 
@@ -622,7 +616,7 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
     Surface(onOpen, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Surface(shape = FolioShapes.medium, color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                Icon(Icons.AutoMirrored.Rounded.MenuBook, null, Modifier.padding(FolioSpacing.dp10).size(22.dp))
+                Icon(FolioIcons.Book, null, Modifier.padding(FolioSpacing.dp10).size(22.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text(note.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -631,10 +625,10 @@ private fun LazyGridScope.progressionItems(progression: JSONObject?, exams: List
                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     StatusPill(note.exam.status.label)
                     if (note.attempts.isNotEmpty()) StatusPill("${note.attempts.size} ${if (note.attempts.size == 1) "attempt" else "attempts"}")
-                    if (redo > 0) StatusPill("$redo to redo", Icons.Rounded.Flag, strong = true)
+                    if (redo > 0) StatusPill("$redo to redo", FolioIcons.Flag, strong = true)
                 }
             }
-            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open notebook", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(FolioIcons.Forward, "Open notebook", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

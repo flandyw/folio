@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import android.content.SharedPreferences
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -229,12 +230,12 @@ internal class PopoverPositionProvider(private val margin: Int, private val gap:
 
 /** The toolbar and picker glyph for [style] on [tool]. */
 internal fun brushIcon(tool: Tool, style: StrokeStyle): ImageVector = when {
-    tool == Tool.HIGHLIGHTER -> EditorIcons.Highlighter
-    style == StrokeStyle.FOUNTAIN -> EditorIcons.Fountain
-    style == StrokeStyle.PENCIL -> EditorIcons.Pencil
-    style == StrokeStyle.MARKER -> EditorIcons.Marker
-    style == StrokeStyle.CALLIGRAPHY -> EditorIcons.Brush
-    else -> EditorIcons.Pen
+    tool == Tool.HIGHLIGHTER -> FolioIcons.Highlighter
+    style == StrokeStyle.FOUNTAIN -> FolioIcons.Fountain
+    style == StrokeStyle.PENCIL -> FolioIcons.Pencil
+    style == StrokeStyle.MARKER -> FolioIcons.Marker
+    style == StrokeStyle.CALLIGRAPHY -> FolioIcons.Brush
+    else -> FolioIcons.Pen
 }
 
 /** [brush] keeps the current width when it is one of the brush's own slots, else starts on its middle one. */

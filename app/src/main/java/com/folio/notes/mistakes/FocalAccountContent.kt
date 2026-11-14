@@ -2,12 +2,10 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,7 +48,7 @@ internal fun FocalAccountContent(
             OutlinedButton(onClick = { confirmSignOut = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = .4f))) {
-                Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp))
+                Icon(FolioIcons.Logout, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text("Sign out")
             }
@@ -58,7 +56,7 @@ internal fun FocalAccountContent(
     }
     if (confirmSignOut) AlertDialog(
         onDismissRequest = { confirmSignOut = false },
-        icon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
+        icon = { Icon(FolioIcons.Logout, null) },
         title = { Text("Sign out of Focal?") },
         text = { Text("This disconnects both study sessions and mistake sync. Saved sessions, handwriting and the offline cache stay on this device.") },
         dismissButton = { TextButton({ confirmSignOut = false }) { Text("Stay signed in") } },
@@ -74,7 +72,7 @@ internal fun FocalAccountContent(
 internal fun OfflineNoteCard() {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), verticalAlignment = Alignment.Top) {
-            Icon(Icons.Rounded.OfflinePin, null, tint = MaterialTheme.colorScheme.secondary)
+            Icon(FolioIcons.CheckCircle, null, tint = MaterialTheme.colorScheme.secondary)
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 Text("Works offline after the first sync", style = MaterialTheme.typography.titleSmall)
                 Text(
@@ -122,9 +120,9 @@ private fun AccountCard(
                 SyncStatusRow(status, pending)
                 if (syncing) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    AccountStat(Icons.Rounded.Schedule, "Last sync",
+                    AccountStat(FolioIcons.Clock, "Last sync",
                         formatSyncedAt(lastSyncedAt).removePrefix("Last synced "), Modifier.weight(1f).fillMaxHeight())
-                    AccountStat(Icons.Rounded.CloudUpload, "Waiting to upload",
+                    AccountStat(FolioIcons.CloudUpload, "Waiting to upload",
                         if (pending == 0) "Nothing" else "$pending ${if (pending == 1) "review" else "reviews"}", Modifier.weight(1f).fillMaxHeight())
                 }
             }
@@ -151,7 +149,7 @@ private fun AccountStat(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 @Composable
 internal fun FocalSyncButton(syncing: Boolean, onSync: () -> Unit) {
     IconButton(onSync, enabled = !syncing, shapes = IconButtonDefaults.shapes()) {
-        if (syncing) LoadingIndicator(Modifier.size(22.dp)) else Icon(Icons.Rounded.Sync, "Sync now")
+        if (syncing) LoadingIndicator(Modifier.size(22.dp)) else Icon(FolioIcons.Sync, "Sync now")
     }
 }
 
@@ -165,12 +163,12 @@ internal fun FocalAccountSyncAction(model: MistakesViewModel = androidx.lifecycl
 @Composable
 private fun SyncStatusRow(status: String, pending: Int) {
     val (icon, container, content) = when {
-        status == "Syncing…" -> Triple(Icons.Rounded.Sync, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        status.startsWith(SYNC_OFFLINE) -> Triple(Icons.Rounded.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-        status.startsWith(SYNC_FOCAL) -> Triple(Icons.Rounded.Warning, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-        status.startsWith("Synced") && pending == 0 -> Triple(Icons.Rounded.CheckCircle, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        status.startsWith("Synced") -> Triple(Icons.Rounded.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-        else -> Triple(Icons.Rounded.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)
+        status == "Syncing…" -> Triple(FolioIcons.Sync, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        status.startsWith(SYNC_OFFLINE) -> Triple(FolioIcons.CloudOff, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        status.startsWith(SYNC_FOCAL) -> Triple(FolioIcons.Warning, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        status.startsWith("Synced") && pending == 0 -> Triple(FolioIcons.CheckCircle, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        status.startsWith("Synced") -> Triple(FolioIcons.CloudUpload, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        else -> Triple(FolioIcons.Info, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(shape = CircleShape, color = container, contentColor = content) {
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

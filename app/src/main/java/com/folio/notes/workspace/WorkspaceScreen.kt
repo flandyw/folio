@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.workspace
 
+import com.folio.notes.ui.FolioIcons
 import android.content.Intent
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -8,9 +9,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -229,15 +227,15 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
                                 onChatGpt = onChatGpt,
                                 onOpenDocument = { onBrowseLibrary(PickerPurpose.OPEN) },
                                 notebookActions = { dismiss ->
-                                    PopoverRow(Icons.Rounded.VerticalSplit, if (splitOpen) "Close split view" else "Split view…") { dismiss(); toggleSplit() }
+                                    PopoverRow(FolioIcons.Split, if (splitOpen) "Close split view" else "Split view…") { dismiss(); toggleSplit() }
                                     if (paired) {
-                                        PopoverRow(Icons.Rounded.SwapHoriz, WorkspacePicker.flipAction(state.editorOnRight)) { dismiss(); model.swapPaneSides() }
-                                        PopoverRow(if (state.companionLinked) Icons.Rounded.LinkOff else Icons.Rounded.Link,
+                                        PopoverRow(FolioIcons.SwapHorizontal, WorkspacePicker.flipAction(state.editorOnRight)) { dismiss(); model.swapPaneSides() }
+                                        PopoverRow(if (state.companionLinked) FolioIcons.LinkOff else FolioIcons.Link,
                                             if (state.companionLinked) "Unlink pages" else "Link pages: the other pane follows page turns") { dismiss(); model.setCompanionLinked(!state.companionLinked) }
-                                        if (state.companionLinked) PopoverRow(Icons.Rounded.Tune, "Adjust page link…") { dismiss(); linkOffset = true }
+                                        if (state.companionLinked) PopoverRow(FolioIcons.Tune, "Adjust page link…") { dismiss(); linkOffset = true }
                                     }
-                                    PopoverRow(Icons.Rounded.Bookmarks, "Saved workspaces") { dismiss(); savedWorkspaces = true }
-                                    PopoverRow(Icons.Rounded.Add, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN) }
+                                    PopoverRow(FolioIcons.Bookmarks, "Saved workspaces") { dismiss(); savedWorkspaces = true }
+                                    PopoverRow(FolioIcons.Plus, "Open another document") { dismiss(); onBrowseLibrary(PickerPurpose.OPEN) }
                                 })
                         }
                     }
@@ -312,8 +310,8 @@ private val PaneInkTools = setOf(Tool.PEN, Tool.HIGHLIGHTER, Tool.ERASER, Tool.L
             else -> if (isStart != rightToLeft) "left" else "right"
         }
         val icon = when {
-            stacked -> if (isStart) Icons.Rounded.VerticalAlignTop else Icons.Rounded.VerticalAlignBottom
-            else -> if (isStart) Icons.AutoMirrored.Rounded.ArrowBack else Icons.AutoMirrored.Rounded.ArrowForward
+            stacked -> if (isStart) FolioIcons.AlignTop else FolioIcons.AlignBottom
+            else -> if (isStart) FolioIcons.Back else FolioIcons.Forward
         }
         Box(modifier.fillMaxSize().padding(FolioSpacing.dp12)
             .background(tint, FolioShapes.large)
@@ -433,7 +431,7 @@ private enum class SplitSlot { EDITOR, HANDLE, OTHER }
         Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.inverseSurface) {
             Row(Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                Icon(FolioIcons.Close, null, Modifier.size(18.dp))
                 Text("Release to close", style = MaterialTheme.typography.labelLarge)
             }
         }

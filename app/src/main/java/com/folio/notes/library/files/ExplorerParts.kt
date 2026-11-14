@@ -2,14 +2,12 @@
     androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library.files
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,7 +59,7 @@ import com.folio.notes.ui.FolioSpacing
                 OutlinedTextField(input, { input = it.take(NotebookTags.MAX_LENGTH) }, Modifier.weight(1f), label = { Text("New tag") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { commitTag() }))
-                FilledTonalIconButton(::commitTag, enabled = input.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add tag") }
+                FilledTonalIconButton(::commitTag, enabled = input.isNotBlank(), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "Add tag") }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 labels.forEach { label ->
@@ -75,7 +73,7 @@ import com.folio.notes.ui.FolioSpacing
                             else -> added = added + label
                         }
                     }, { Text(if (count in 1 until notes.size && label !in added && label !in removed) "$label · Mixed" else label) },
-                        leadingIcon = { Icon(if (active) Icons.Rounded.Check else Icons.Rounded.Sell, null, Modifier.size(18.dp)) })
+                        leadingIcon = { Icon(if (active) FolioIcons.Check else FolioIcons.Tag, null, Modifier.size(18.dp)) })
                 }
             }
             Text(if (tooMany) "A notebook has too many tags. Remove a tag before saving." else "Up to ${NotebookTags.MAX_TAGS} tags per notebook", style = MaterialTheme.typography.bodySmall, color = if (tooMany) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -93,7 +91,7 @@ import com.folio.notes.ui.FolioSpacing
     Row(Modifier.fillMaxWidth().then(if (drag != null) Modifier.notebookDragScroll(drag, horizontal = true) { scroll.scrollBy(it) } else Modifier)
         .horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
         crumbs.forEachIndexed { i, (label, action) ->
-            if (i > 0) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (i > 0) Icon(FolioIcons.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(action, shapes = ButtonDefaults.shapes(), modifier = if (folderIds != null) Modifier.notebookDropTarget(drag,
                 NotebookDropDestination.Folder(folderIds[i], if (i == 0) "Unfiled" else label), onHoverOpen = onHoverOpen?.let { open -> { open(folderIds[i]) } }) else Modifier) { Text(label, maxLines = 1) }
         }
@@ -105,7 +103,7 @@ import com.folio.notes.ui.FolioSpacing
     OutlinedTextField(query, onQuery, Modifier.fillMaxWidth().semanticsLabel(hint), placeholder = { Text(hint) }, singleLine = true, shape = FolioShapes.extraLarge,
         colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
-        leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery(""); focus.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear search") } })
+        leadingIcon = { Icon(FolioIcons.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery(""); focus.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } })
 }
 
 @Composable internal fun ExplorerPlace(label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {

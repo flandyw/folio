@@ -1,13 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CenterFocusStrong
-import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -71,7 +68,7 @@ import com.folio.notes.model.page
         ) {
             Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4, top = FolioSpacing.dp4, bottom = FolioSpacing.dp4).heightIn(min = 40.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Icon(Icons.Rounded.Visibility, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(FolioIcons.Visible, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 val pageIndex = note.pages.indexOfFirst { it.id == target.id }
                 val pageName = target.title.takeIf { it.isNotBlank() }?.let { "page ${pageIndex + 1} · $it" } ?: "page ${pageIndex + 1}"
                 Text(if (mode == PeekMode.HELD) "Peeking at $pageName · release to return" else "Peek · $pageName",
@@ -79,14 +76,14 @@ import com.folio.notes.model.page
                 if (mode == PeekMode.LATCHED) {
                     // A kept-open peek can be panned; these bring it back, keep the new framing, or go there to write.
                     IconButton({ view?.fitPeekAnchor(anchor) }, Modifier.size(40.dp)) {
-                        Icon(Icons.Rounded.CenterFocusStrong, "Re-centre on the pinned view", Modifier.size(20.dp))
+                        Icon(FolioIcons.FitAll, "Re-centre on the pinned view", Modifier.size(20.dp))
                     }
                     if (canPin) IconButton({
                         val shown = view?.currentPeekAnchor() ?: return@IconButton
                         model.setPeekAnchor(shown); onPinned(shown.fittedTo(target))
                         android.widget.Toast.makeText(context, "Peek view updated", android.widget.Toast.LENGTH_SHORT).show()
                     }, Modifier.size(40.dp)) {
-                        Icon(Icons.Rounded.PushPin, "Pin what the peek shows now", Modifier.size(20.dp))
+                        Icon(FolioIcons.Pin, "Pin what the peek shows now", Modifier.size(20.dp))
                     }
                     TextButton({ onGoTo(pageIndex, target, view?.currentPeekAnchor() ?: anchor) }, shapes = ButtonDefaults.shapes()) { Text("Go to") }
                     TextButton(onClose, shapes = ButtonDefaults.shapes()) { Text("Close") }

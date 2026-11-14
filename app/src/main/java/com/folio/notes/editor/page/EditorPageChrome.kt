@@ -1,13 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.page
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,7 +52,7 @@ import com.folio.notes.ui.SwipeAction
         modifier = modifier.height(44.dp).semantics { contentDescription = "Page ${index + 1} of $count" },
         contentPadding = PaddingValues(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp2),
     ) {
-        WritingFollowControl(if (singlePage) Icons.Rounded.ViewAgenda else Icons.Rounded.ViewCarousel,
+        WritingFollowControl(if (singlePage) FolioIcons.Agenda else FolioIcons.Carousel,
             if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
             active = singlePage, onClick = { if (settled()) onToggleView() })
         PageNavigationArrow(false, index > 0, { if (settled()) onTurn(false) }, { if (settled()) onJumpToEnd(false) })
@@ -82,19 +80,19 @@ import com.folio.notes.ui.SwipeAction
 ) {
     val run: (() -> Unit) -> Unit = { dismiss(); it() }
     PopoverGroup("Study") {
-        PopoverRow(Icons.AutoMirrored.Rounded.FactCheck, "Exam details") { run(onExam) }
-        PopoverRow(Icons.AutoMirrored.Rounded.Grading, "Record a mark") { run(onRecordMark) }
-        PopoverRow(Icons.Rounded.Timer, "Timer & stopwatch") { run(onTimer) }
+        PopoverRow(FolioIcons.FactCheck, "Exam details") { run(onExam) }
+        PopoverRow(FolioIcons.Grading, "Record a mark") { run(onRecordMark) }
+        PopoverRow(FolioIcons.Timer, "Timer & stopwatch") { run(onTimer) }
     }
     PopoverGroup("Insert & find") {
-        PopoverRow(Icons.Rounded.AddPhotoAlternate, "Insert picture") { run(onInsertImage) }
+        PopoverRow(FolioIcons.ImageAdd, "Insert picture") { run(onInsertImage) }
         // On a PDF page the bar's search looks through the PDF, so typed notes need their own row.
         if (hasPdf) {
-            PopoverRow(Icons.Rounded.FindInPage, "Find in notes") { run(onSearchNotes) }
-            PopoverRow(Icons.AutoMirrored.Rounded.FormatListBulleted, "Contents") { run(onContents) }
+            PopoverRow(FolioIcons.FindInPage, "Find in notes") { run(onSearchNotes) }
+            PopoverRow(FolioIcons.Bullets, "Contents") { run(onContents) }
         }
     }
-    if (saveFailed) PopoverRow(Icons.Rounded.Save, "Retry save") { run(onRetry) }
+    if (saveFailed) PopoverRow(FolioIcons.Save, "Retry save") { run(onRetry) }
 }
 
 /**
@@ -112,21 +110,21 @@ import com.folio.notes.ui.SwipeAction
     val run: (() -> Unit) -> Unit = { onDismiss(); it() }
     FolioPopover(onDismiss, width = 280.dp) {
         Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            PopoverTile(Icons.Rounded.Edit, "Rename", Modifier.weight(1f)) { run(onName) }
-            PopoverTile(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+            PopoverTile(FolioIcons.Pen, "Rename", Modifier.weight(1f)) { run(onName) }
+            PopoverTile(if (page.bookmarked) FolioIcons.BookmarkFilled else FolioIcons.Bookmark,
                 if (page.bookmarked) "Bookmarked" else "Bookmark", Modifier.weight(1f), active = page.bookmarked) { run(onBookmark) }
-            PopoverTile(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
+            PopoverTile(if (page.redoFlag) FolioIcons.RotateRight else FolioIcons.FlagOutline,
                 if (page.redoFlag) "Clear redo" else "Redo", Modifier.weight(1f), active = page.redoFlag) { run(onRedoFlag) }
         }
         Column {
-            PopoverRow(Icons.Rounded.LowPriority, "Move to position…") { run(onMoveTo) }
-            PopoverRow(Icons.Rounded.KeyboardArrowUp, "Move up", enabled = canMoveUp) { run(onMoveUp) }
-            PopoverRow(Icons.Rounded.KeyboardArrowDown, "Move down", enabled = canMoveDown) { run(onMoveDown) }
-            PopoverRow(Icons.Rounded.Add, "Insert blank page after") { run(onInsert) }
-            PopoverRow(Icons.Rounded.ContentCopy, "Duplicate page") { run(onDuplicate) }
+            PopoverRow(FolioIcons.Reorder, "Move to position…") { run(onMoveTo) }
+            PopoverRow(FolioIcons.ChevronUp, "Move up", enabled = canMoveUp) { run(onMoveUp) }
+            PopoverRow(FolioIcons.ChevronDown, "Move down", enabled = canMoveDown) { run(onMoveDown) }
+            PopoverRow(FolioIcons.Plus, "Insert blank page after") { run(onInsert) }
+            PopoverRow(FolioIcons.Copy, "Duplicate page") { run(onDuplicate) }
         }
         HorizontalDivider()
-        PopoverRow(Icons.Rounded.DeleteOutline, "Delete page", enabled = canDelete, destructive = true) { run(onDelete) }
+        PopoverRow(FolioIcons.Delete, "Delete page", enabled = canDelete, destructive = true) { run(onDelete) }
     }
 }
 
@@ -141,8 +139,8 @@ import com.folio.notes.ui.SwipeAction
 ) {
     var menu by remember { mutableStateOf(false) }
     FolioSwipeRow(modifier.fillMaxWidth(), shape = FolioShapes.extraLarge,
-        startToEnd = SwipeAction(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (page.bookmarked) "Remove bookmark" else "Bookmark page", perform = onBookmark),
-        endToStart = if (canDelete) SwipeAction(Icons.Rounded.DeleteOutline, "Delete page", destructive = true, perform = onDelete) else null) {
+        startToEnd = SwipeAction(if (page.bookmarked) FolioIcons.BookmarkFilled else FolioIcons.Bookmark, if (page.bookmarked) "Remove bookmark" else "Bookmark page", perform = onBookmark),
+        endToStart = if (canDelete) SwipeAction(FolioIcons.Delete, "Delete page", destructive = true, perform = onDelete) else null) {
     Surface(onClick = onOpen, shape = FolioShapes.extraLarge, modifier = Modifier.fillMaxSize(),
         color = if (current) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         shadowElevation = if (dragging) 6.dp else 1.dp, tonalElevation = if (current) 1.dp else 0.dp,
@@ -173,15 +171,15 @@ import com.folio.notes.ui.SwipeAction
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onRedoFlag, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-                Icon(if (page.redoFlag) Icons.Rounded.Refresh else Icons.Rounded.OutlinedFlag,
+                Icon(if (page.redoFlag) FolioIcons.RotateRight else FolioIcons.FlagOutline,
                     if (page.redoFlag) "Remove practice flag" else "Flag page for practice",
                     tint = if (page.redoFlag) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onBookmark, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(if (page.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+            IconButton(onBookmark, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(if (page.bookmarked) FolioIcons.BookmarkFilled else FolioIcons.Bookmark,
                 if (page.bookmarked) "Remove bookmark" else "Bookmark page",
                 tint = if (page.bookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
             Box {
-                IconButton({ menu = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
+                IconButton({ menu = true }, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Page ${index + 1} options") }
                 PageRowMenu(page, menu, { menu = false },
                     canMoveUp = canMoveUp, canMoveDown = canMoveDown, canDelete = canDelete,
                     onName = onName, onBookmark = onBookmark,

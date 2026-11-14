@@ -1,12 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.dialogs
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,7 +28,7 @@ import com.folio.notes.ui.FolioSpacing
     var nextPagePaper by paper.nextPaper
     var chosenPaper by paper.chosen
     var savePaperDefault by paper.saveDefault
-    if (paperMenu) FolioPopover(if (nextPaperMenu) "Next page paper" else "Change paper", Icons.Rounded.GridOn, onDismiss = { paperMenu = false }, actions = {
+    if (paperMenu) FolioPopover(if (nextPaperMenu) "Next page paper" else "Change paper", FolioIcons.Grid, onDismiss = { paperMenu = false }, actions = {
         TextButton({ paperMenu = false }) { Text("Cancel") }
         TextButton({
             if (nextPaperMenu) nextPagePaper = chosenPaper else model.setPaper(chosenPaper)
@@ -70,7 +68,7 @@ import com.folio.notes.ui.FolioSpacing
                             }
                             if (hint != null) Text(hint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        if (selectedPaper) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+                        if (selectedPaper) Icon(FolioIcons.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }

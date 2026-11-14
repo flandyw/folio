@@ -1,14 +1,12 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor
 
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.model.countOf
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -151,7 +149,7 @@ import kotlinx.coroutines.withContext
             }
         } else if (outline.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(FolioIcons.Bullets, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
@@ -164,7 +162,7 @@ import kotlinx.coroutines.withContext
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Open ${entry.title}")
+                            Icon(FolioIcons.Forward, "Open ${entry.title}")
                         }
                     }
                 }
@@ -183,19 +181,19 @@ import kotlinx.coroutines.withContext
         val cycles = matches.size > 1
         Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = FolioSpacing.dp4),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-            Icon(Icons.Rounded.Search, null, Modifier.padding(horizontal = FolioSpacing.dp8).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(FolioIcons.Search, null, Modifier.padding(horizontal = FolioSpacing.dp8).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 TextButton({ if (overlays.searchFromPdf.value) overlays.pdfSearch.value = true else overlays.noteSearch.value = true }) {
                     Text("${overlays.searchCaption.value} · ${match + 1} of ${matches.size}", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             IconButton({ val next = (match + matches.size - 1) % matches.size; overlays.searchMatch.intValue = next; onJump(matches[next]) }, enabled = cycles) {
-                Icon(Icons.Rounded.KeyboardArrowUp, "Previous matching page")
+                Icon(FolioIcons.ChevronUp, "Previous matching page")
             }
             IconButton({ val next = (match + 1) % matches.size; overlays.searchMatch.intValue = next; onJump(matches[next]) }, enabled = cycles) {
-                Icon(Icons.Rounded.KeyboardArrowDown, "Next matching page")
+                Icon(FolioIcons.ChevronDown, "Next matching page")
             }
-            IconButton({ overlays.searchMatches.value = emptyList() }) { Icon(Icons.Rounded.Close, "Close search") }
+            IconButton({ overlays.searchMatches.value = emptyList() }) { Icon(FolioIcons.Close, "Close search") }
         }
     }
 }

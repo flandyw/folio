@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.page
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
@@ -13,9 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -89,14 +87,14 @@ import kotlin.math.roundToInt
             shape = FolioShapes.large,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-            leadingIcon = { Icon(Icons.Rounded.Search, null) }, trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Clear page search") } })
+            leadingIcon = { Icon(FolioIcons.Search, null) }, trailingIcon = { if (pageQuery.isNotEmpty()) IconButton({ pageQuery = "" }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear page search") } })
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             PageFilter.entries.forEach { option ->
                 FilterChip(pageFilter == option, { pageFilter = option }, { Text(option.label) })
             }
         }
         TextButton({ pageJumpExpanded = !pageJumpExpanded }, modifier = Modifier.padding(horizontal = FolioSpacing.dp24)) {
-            Icon(Icons.Rounded.Numbers, null); Spacer(Modifier.width(FolioSpacing.dp8))
+            Icon(FolioIcons.Hash, null); Spacer(Modifier.width(FolioSpacing.dp8))
             Text(if (pageJumpExpanded) "Hide page jump" else "Go to a page number")
         }
         if (pageJumpExpanded) Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -116,7 +114,7 @@ import kotlin.math.roundToInt
         Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically) {
             Text(if (canDrag) "Long-press a page and drag to reorder it." else "${countOf(visiblePages.size, "page")} · tap to open", Modifier.weight(1f).padding(start = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton({ pageBrowserGrid = !pageBrowserGrid }) {
-                Icon(if (pageBrowserGrid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                Icon(if (pageBrowserGrid) FolioIcons.List else FolioIcons.Pages,
                     if (pageBrowserGrid) "Show page list" else "Show page thumbnails")
             }
         }
@@ -155,10 +153,10 @@ import kotlin.math.roundToInt
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                             IconButton({ model.togglePageBookmark(item.id) }) {
-                                Icon(if (item.bookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (item.bookmarked) "Remove bookmark from page ${index + 1}" else "Bookmark page ${index + 1}")
+                                Icon(if (item.bookmarked) FolioIcons.BookmarkFilled else FolioIcons.Bookmark, if (item.bookmarked) "Remove bookmark from page ${index + 1}" else "Bookmark page ${index + 1}")
                             }
                             Box {
-                                IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Page ${index + 1} options") }
+                                IconButton({ menu = true }) { Icon(FolioIcons.MoreVertical, "Page ${index + 1} options") }
                                 PageRowMenu(item, menu, { menu = false },
                                     canMoveUp = index > 0, canMoveDown = index < note.pages.lastIndex, canDelete = note.pages.size > 1,
                                     onName = { namedPage = item; pageTitle = item.title }, onBookmark = { model.togglePageBookmark(item.id) },
@@ -175,7 +173,7 @@ import kotlin.math.roundToInt
         } else LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), state = browserPages, contentPadding = PaddingValues(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             if (visiblePages.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Icon(Icons.Rounded.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(FolioIcons.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No pages match", style = MaterialTheme.typography.titleSmall)
                     Text("Try another name or filter.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilledTonalButton({ pageQuery = ""; pageFilter = PageFilter.ALL }) { Text("Show all pages") }
@@ -219,13 +217,13 @@ import kotlin.math.roundToInt
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             FilledTonalButton({ addPage(); pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page")
+                Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add page")
             }
             OutlinedButton({ revealNewPage(model.insertPage(state.pageIndex + 1)); pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
                 Text("Insert after ${state.pageIndex + 1}")
             }
             TextButton({ model.duplicatePage()?.let { revealNewPage(it) }; pageBrowser = false }, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Duplicate")
+                Icon(FolioIcons.Copy, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Duplicate")
             }
             TextButton({ pageBrowser = false; openPaperMenu(true) }, shapes = ButtonDefaults.shapes()) { Text("Choose paper") }
         }

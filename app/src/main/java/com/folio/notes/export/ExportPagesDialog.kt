@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.export
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.PictureAsPdf
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -113,13 +106,13 @@ import com.folio.notes.ui.folioSelected
                     checked = format == PageExportFormat.PDF,
                     onCheckedChange = { chooseFormat(PageExportFormat.PDF) },
                     label = "PDF",
-                    icon = { Icon(Icons.Rounded.PictureAsPdf, null, Modifier.size(18.dp)) }
+                    icon = { Icon(FolioIcons.Pdf, null, Modifier.size(18.dp)) }
                 )
                 toggleableItem(
                     checked = format == PageExportFormat.PNG,
                     onCheckedChange = { chooseFormat(PageExportFormat.PNG) },
                     label = "PNG images",
-                    icon = { Icon(Icons.Rounded.Image, null, Modifier.size(18.dp)) }
+                    icon = { Icon(FolioIcons.Image, null, Modifier.size(18.dp)) }
                 )
             }
             if (format == PageExportFormat.PNG && selected.size == 1) {
@@ -236,7 +229,7 @@ import com.folio.notes.ui.folioSelected
                 modifier = Modifier.weight(1f),
                 shapes = ButtonDefaults.shapes()
             ) {
-                Icon(Icons.Rounded.Save, null, Modifier.size(18.dp))
+                Icon(FolioIcons.Save, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(
                     when {
@@ -253,7 +246,7 @@ import com.folio.notes.ui.folioSelected
                 modifier = Modifier.weight(1f),
                 shapes = ButtonDefaults.shapes()
             ) {
-                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
+                Icon(FolioIcons.Share, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(
                     when {
@@ -316,7 +309,7 @@ import com.folio.notes.ui.folioSelected
                     border = if (checked) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        if (checked) Icon(FolioIcons.Check, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -328,8 +321,8 @@ import com.folio.notes.ui.folioSelected
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (page.bookmarked) Icon(Icons.Rounded.Bookmark, "Bookmarked", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (page.redoFlag) Icon(Icons.Rounded.Refresh, "Flagged for practice", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (page.bookmarked) Icon(FolioIcons.BookmarkFilled, "Bookmarked", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (page.redoFlag) Icon(FolioIcons.RotateRight, "Flagged for practice", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

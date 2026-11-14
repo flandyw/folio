@@ -1,5 +1,6 @@
 package com.folio.notes.vcaa
 
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.model.countOf
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -18,8 +19,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -165,7 +164,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }) {
             if (index != null) TextButton({ selecting = !selecting; picked = emptyList() }, enabled = canImport || selecting) {
-                Icon(if (selecting) Icons.Rounded.Close else Icons.Rounded.Checklist, null, Modifier.size(18.dp))
+                Icon(if (selecting) FolioIcons.Close else FolioIcons.Checklist, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(FolioSpacing.dp8))
                 Text(if (selecting) "Done" else "Select")
             }
@@ -181,16 +180,16 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                     Column(Modifier.padding(horizontal = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = FolioShapes.large,
                             placeholder = { Text(if (study != null) "Search $study" else "Search every subject, year and paper") },
-                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                            trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
+                            leadingIcon = { Icon(FolioIcons.Search, null) },
+                            trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(FolioIcons.Close, "Clear search") } },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }))
                         if (!wide && index != null) {
                             OutlinedButton({ choosingStudy = true }, Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.School, null, Modifier.size(18.dp))
+                                Icon(FolioIcons.School, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(FolioSpacing.dp8))
                                 Text(study ?: "All subjects", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                                Icon(FolioIcons.ChevronDown, null, Modifier.size(18.dp))
                             }
                         }
                         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
@@ -277,7 +276,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                     if (picked.isNotEmpty()) TextButton({ picked = emptyList() }) { Text("Clear selection") }
                 }
                 Button({ import(selected) }, Modifier.fillMaxWidth(), enabled = selected.isNotEmpty() && canImport) {
-                    Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                    Icon(FolioIcons.Download, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(if (selected.isEmpty()) "Choose papers" else "Import ${countOf(selected.size, "selected paper")}")
                 }
@@ -295,8 +294,8 @@ private fun SubjectList(studies: List<String>, counts: Map<String, Int>, total: 
         OutlinedTextField(query, { query = it },
             Modifier.fillMaxWidth().padding(start = FolioDestinationInset, end = FolioSpacing.dp8, bottom = FolioSpacing.dp8),
             singleLine = true, shape = FolioShapes.large, label = { Text("Find a subject") },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear subject search") } },
+            leadingIcon = { Icon(FolioIcons.Search, null) },
+            trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(FolioIcons.Close, "Clear subject search") } },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }))
         LazyColumn(Modifier.weight(1f, fill = false),
@@ -358,7 +357,7 @@ private fun PaperCard(
                         Spacer(Modifier.width(FolioSpacing.dp8))
                     }
                     if (owned != null) {
-                        Icon(Icons.Rounded.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(FolioIcons.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(FolioSpacing.dp4))
                         Text("In your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     }
@@ -367,7 +366,7 @@ private fun PaperCard(
                     var resourcesExpanded by remember { mutableStateOf(false) }
                     Box {
                         TextButton({ resourcesExpanded = true }) {
-                            Icon(Icons.Rounded.Description, null, Modifier.size(18.dp))
+                            Icon(FolioIcons.Paper, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(FolioSpacing.dp6))
                             Text(if (exam.reports.isEmpty()) "Exam PDF" else "Reports & PDF")
                         }
@@ -381,7 +380,7 @@ private fun PaperCard(
                         }
                     }
                     TextButton(onPreview) {
-                        Icon(Icons.Rounded.Visibility, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.Visible, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp6))
                         Text("Preview")
                     }
@@ -389,7 +388,7 @@ private fun PaperCard(
                 if (!selecting) {
                     if (owned != null) FilledTonalButton(onOpen, Modifier.fillMaxWidth(), enabled = enabled) { Text("Open in library") }
                     else FilledTonalButton(onImport, Modifier.fillMaxWidth(), enabled = enabled) {
-                        Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.Download, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp6))
                         Text("Import paper")
                     }
@@ -404,7 +403,7 @@ private fun YearFilter(year: Int?, years: List<Int>, onChange: (Int?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         FilterChip(year != null, { expanded = true }, { Text(year?.toString() ?: "Any year") },
-            trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+            trailingIcon = { Icon(FolioIcons.ChevronDown, null, Modifier.size(18.dp)) })
         FolioMenuPopover(expanded, { expanded = false }, title = "Year") {
             FolioMenuItem({ Text("Any year") }, { onChange(null); expanded = false }, selected = year == null)
             years.forEach { option -> FolioMenuItem({ Text(option.toString()) }, { onChange(option); expanded = false }, selected = year == option) }
@@ -421,7 +420,7 @@ private fun <T> ChoiceFilter(
     var expanded by remember { mutableStateOf(false) }
     Box {
         FilterChip(active, { expanded = true }, { Text(label) },
-            trailingIcon = { Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) })
+            trailingIcon = { Icon(FolioIcons.ChevronDown, null, Modifier.size(18.dp)) })
         FolioMenuPopover(expanded, { expanded = false }, title = label) {
             options.forEach { option ->
                 FolioMenuItem({ Text(optionLabel(option)) }, { onChange(option); expanded = false }, selected = isSelected(option))

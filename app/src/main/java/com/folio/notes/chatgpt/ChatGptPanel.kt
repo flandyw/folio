@@ -1,13 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.folio.notes.chatgpt
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Login
-import androidx.compose.material.icons.automirrored.rounded.NoteAdd
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -95,8 +92,8 @@ import kotlinx.coroutines.launch
     FolioPanel(if (accountTab) "ChatGPT account" else "Review with ChatGPT", onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             SecondaryTabRow(if (accountTab) 1 else 0, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                Tab(!accountTab, { focus.clearFocus(); accountTab = false }, text = { Text("Page review") }, icon = { Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp)) })
-                Tab(accountTab, { focus.clearFocus(); accountTab = true }, text = { Text("Account") }, icon = { Icon(Icons.Rounded.AccountCircle, null, Modifier.size(20.dp)) })
+                Tab(!accountTab, { focus.clearFocus(); accountTab = false }, text = { Text("Page review") }, icon = { Icon(FolioIcons.Sparkle, null, Modifier.size(20.dp)) })
+                Tab(accountTab, { focus.clearFocus(); accountTab = true }, text = { Text("Account") }, icon = { Icon(FolioIcons.Account, null, Modifier.size(20.dp)) })
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 if (accountTab) {
@@ -128,8 +125,8 @@ import kotlinx.coroutines.launch
                                     style = MaterialTheme.typography.bodySmall)
                                 OutlinedButton({ focus.clearFocus(); manager.followUp(followUp) },
                                     enabled = !state.busy && followUp.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Continue review") }
-                                if (!feedback.applied && samePage && !layerEditable) ChatGptNotice(Icons.Rounded.Lock, "Choose an unlocked, visible layer in the notebook before adding feedback.")
-                                applyError?.let { ChatGptNotice(Icons.Rounded.ErrorOutline, it, error = true) }
+                                if (!feedback.applied && samePage && !layerEditable) ChatGptNotice(FolioIcons.Lock, "Choose an unlocked, visible layer in the notebook before adding feedback.")
+                                applyError?.let { ChatGptNotice(FolioIcons.Alert, it, error = true) }
                             } else {
                                 if (account?.connected == true && account.plan) {
                                     ChatGptAccountSummary(account, { accountTab = true })
@@ -160,7 +157,7 @@ import kotlinx.coroutines.launch
                                         Text("Hints only · let me solve it", Modifier.weight(1f))
                                         Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy)
                                     }
-                                    ChatGptNotice(Icons.Rounded.Lock, "Only the selected pages and your request are shared with OpenAI when you choose Review pages.")
+                                    ChatGptNotice(FolioIcons.Lock, "Only the selected pages and your request are shared with OpenAI when you choose Review pages.")
                                 }
                             }
                             Spacer(Modifier.height(FolioSpacing.dp4))
@@ -185,10 +182,10 @@ import kotlinx.coroutines.launch
                     val enabled: Boolean
                     val action: () -> Unit
                     val icon = when {
-                        feedback?.applied == true -> Icons.Rounded.Check
-                        feedback != null && samePage -> Icons.AutoMirrored.Rounded.NoteAdd
-                        account?.connected != true || !account.plan -> Icons.AutoMirrored.Rounded.Login
-                        else -> Icons.Rounded.AutoAwesome
+                        feedback?.applied == true -> FolioIcons.Check
+                        feedback != null && samePage -> FolioIcons.AddPage
+                        account?.connected != true || !account.plan -> FolioIcons.Login
+                        else -> FolioIcons.Sparkle
                     }
                     when {
                         feedback?.applied == true -> { label = "Return to notebook"; enabled = true; action = onDismiss }

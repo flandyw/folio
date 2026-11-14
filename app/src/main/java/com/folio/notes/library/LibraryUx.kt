@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.app.NameDialog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -11,8 +12,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -92,7 +91,7 @@ internal fun Modifier.notebookRangeSelect(enabled: Boolean, grid: LazyGridState,
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(72.dp).height(96.dp).clip(FolioShapes.small).background(Color.White).border(1.dp, MaterialTheme.colorScheme.outlineVariant, FolioShapes.small), contentAlignment = Alignment.Center) {
                 if (image != null) Image(image, "Preview of page ${index + 1} of ${note.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                else Icon(Icons.AutoMirrored.Rounded.MenuBook, null)
+                else Icon(FolioIcons.Book, null)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Continue", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)

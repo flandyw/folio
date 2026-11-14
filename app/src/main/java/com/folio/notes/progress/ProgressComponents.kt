@@ -1,15 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.progress
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.TrendingDown
-import androidx.compose.material.icons.automirrored.rounded.TrendingFlat
-import androidx.compose.material.icons.automirrored.rounded.TrendingUp
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -148,7 +144,7 @@ internal fun friendlyDate(value: String): String = examDate(value)?.let { date -
         FilterChip(value != neutral, { expanded = true }, { Text(if (value == neutral) label else value, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             Modifier.widthIn(max = 220.dp),
             leadingIcon = icon?.let { { Icon(it, null, Modifier.size(FilterChipDefaults.IconSize)) } },
-            trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(FilterChipDefaults.IconSize)) })
+            trailingIcon = { Icon(FolioIcons.DropDown, null, Modifier.size(FilterChipDefaults.IconSize)) })
         FolioMenuPopover(expanded, { expanded = false }, Modifier.heightIn(max = 360.dp).guardUiTouches(), title = label) {
             options.forEach { option ->
                 FolioMenuItem({ Text(option) }, { onChange(option); expanded = false },
@@ -230,7 +226,7 @@ internal fun friendlyDate(value: String): String = examDate(value)?.let { date -
 internal fun signed(value: Double, digits: Int = 1) = "${if (value >= 0) "+" else ""}${value.display(digits)}"
 
 internal fun trendIcon(delta: Double?): ImageVector = when {
-    delta == null || kotlin.math.abs(delta) < 1 -> Icons.AutoMirrored.Rounded.TrendingFlat
-    delta > 0 -> Icons.AutoMirrored.Rounded.TrendingUp
-    else -> Icons.AutoMirrored.Rounded.TrendingDown
+    delta == null || kotlin.math.abs(delta) < 1 -> FolioIcons.Forward
+    delta > 0 -> FolioIcons.TrendUp
+    else -> FolioIcons.TrendDown
 }

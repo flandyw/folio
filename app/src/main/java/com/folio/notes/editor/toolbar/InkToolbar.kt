@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.editor.toolbar
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
@@ -55,29 +56,29 @@ import kotlin.math.sqrt
 private class SlotSpec(val icon: ImageVector, val label: String, val hint: String = "", val options: Boolean = true)
 
 private fun spec(slot: ToolbarSlot): SlotSpec = when (slot) {
-    ToolbarSlot.PEN -> SlotSpec(EditorIcons.Pen, "Pen")
-    ToolbarSlot.SHAPES -> SlotSpec(EditorIcons.Rectangle, "Shapes")
-    ToolbarSlot.HIGHLIGHTER -> SlotSpec(EditorIcons.Highlighter, "Highlighter")
-    ToolbarSlot.ERASER -> SlotSpec(EditorIcons.Eraser, "Eraser")
-    ToolbarSlot.TEXT -> SlotSpec(EditorIcons.Text, "Text")
-    ToolbarSlot.LASSO -> SlotSpec(EditorIcons.Lasso, "Lasso select")
-    ToolbarSlot.HAND -> SlotSpec(EditorIcons.Hand, "Hand", " — follow links, move pictures, scroll and zoom")
-    ToolbarSlot.STICKY_NOTE -> SlotSpec(EditorIcons.Sticky, "Sticky note", " — drag a rectangle, then type or draw", options = false)
-    ToolbarSlot.MARK_AREA -> SlotSpec(EditorIcons.MarkArea, "Mark area", " — box a “[n marks]” label the scan missed", options = false)
-    ToolbarSlot.LASER -> SlotSpec(EditorIcons.Laser, "Laser pointer", " — point and circle without writing")
-    ToolbarSlot.RULER -> SlotSpec(EditorIcons.Ruler, "Ruler", " — draw straight along its edge; one finger moves it, two turn it", options = false)
+    ToolbarSlot.PEN -> SlotSpec(FolioIcons.Pen, "Pen")
+    ToolbarSlot.SHAPES -> SlotSpec(FolioIcons.Rectangle, "Shapes")
+    ToolbarSlot.HIGHLIGHTER -> SlotSpec(FolioIcons.Highlighter, "Highlighter")
+    ToolbarSlot.ERASER -> SlotSpec(FolioIcons.Eraser, "Eraser")
+    ToolbarSlot.TEXT -> SlotSpec(FolioIcons.Text, "Text")
+    ToolbarSlot.LASSO -> SlotSpec(FolioIcons.Lasso, "Lasso select")
+    ToolbarSlot.HAND -> SlotSpec(FolioIcons.Hand, "Hand", " — follow links, move pictures, scroll and zoom")
+    ToolbarSlot.STICKY_NOTE -> SlotSpec(FolioIcons.Sticky, "Sticky note", " — drag a rectangle, then type or draw", options = false)
+    ToolbarSlot.MARK_AREA -> SlotSpec(FolioIcons.MarkArea, "Mark area", " — box a “[n marks]” label the scan missed", options = false)
+    ToolbarSlot.LASER -> SlotSpec(FolioIcons.Laser, "Laser pointer", " — point and circle without writing")
+    ToolbarSlot.RULER -> SlotSpec(FolioIcons.Ruler, "Ruler", " — draw straight along its edge; one finger moves it, two turn it", options = false)
 }
 
 private fun shapeIcon(tool: Tool): ImageVector = when (tool) {
-    Tool.LINE -> EditorIcons.Line
-    Tool.ELLIPSE -> EditorIcons.Ellipse
-    Tool.TRIANGLE -> EditorIcons.Triangle
-    Tool.DIAMOND -> EditorIcons.Diamond
-    Tool.PENTAGON -> EditorIcons.Pentagon
-    Tool.HEXAGON -> EditorIcons.Hexagon
-    Tool.STAR -> EditorIcons.Star
-    Tool.GRAPH -> EditorIcons.Graph
-    else -> EditorIcons.Rectangle
+    Tool.LINE -> FolioIcons.Line
+    Tool.ELLIPSE -> FolioIcons.Ellipse
+    Tool.TRIANGLE -> FolioIcons.Triangle
+    Tool.DIAMOND -> FolioIcons.Diamond
+    Tool.PENTAGON -> FolioIcons.Pentagon
+    Tool.HEXAGON -> FolioIcons.Hexagon
+    Tool.STAR -> FolioIcons.Star
+    Tool.GRAPH -> FolioIcons.Graph
+    else -> FolioIcons.Rectangle
 }
 
 private fun shapeLabel(tool: Tool) = when (tool) {
@@ -243,7 +244,7 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                     FolioToolToggle(isShape, { onPalette(false); if (isShape) shapePicker = true else chooseShape(lastShape) }, shapeIcon(shape),
                         "Shapes, ${shapeLabel(shape).lowercase()}" + if (isShape) " — tap again to choose shape" else "",
                         onLongClick = { claimStripLongPress(); if (!isShape) pick(lastShape); onPalette(true) })
-                    Icon(EditorIcons.ChevronDown, null, Modifier.align(Alignment.BottomEnd).size(10.dp),
+                    Icon(FolioIcons.ChevronDown, null, Modifier.align(Alignment.BottomEnd).size(10.dp),
                         tint = if (isShape) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
                     ShapePicker()
                 }
@@ -270,8 +271,8 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
             modifier = Modifier.widthIn(max = 104.dp).height(28.dp).longPressAction(stripGuard) { claimStripLongPress(); presetMenu = preset.id }
         )
         FolioMenuPopover(presetMenu == preset.id, { presetMenu = null }, modifier = Modifier.guardUiTouches(), title = "Pinned preset") {
-            FolioMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(EditorIcons.Close, null) })
-            FolioMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(EditorIcons.Tune, null) })
+            FolioMenuItem({ Text("Unpin “${preset.name}” from toolbar") }, { presetMenu = null; toolbarLayoutState?.togglePin(preset.id) }, leadingIcon = { Icon(FolioIcons.Close, null) })
+            FolioMenuItem({ Text("Tool settings") }, { presetMenu = null; onPalette(true) }, leadingIcon = { Icon(FolioIcons.Tune, null) })
         }
     }
 
@@ -281,20 +282,20 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
         val openSub: (ToolSub) -> Unit = { sub = if (sub == it) null else it }
         fun close() { menu = false; sub = null }
         FolioMenuPopover(menu, ::close, modifier = Modifier.guardUiTouches(), title = "Tools & actions") {
-            if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); close() }, enabled = canUndo, leadingIcon = { Icon(EditorIcons.Undo, null) })
-            if (!showRedo) FolioMenuItem({ Text("Redo") }, { redo(); close() }, enabled = canRedo, leadingIcon = { Icon(EditorIcons.Redo, null) })
+            if (!showUndo) FolioMenuItem({ Text("Undo") }, { undo(); close() }, enabled = canUndo, leadingIcon = { Icon(FolioIcons.Undo, null) })
+            if (!showRedo) FolioMenuItem({ Text("Redo") }, { redo(); close() }, enabled = canRedo, leadingIcon = { Icon(FolioIcons.Redo, null) })
             if (overflow.isNotEmpty()) MenuSectionHeader("Tools")
             overflow.forEach { slot ->
                 val spec = spec(slot)
                 when (slot) {
                     ToolbarSlot.SHAPES -> FolioMenuItem({ Text(spec.label) }, { close(); onPalette(false); shapePicker = true },
-                        leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) }, trailingIcon = { Icon(EditorIcons.ChevronRight, null) })
+                        leadingIcon = { Icon(shapeIcon(if (isShape) tool else lastShape), null) }, trailingIcon = { Icon(FolioIcons.ChevronRight, null) })
                     ToolbarSlot.RULER -> FolioMenuItem({ Text(spec.label) }, { onRuler?.invoke(); close() }, leadingIcon = { Icon(spec.icon, null) }, selected = rulerOn)
                     else -> FolioMenuItem({ Text(spec.label) }, { pick(slot.tools.first()); close() }, leadingIcon = { Icon(spec.icon, null) }, selected = tool in slot.tools)
                 }
             }
             if (overflow.isNotEmpty()) HorizontalDivider()
-            if (presets.isNotEmpty() && onApplyPreset != null) SubmenuItem("Presets…", EditorIcons.Bookmark, sub == ToolSub.PRESETS, { openSub(ToolSub.PRESETS) }) {
+            if (presets.isNotEmpty() && onApplyPreset != null) SubmenuItem("Presets…", FolioIcons.Bookmark, sub == ToolSub.PRESETS, { openSub(ToolSub.PRESETS) }) {
                 MenuSectionHeader("Presets")
                 presets.forEach { preset ->
                     FolioMenuItem({ Text("${preset.name} · ${toolLabel(preset.tool).lowercase()}") }, { onApplyPreset(preset); close() },
@@ -302,7 +303,7 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                 }
             }
             // Everything that tunes how the tools behave is a switch in one place; the menu stays open while they are flipped.
-            SubmenuItem("Behaviour…", EditorIcons.Tune, sub == ToolSub.BEHAVIOUR, { openSub(ToolSub.BEHAVIOUR) }) {
+            SubmenuItem("Behaviour…", FolioIcons.Tune, sub == ToolSub.BEHAVIOUR, { openSub(ToolSub.BEHAVIOUR) }) {
                 MenuSectionHeader("Eraser")
                 BehaviourSwitch("Whole-stroke eraser", eraserWholeStroke, onEraserWholeStroke)
                 BehaviourSwitch("Single-stroke eraser", eraserSingleStroke, onEraserSingleStroke)
@@ -314,7 +315,7 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                 BehaviourSwitch("Two-finger undo", multiTouchUndo, onMultiTouchUndo)
                 if (isShape) FolioMenuItem({ Text("Line style: ${options.style.label.lowercase()}") }, { onOptions(options.copy(style = options.style.next())) })
             }
-            if (toolbarLayoutState != null) FolioMenuItem({ Text("Edit toolbar") }, { close(); editToolbar = true }, leadingIcon = { Icon(EditorIcons.Reorder, null) })
+            if (toolbarLayoutState != null) FolioMenuItem({ Text("Edit toolbar") }, { close(); editToolbar = true }, leadingIcon = { Icon(FolioIcons.Reorder, null) })
         }
     }
 
@@ -322,8 +323,8 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
         // The … menu holds what the user put there plus whatever this pane is too narrow to show.
         val overflow = toolbarLayout.order.filterNot { it in primary }
         val hasTray = primary.isNotEmpty() || (showPresets && pinnedPresets.isNotEmpty())
-        if (showUndo) StripButton(EditorIcons.Undo, "Undo", canUndo, stripGuard.click(undo))
-        if (showRedo) StripButton(EditorIcons.Redo, "Redo", canRedo, stripGuard.click(redo))
+        if (showUndo) StripButton(FolioIcons.Undo, "Undo", canUndo, stripGuard.click(undo))
+        if (showRedo) StripButton(FolioIcons.Redo, "Redo", canRedo, stripGuard.click(redo))
         if (showUndo && hasTray) StripDivider(Modifier.padding(start = DividerAir / 2, end = DividerAir))
         if (hasTray) {
             Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
@@ -337,8 +338,8 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
             if (primary.none { tool in it.tools }) ToolSettingsPopover()
             if (ToolbarSlot.SHAPES in overflow) ShapePicker()
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StripButton(EditorIcons.More, "More tools and actions", onClick = stripGuard.click { menu = true })
-                StripButton(if (quickBarOpen) EditorIcons.ChevronUp else EditorIcons.ChevronDown, if (quickBarOpen) "Hide ink options" else "Show ink options",
+                StripButton(FolioIcons.More, "More tools and actions", onClick = stripGuard.click { menu = true })
+                StripButton(if (quickBarOpen) FolioIcons.ChevronUp else FolioIcons.ChevronDown, if (quickBarOpen) "Hide ink options" else "Show ink options",
                     onClick = stripGuard.click { quickBarOpen = !quickBarOpen })
             }
             OverflowMenu(showUndo, showRedo, overflow)
@@ -446,7 +447,7 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                     // opacity, colour and the tool's own options all live in that one popover.
                     Box {
                         IconButton({ paletteFromQuickBar = !palette; onPalette(!palette) }, modifier = Modifier.size(ToolbarButton)) {
-                            Icon(EditorIcons.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(FolioIcons.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         ToolSettingsPopover(fromQuickBar = true)
                     }
@@ -518,7 +519,7 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
     var dragDelta by remember { mutableFloatStateOf(0f) }
     @Composable fun Move(up: Boolean, name: String, enabled: Boolean, onClick: () -> Unit) {
         IconButton(onClick, enabled = enabled, modifier = Modifier.size(40.dp), shapes = IconButtonDefaults.shapes()) {
-            Icon(if (up) EditorIcons.Up else EditorIcons.Down, "Move $name ${if (up) "up" else "down"}", Modifier.size(18.dp))
+            Icon(if (up) FolioIcons.Up else FolioIcons.Down, "Move $name ${if (up) "up" else "down"}", Modifier.size(18.dp))
         }
     }
     FolioPanel(title = "Edit toolbar", onDismissRequest = onDismiss) {
@@ -564,7 +565,7 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                                     onDragCancel = { dragFrom = null; dragDelta = 0f }
                                 )
                             }, contentAlignment = Alignment.Center) {
-                            Icon(EditorIcons.Lines, "Drag to reorder ${spec.label}", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(FolioIcons.Lines, "Drag to reorder ${spec.label}", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

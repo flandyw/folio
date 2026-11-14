@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes.review
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -9,10 +10,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.EmojiEvents
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,7 +112,7 @@ private const val CONFETTI_MS = 1700
                 OutlinedCard(onClick = { actions.onMission(cards.take(maxOf(1, quest.target - quest.done)), false) }, enabled = !content.working && cards.isNotEmpty() && quest.done < quest.target, shape = FolioShapes.large) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (quest.done >= quest.target) Icon(Icons.Rounded.CheckCircle, null, Modifier.size(18.dp), tint = color)
+                            if (quest.done >= quest.target) Icon(FolioIcons.CheckCircle, null, Modifier.size(18.dp), tint = color)
                             Text("${quest.label} · ${if (quest.done >= quest.target) "Complete" else "${quest.done}/${quest.target}"}", style = MaterialTheme.typography.titleSmall)
                         }
                         Text(quest.detail, style = MaterialTheme.typography.bodySmall)
@@ -134,7 +131,7 @@ private const val CONFETTI_MS = 1700
                 val completed = content.mistakes.filter { m -> m.reviewHistory.any { it.challengeWeek == progress.week } }.map { it.id }.toSet()
                 actions.onMission(progress.challenge.filterNot { it.id in completed }, true)
             }, enabled = !content.working && progress.challenge.isNotEmpty() && !progress.weeklyComplete, shapes = ButtonDefaults.shapes()) {
-                Icon(if (progress.weeklyComplete) Icons.Rounded.EmojiEvents else Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                Icon(if (progress.weeklyComplete) FolioIcons.Trophy else FolioIcons.Play, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(if (progress.weeklyComplete) "Completed" else "Take the challenge")
             }

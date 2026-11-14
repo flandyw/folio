@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.folio.notes.settings
 
+import com.folio.notes.ui.FolioIcons
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -8,18 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.AutoStories
-import androidx.compose.material.icons.rounded.Backup
-import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Gesture
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -159,7 +148,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            FolioScreenHeading(title, leading = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, navLabel) } })
+            FolioScreenHeading(title, leading = { IconButton(onNavigate, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, navLabel) } })
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).imePadding(), contentAlignment = Alignment.TopCenter) {
@@ -183,8 +172,8 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
         placeholder = { Text("Search settings") },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-        leadingIcon = { Icon(Icons.Rounded.Search, null) },
-        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery(""); keyboard?.hide() }, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Clear, "Clear search") } }) else null,
+        leadingIcon = { Icon(FolioIcons.Search, null) },
+        trailingIcon = if (query.isNotEmpty()) ({ IconButton({ onQuery(""); keyboard?.hide() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } }) else null,
     )
 }
 
@@ -213,14 +202,14 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
 }
 
 private enum class SettingsPage(val title: String, val summary: String, val icon: ImageVector) {
-    APPEARANCE("Appearance", "Theme, colours, text size and sidebar", Icons.Rounded.Palette),
-    PEN("Pen & touch", "Finger drawing, palm rejection, pencil, shapes and scribble", Icons.Rounded.Gesture),
-    EDITOR("Editor", "Toolbar, starting tool, zoom, text and keyboard", Icons.Rounded.Edit),
-    FOLLOW("Writing follow", "Move the page as you write", Icons.Rounded.AutoStories),
-    LIBRARY("Library", "New notebooks, covers, quick notes and swipes", Icons.AutoMirrored.Rounded.MenuBook),
-    BACKUP("Backup & restore", "Automatic backup and library files", Icons.Rounded.Backup),
-    STUDY("Study", "Exam timer and mistake practice", Icons.Rounded.Timer),
-    ACCOUNT("Account & updates", "Focal, ChatGPT and app updates", Icons.Rounded.AccountCircle),
+    APPEARANCE("Appearance", "Theme, colours, text size and sidebar", FolioIcons.Palette),
+    PEN("Pen & touch", "Finger drawing, palm rejection, pencil, shapes and scribble", FolioIcons.Handwriting),
+    EDITOR("Editor", "Toolbar, starting tool, zoom, text and keyboard", FolioIcons.Pen),
+    FOLLOW("Writing follow", "Move the page as you write", FolioIcons.Book),
+    LIBRARY("Library", "New notebooks, covers, quick notes and swipes", FolioIcons.Book),
+    BACKUP("Backup & restore", "Automatic backup and library files", FolioIcons.CloudUpload),
+    STUDY("Study", "Exam timer and mistake practice", FolioIcons.Timer),
+    ACCOUNT("Account & updates", "Focal, ChatGPT and app updates", FolioIcons.Account),
 }
 
 /**

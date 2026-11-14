@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,20 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Book
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.CloudOff
-import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.School
-import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -217,7 +204,7 @@ internal fun FocalStudyContent(
                     Button({ manager.controlEntry(remoteMain.id, if (running) "pause" else "resume") },
                         enabled = running || examRecording == null,
                         shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
-                        Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
+                        Icon(if (running) FolioIcons.Pause else FolioIcons.Play, null)
                         Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (running) "Pause" else "Resume")
                     }
@@ -225,14 +212,14 @@ internal fun FocalStudyContent(
                         manager.controlEntry(remoteMain.id, "finish")
                         notice = "Saved" + (subjectName(remoteMain.subjectId)?.let { " $it" } ?: "") + " session"
                     }, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 56.dp)) {
-                        Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.Check, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp8))
                         Text("Finish")
                     }
                     OutlinedButton({ discardId = remoteMain.id }, shapes = ButtonDefaults.shapes(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         modifier = Modifier.heightIn(min = 56.dp)) {
-                        Icon(Icons.Rounded.Close, "Discard", Modifier.size(18.dp))
+                        Icon(FolioIcons.Close, "Discard", Modifier.size(18.dp))
                     }
                 }
                 if (examRecording != null && !running) Text("Resume regular study after the exam timer stops.", style = MaterialTheme.typography.bodySmall)
@@ -245,10 +232,10 @@ internal fun FocalStudyContent(
                 FocalSubjectPicker(state.subjects, subjectId) { subjectId = it }
                 if (dedicated) Box {
                     OutlinedButton({ notebookMenu = true }, modifier = Modifier.fillMaxWidth(), shape = FolioShapes.large) {
-                        Icon(Icons.Rounded.Book, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.Book, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp10))
                         Text(selectedNote?.title ?: "No notebook", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Icon(Icons.Rounded.ExpandMore, null)
+                        Icon(FolioIcons.ChevronDown, null)
                     }
                     FolioMenuPopover(notebookMenu, { notebookMenu = false }, title = "Session notebook") {
                         FolioMenuItem({ Text("No notebook") }, { notebookId = null; notebookMenu = false }, selected = notebookId == null)
@@ -260,7 +247,7 @@ internal fun FocalStudyContent(
                 }
                 Button({ startStudy(subjectId) }, enabled = canStart,
                     shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                    Icon(FolioIcons.Play, null); Spacer(Modifier.width(FolioSpacing.dp8))
                     Text(subjectName(subjectId)?.let { "Start $it" } ?: "Start study", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 continuable?.let { last ->
@@ -268,7 +255,7 @@ internal fun FocalStudyContent(
                         manualLog = false
                         if (!manager.continueFocus(last.id)) notice = "Couldn't continue that session. Refresh and try again."
                     }, enabled = canStart, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                        Icon(FolioIcons.Play, null); Spacer(Modifier.width(FolioSpacing.dp8))
                         Text("Continue ${subjectName(last.subjectId) ?: last.title} · ${formatStudyMinutes(studyRoundedMinutes(last.activeMillis))}",
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
@@ -331,7 +318,7 @@ internal fun FocalStudyContent(
                         shapes = ButtonDefaults.shapes(),
                         modifier = Modifier.weight(1f).heightIn(min = 56.dp),
                     ) {
-                        Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
+                        Icon(if (running) FolioIcons.Pause else FolioIcons.Play, null)
                         Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (running) "Pause" else "Resume")
                     }
@@ -341,7 +328,7 @@ internal fun FocalStudyContent(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         modifier = Modifier.heightIn(min = 56.dp),
                     ) {
-                        Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                        Icon(FolioIcons.Close, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(FolioSpacing.dp8))
                         Text("Discard")
                     }
@@ -385,7 +372,7 @@ internal fun FocalStudyContent(
                     },
                         enabled = elapsed >= 1_000L,
                         shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                        Icon(Icons.Rounded.Check, null); Spacer(Modifier.width(FolioSpacing.dp8))
+                        Icon(FolioIcons.Check, null); Spacer(Modifier.width(FolioSpacing.dp8))
                         Text(if (minutes >= 1L) "Save ${formatStudyMinutes(minutes)}" else "Save session")
                     }
                 }
@@ -407,7 +394,7 @@ internal fun FocalStudyContent(
             Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                 Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                        Icon(Icons.Rounded.School, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(FolioIcons.School, null, tint = MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text("Studied today", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(formatStudyMinutes(today), style = MaterialTheme.typography.headlineMedium)
@@ -467,7 +454,7 @@ internal fun FocalStudyContent(
                                 OutlinedButton({ manager.controlEntry(entry.id, if (entry.paused) "resume" else "pause") },
                                     enabled = !entry.paused || (examRecording == null && entries.none { it.active && !it.paused && it.id != entry.id }),
                                     shapes = ButtonDefaults.shapes()) {
-                                    Icon(if (entry.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
+                                    Icon(if (entry.paused) FolioIcons.Play else FolioIcons.Pause, null)
                                     Spacer(Modifier.width(FolioSpacing.dp6)); Text(if (entry.paused) "Resume" else "Pause")
                                 }
                                 TextButton({ manager.controlEntry(entry.id, "finish") }) { Text("Finish") }
@@ -492,7 +479,7 @@ internal fun FocalStudyContent(
                         Text(if (state.syncing) "Refreshing…" else "Refresh")
                     }
                     FilledTonalButton({ planEditorId = "new:${java.util.UUID.randomUUID()}" }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Plan")
+                        Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Plan")
                     }
                 }
                 Text(when {
@@ -507,7 +494,7 @@ internal fun FocalStudyContent(
                 if (planned.size > 3 || filtering) {
                     OutlinedTextField(planSearch, { planSearch = it; plannedLimit = 5 }, Modifier.fillMaxWidth(),
                         label = { Text("Search title, subject or topics") }, singleLine = true,
-                        trailingIcon = if (planSearch.isNotEmpty()) { { IconButton({ planSearch = "" }) { Icon(Icons.Rounded.Close, "Clear search") } } } else null)
+                        trailingIcon = if (planSearch.isNotEmpty()) { { IconButton({ planSearch = "" }) { Icon(FolioIcons.Close, "Clear search") } } } else null)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         PlanScope.entries.forEach { option ->
                             val count = scopeCounts[option] ?: 0
@@ -676,10 +663,10 @@ private fun KeepScreenOn(on: Boolean) {
 @Composable
 internal fun SyncIcon(state: FocalStudyState, size: androidx.compose.ui.unit.Dp) {
     Icon(when {
-        state.syncing -> Icons.Rounded.Sync
-        state.error != null -> Icons.Rounded.ErrorOutline
-        state.userId == null || !state.configured || state.pendingCount > 0 -> Icons.Rounded.CloudOff
-        else -> Icons.Rounded.CloudDone
+        state.syncing -> FolioIcons.Sync
+        state.error != null -> FolioIcons.Alert
+        state.userId == null || !state.configured || state.pendingCount > 0 -> FolioIcons.CloudOff
+        else -> FolioIcons.CloudDone
     }, null, Modifier.size(size), tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
 }
 
@@ -690,10 +677,10 @@ internal fun StudyNotice(text: String, onDismiss: () -> Unit) {
         contentColor = MaterialTheme.colorScheme.inverseOnSurface,
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
         Row(Modifier.padding(start = FolioSpacing.dp16, end = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Check, null, Modifier.size(18.dp))
+            Icon(FolioIcons.Check, null, Modifier.size(18.dp))
             Spacer(Modifier.width(FolioSpacing.dp10))
             Text(text, Modifier.weight(1f).padding(vertical = FolioSpacing.dp12), style = MaterialTheme.typography.bodyMedium)
-            IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Dismiss", Modifier.size(18.dp)) }
+            IconButton(onDismiss) { Icon(FolioIcons.Close, "Dismiss", Modifier.size(18.dp)) }
         }
     }
 }
@@ -732,7 +719,7 @@ private fun HistoryCard(entry: FocalStudyEntry, subject: String?, color: Color, 
                 }
             }
             Text(formatStudyMinutes(focalHistoryMinutes(entry)), style = MaterialTheme.typography.titleMedium)
-            onDelete?.let { IconButton(it) { Icon(Icons.Rounded.DeleteOutline, "Delete session", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            onDelete?.let { IconButton(it) { Icon(FolioIcons.Delete, "Delete session", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
         }
     }
 }
@@ -786,7 +773,7 @@ internal fun PlannedStudyCard(entry: FocalStudyEntry, subjects: List<FocalSubjec
                 onEdit?.let { OutlinedButton(it, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) { Text(if (conflicted) "Review" else "Edit") } }
                 Button(onStart, enabled = enabled, shapes = ButtonDefaults.shapes(),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    Icon(Icons.Rounded.PlayArrow, null)
+                    Icon(FolioIcons.Play, null)
                     Spacer(Modifier.width(FolioSpacing.dp8))
                     Text("Start session")
                 }

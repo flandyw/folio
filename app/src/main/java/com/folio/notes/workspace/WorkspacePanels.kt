@@ -1,14 +1,13 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.workspace
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -40,7 +39,7 @@ import com.folio.notes.ui.FolioSpacing
                         label = { Text(note.title.ifBlank { "Untitled" }, Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingIcon = {
                             IconButton({ model.closeTab(note.id) }, shapes = IconButtonDefaults.shapes()) {
-                                Icon(Icons.Rounded.Close, "Close ${note.title.ifBlank { "Untitled" }}")
+                                Icon(FolioIcons.Close, "Close ${note.title.ifBlank { "Untitled" }}")
                             }
                         },
                     )

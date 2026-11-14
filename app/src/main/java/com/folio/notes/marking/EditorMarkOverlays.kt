@@ -1,12 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.marking
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,23 +57,23 @@ import kotlin.math.roundToInt
                     Text(if (existing != null) "+$existing / ${zone.marks}" else "${zone.marks} ${if (zone.marks == 1) "mark" else "marks"}",
                         Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge)
                     IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(zone.marks) }, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Check, "Award all ${zone.marks}", tint = MaterialTheme.colorScheme.primary)
+                        Icon(FolioIcons.Check, "Award all ${zone.marks}", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton({ adjusting = true }, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Close, "Award fewer marks", tint = MaterialTheme.colorScheme.error)
+                        Icon(FolioIcons.Close, "Award fewer marks", tint = MaterialTheme.colorScheme.error)
                     }
                     if (existing != null) IconButton(onClear, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Delete, "Remove this mark")
+                        Icon(FolioIcons.Delete, "Remove this mark")
                     }
                     if (onEdit != null) IconButton(onEdit, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Edit, "Change this area's marks or remove it")
+                        Icon(FolioIcons.Pen, "Change this area's marks or remove it")
                     }
                 } else {
-                    IconButton({ value = (value - 1).coerceAtLeast(0) }, Modifier.size(44.dp), enabled = value > 0) { Icon(Icons.Rounded.Remove, "One fewer mark") }
+                    IconButton({ value = (value - 1).coerceAtLeast(0) }, Modifier.size(44.dp), enabled = value > 0) { Icon(FolioIcons.Minus, "One fewer mark") }
                     Text("$value / ${zone.marks}", style = MaterialTheme.typography.titleSmall)
-                    IconButton({ value = (value + 1).coerceAtMost(zone.marks) }, Modifier.size(44.dp), enabled = value < zone.marks) { Icon(Icons.Rounded.Add, "One more mark") }
+                    IconButton({ value = (value + 1).coerceAtMost(zone.marks) }, Modifier.size(44.dp), enabled = value < zone.marks) { Icon(FolioIcons.Plus, "One more mark") }
                     IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onAward(value) }, Modifier.size(44.dp)) {
-                        Icon(Icons.Rounded.Check, "Confirm $value marks", tint = MaterialTheme.colorScheme.primary)
+                        Icon(FolioIcons.Check, "Confirm $value marks", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -114,14 +112,14 @@ internal data class AreaEntry(val existing: MarkZone?, val x: Float, val y: Floa
             Row(Modifier.padding(horizontal = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (pageCount > 1) "Marks · $pageCount pages" else "Marks", Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp2), style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton({ touched = true; value = (value - 1).coerceAtLeast(1) }, Modifier.size(44.dp), enabled = value > 1) { Icon(Icons.Rounded.Remove, "One fewer mark") }
+                IconButton({ touched = true; value = (value - 1).coerceAtLeast(1) }, Modifier.size(44.dp), enabled = value > 1) { Icon(FolioIcons.Minus, "One fewer mark") }
                 Text("$value", Modifier.widthIn(min = 24.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
-                IconButton({ touched = true; value = (value + 1).coerceAtMost(MarkZones.MAX_MARKS) }, Modifier.size(44.dp), enabled = value < MarkZones.MAX_MARKS) { Icon(Icons.Rounded.Add, "One more mark") }
+                IconButton({ touched = true; value = (value + 1).coerceAtMost(MarkZones.MAX_MARKS) }, Modifier.size(44.dp), enabled = value < MarkZones.MAX_MARKS) { Icon(FolioIcons.Plus, "One more mark") }
                 IconButton({ haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onConfirm(value) }, Modifier.size(44.dp)) {
-                    Icon(Icons.Rounded.Check, "Set this area to $value ${if (value == 1) "mark" else "marks"}", tint = MaterialTheme.colorScheme.primary)
+                    Icon(FolioIcons.Check, "Set this area to $value ${if (value == 1) "mark" else "marks"}", tint = MaterialTheme.colorScheme.primary)
                 }
-                if (onRemove != null) IconButton(onRemove, Modifier.size(44.dp)) { Icon(Icons.Rounded.Delete, "Remove this area") }
-                IconButton(onDismiss, Modifier.size(44.dp)) { Icon(Icons.Rounded.Close, "Cancel") }
+                if (onRemove != null) IconButton(onRemove, Modifier.size(44.dp)) { Icon(FolioIcons.Delete, "Remove this area") }
+                IconButton(onDismiss, Modifier.size(44.dp)) { Icon(FolioIcons.Close, "Cancel") }
             }
         }
     }

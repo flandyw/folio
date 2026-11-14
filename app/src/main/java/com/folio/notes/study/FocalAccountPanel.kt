@@ -1,15 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.study
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Draw
-import androidx.compose.material.icons.rounded.ManageAccounts
-import androidx.compose.material.icons.rounded.School
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,7 +29,7 @@ fun FocalAccountButton(onClick: () -> Unit, trouble: Boolean = false) {
     val attention = trouble || account.needsSignIn
     IconButton(onClick, shapes = IconButtonDefaults.shapes()) {
         BadgedBox(badge = { if (attention) Badge() }) {
-            Icon(Icons.Rounded.ManageAccounts, if (account.needsSignIn) "Focal account, sign in again" else if (attention) "Focal account, sync needs attention" else "Focal account")
+            Icon(FolioIcons.Account, if (account.needsSignIn) "Focal account, sign in again" else if (attention) "Focal account, sync needs attention" else "Focal account")
         }
     }
 }
@@ -57,12 +52,12 @@ fun FocalAccountPanel(onDismiss: () -> Unit, onMistakes: (() -> Unit)?, onStudy:
                         style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.padding(DestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                            FocalDestinationRow(Icons.Rounded.Timer, "Study timer", "Sessions and focus time sync to Focal", onStudy)
-                            FocalDestinationRow(Icons.Rounded.School, "Mistake review", "Spaced review of the questions you missed", onMistakes)
+                            FocalDestinationRow(FolioIcons.Timer, "Study timer", "Sessions and focus time sync to Focal", onStudy)
+                            FocalDestinationRow(FolioIcons.School, "Mistake review", "Spaced review of the questions you missed", onMistakes)
                         }
                     }
                     Row(Modifier.padding(horizontal = FolioSpacing.dp4), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        Icon(Icons.Rounded.Draw, null, Modifier.size(16.dp).padding(top = FolioSpacing.dp2), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(FolioIcons.Handwriting, null, Modifier.size(16.dp).padding(top = FolioSpacing.dp2), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Handwriting stays in Folio. Reviews and sessions are kept offline and sync when you are back online.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -94,7 +89,7 @@ private fun FocalDestinationRow(icon: ImageVector, title: String, subtitle: Stri
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (current) Text("Open now", style = MaterialTheme.typography.labelMedium, color = scheme.secondary)
-            else Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Open $title", tint = scheme.onSurfaceVariant)
+            else Icon(FolioIcons.ChevronRight, "Open $title", tint = scheme.onSurfaceVariant)
         }
     }
 }

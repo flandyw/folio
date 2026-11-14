@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.app
 
+import com.folio.notes.ui.FolioIcons
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -14,9 +15,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -529,7 +527,7 @@ import java.io.File
                     when {
                         state.loading -> ContainedLoadingIndicator(Modifier.align(Alignment.Center).semanticsLabel("Loading notebooks"))
                         state.loadFailed -> Column(Modifier.align(Alignment.Center).padding(FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                            Icon(Icons.Rounded.ErrorOutline, "Library failed to load")
+                            Icon(FolioIcons.Alert, "Library failed to load")
                             Text("Your library couldn't be loaded", style = MaterialTheme.typography.titleLarge)
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
@@ -678,26 +676,26 @@ import java.io.File
                     PdfQualitySection(selected = pdfExportMode, onSelect = ::rememberPdfMode)
                     Spacer(Modifier.height(FolioSpacing.dp4))
                 }
-                ExportOption(Icons.Rounded.Share, "Share notebook", "Send a PDF to another app") {
+                ExportOption(FolioIcons.Share, "Share notebook", "Send a PDF to another app") {
                     exportMenu = false
                     state.active?.let(::shareWholeNotebook)
                 }
-                ExportOption(Icons.Rounded.PictureAsPdf, "Save as PDF", "All pages, including your annotations") {
+                ExportOption(FolioIcons.Pdf, "Save as PDF", "All pages, including your annotations") {
                     state.active?.let { launchExport(PageExportRequest(it, it.pages.indices.toList(), PageExportFormat.PDF, pdfExportMode)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.Image, "Save page as image", "A PNG of this page, saved to your gallery") {
+                ExportOption(FolioIcons.Image, "Save page as image", "A PNG of this page, saved to your gallery") {
                     state.active?.let { launchExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.Share, "Share page as image", "Send a PNG of this page to another app") {
+                ExportOption(FolioIcons.Share, "Share page as image", "Send a PNG of this page to another app") {
                     state.active?.let { shareExport(PageExportRequest(it, listOf(state.pageIndex), PageExportFormat.PNG)) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.ContentCopy, "Copy page as image", "Paste this page into another app") {
+                ExportOption(FolioIcons.Copy, "Copy page as image", "Paste this page into another app") {
                     state.active?.let { copyPage(it, state.pageIndex) }; exportMenu = false
                 }
-                ExportOption(Icons.Rounded.AutoStories, "Export specific pages", "Choose pages for a PDF or PNG images") {
+                ExportOption(FolioIcons.Book, "Export specific pages", "Choose pages for a PDF or PNG images") {
                     exportMenu = false; pageExportDialog = true
                 }
-                ExportOption(Icons.Rounded.FolderZip, "Save as Folio backup", "A compact file with every page, image, PDF and undo history") {
+                ExportOption(FolioIcons.Archive, "Save as Folio backup", "A compact file with every page, image, PDF and undo history") {
                     state.active?.let { saveArchive.launch("${exporter.filename(it)}.folio") }; exportMenu = false
                 }
             }
@@ -730,7 +728,7 @@ import java.io.File
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(subtitle, style = MaterialTheme.typography.bodySmall) }
-            Icon(Icons.AutoMirrored.Rounded.ArrowForward, null)
+            Icon(FolioIcons.Forward, null)
         }
     }
 }

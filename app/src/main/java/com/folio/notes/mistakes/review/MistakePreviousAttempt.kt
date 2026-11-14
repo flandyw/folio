@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.mistakes.review
 
+import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -13,10 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,7 +58,7 @@ internal fun PreviousAttemptDialog(
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close previous working") }
+                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Close previous working") }
                     Column(Modifier.weight(1f)) {
                         Text("Your previous working", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
@@ -232,7 +229,7 @@ private fun PreviousAttemptPage(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp10),
                         ) {
-                            Icon(Icons.Rounded.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(FolioIcons.BrokenImage, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     "This page could not be drawn.",
@@ -269,7 +266,7 @@ private fun PreviousAttemptPage(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (bitmap != null) TextButton(onEnlarge, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.ZoomIn, null, Modifier.size(16.dp))
+                        Icon(FolioIcons.ZoomIn, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(FolioSpacing.dp4))
                         Text("Zoom")
                     }
@@ -297,7 +294,7 @@ private fun PreviousPageViewer(
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(Icons.Rounded.Close, "Close enlarged page") }
+                    IconButton(onClose, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Close enlarged page") }
                     Column(Modifier.weight(1f)) {
                         Text(
                             "Page ${index + 1} of ${pages.size}",
@@ -362,7 +359,7 @@ private fun PreviousPageViewer(
                         }
                         failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                Icon(Icons.Rounded.BrokenImage, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(FolioIcons.BrokenImage, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("This page could not be drawn.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -383,7 +380,7 @@ private fun PreviousPageViewer(
                         { if (index > 0) index-- },
                         enabled = index > 0,
                         shapes = IconButtonDefaults.shapes(),
-                    ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Previous page") }
+                    ) { Icon(FolioIcons.Back, "Previous page") }
                     TextButton(
                         { zoom = (zoom - .5f).coerceAtLeast(1f); if (zoom == 1f) offset = Offset.Zero },
                         shapes = ButtonDefaults.shapes(),
@@ -397,7 +394,7 @@ private fun PreviousPageViewer(
                         { if (index < pages.lastIndex) index++ },
                         enabled = index < pages.lastIndex,
                         shapes = IconButtonDefaults.shapes(),
-                    ) { Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next page") }
+                    ) { Icon(FolioIcons.Forward, "Next page") }
                 }
             }
         }
