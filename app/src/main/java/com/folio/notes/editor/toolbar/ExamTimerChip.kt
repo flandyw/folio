@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.folio.notes.exam.ExamTimerPhase
 import com.folio.notes.exam.ExamTimerState
 import com.folio.notes.input.longPressAction
@@ -23,7 +22,7 @@ import com.folio.notes.input.rememberLongPressGuard
     Crossfade(targetState = active, label = "timingChip") { isActive ->
         if (!isActive) {
             TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Timer & stopwatch") } }, state = rememberTooltipState()) {
-                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Timer, "Timer & stopwatch", Modifier.size(20.dp)) }
+                IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight), shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Timer, "Timer & stopwatch", Modifier.size(DockIconSize)) }
             }
         } else {
             val done = timer.phase == ExamTimerPhase.DONE

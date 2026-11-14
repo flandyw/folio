@@ -9,12 +9,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.folio.notes.FolioApplication
+import com.folio.notes.editor.toolbar.DockIconSize
 import com.folio.notes.editor.toolbar.DockButtonHeight
 import com.folio.notes.editor.toolbar.DockButtonWidth
 import com.folio.notes.editor.toolbar.SessionTone
@@ -23,7 +23,6 @@ import com.folio.notes.exam.ExamTimerPhase
 import com.folio.notes.exam.ExamTimerState
 import com.folio.notes.input.longPressAction
 import com.folio.notes.input.rememberLongPressGuard
-import com.folio.notes.ui.FolioSpacing
 
 @Composable
 fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
@@ -83,15 +82,14 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
                 tone = if (isPaused) SessionTone.PAUSED else SessionTone.RUNNING,
                 description = description,
                 onClick = hold.click(onClick),
-                modifier = Modifier.padding(horizontal = FolioSpacing.dp4)
-                    .then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier),
+                modifier = if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier,
                 reserve = if (activeElapsed >= 3_600_000L) "0:00:00" else "00:00"
             )
         } else {
             IconButton(onClick, modifier = Modifier.size(DockButtonWidth, DockButtonHeight).semantics {
                 contentDescription = "$label. $syncStatus. Open study sessions"
             }, shapes = IconButtonDefaults.shapes()) {
-                Icon(FolioIcons.School, null, Modifier.size(20.dp))
+                Icon(FolioIcons.School, null, Modifier.size(DockIconSize))
             }
         }
     }

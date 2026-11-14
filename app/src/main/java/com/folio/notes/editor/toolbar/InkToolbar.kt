@@ -204,16 +204,8 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
     }
     // The highlighter has its own quick colours and presets; other ink tools share them.
     val colorGroup = InkColors.groupOf(tool)
-    // The pen and highlighter wear their own stored colour and brush, not the active tool's, so an
-    // inactive button still reads correctly. Reads are in-memory SharedPreferences lookups.
+    // Keep the pen’s saved brush visible while another tool is active.
     val penBrush = if (tool == Tool.PEN) options.style else StrokeStyle.safeValueOf(toolPrefs.getString("PEN.style", null) ?: "SOLID")
-    fun inkOf(slot: ToolbarSlot): Color? = when {
-        !toolbarOptions.colourDots -> null
-        slot == ToolbarSlot.PEN -> Color(if (tool == Tool.PEN) options.color else toolPrefs.getInt("PEN.color", 0xFF303431.toInt()))
-        slot == ToolbarSlot.HIGHLIGHTER -> Color(if (tool == Tool.HIGHLIGHTER) options.color else toolPrefs.getInt("HIGHLIGHTER.color", 0xFFE9BF44.toInt()))
-        slot == ToolbarSlot.LASER && tool == Tool.LASER -> Color(options.color)
-        else -> null
-    }
     val widthPresetState = remember(toolPrefs) { WidthPresetState(toolPrefs) }
     var colorSlotEditing by remember { mutableStateOf<Int?>(null) }
     var widthSlotEditing by remember { mutableStateOf<Int?>(null) }
@@ -253,7 +245,6 @@ private enum class ToolSub { PRESETS, BEHAVIOUR }
                     FolioToolToggle(active, { if (active && spec.options) onPalette(true) else pick(value) },
                         if (slot == ToolbarSlot.PEN) brushIcon(Tool.PEN, penBrush) else spec.icon,
                         if (slot == ToolbarSlot.PEN) "Pen, ${penBrush.brushLabel(Tool.PEN).lowercase()}" else spec.label + spec.hint,
-                        indicatorColor = inkOf(slot),
                         onLongClick = { claimStripLongPress(); pick(value); if (spec.options) onPalette(true) })
                 }
             }

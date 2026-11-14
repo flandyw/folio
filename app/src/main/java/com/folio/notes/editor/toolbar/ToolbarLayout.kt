@@ -85,8 +85,6 @@ enum class UndoButtons(val label: String) {
  */
 data class ToolbarOptions(
     val undo: UndoButtons = UndoButtons.BOTH,
-    /** The pen and highlighter buttons wear a dot of their current colour. */
-    val colourDots: Boolean = true,
     /** Pinned presets sit beside the tools (they stay pinned when this is off). */
     val pinnedPresets: Boolean = true,
     /** The exam timer and Focal chips sit on the bar when there is room, otherwise in the notebook menu. */
@@ -97,12 +95,11 @@ data class ToolbarOptions(
     val tabs: Boolean = true,
 ) {
     companion object {
-        val KEYS = arrayOf(AppPrefs.TOOLBAR_UNDO, AppPrefs.TOOLBAR_COLOUR_DOTS, AppPrefs.TOOLBAR_PINNED_PRESETS,
+        val KEYS = arrayOf(AppPrefs.TOOLBAR_UNDO, AppPrefs.TOOLBAR_PINNED_PRESETS,
             AppPrefs.TOOLBAR_TIMER, AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, AppPrefs.TOOLBAR_TABS)
 
         fun read(prefs: SharedPreferences): ToolbarOptions = ToolbarOptions(
             undo = UndoButtons.safeValueOf(prefs.getString(AppPrefs.TOOLBAR_UNDO, null)),
-            colourDots = prefs.getBoolean(AppPrefs.TOOLBAR_COLOUR_DOTS, true),
             pinnedPresets = prefs.getBoolean(AppPrefs.TOOLBAR_PINNED_PRESETS, true),
             timer = prefs.getBoolean(AppPrefs.TOOLBAR_TIMER, true),
             inkOptionsOpen = prefs.getBoolean(AppPrefs.TOOLBAR_INK_OPTIONS_OPEN, false),

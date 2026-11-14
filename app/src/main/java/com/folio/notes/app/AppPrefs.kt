@@ -182,7 +182,6 @@ object AppPrefs {
     const val SHARE_LONG_PRESS = "share.longPress"
     /** What the toolbar shows beyond its tools (`ToolbarOptions`); both styles read the same values. */
     const val TOOLBAR_UNDO = "toolbar.undoRedo"
-    const val TOOLBAR_COLOUR_DOTS = "toolbar.colourDots"
     const val TOOLBAR_PINNED_PRESETS = "toolbar.showPinned"
     const val TOOLBAR_TIMER = "toolbar.timer"
     const val TOOLBAR_INK_OPTIONS_OPEN = "toolbar.inkOptionsOpen"

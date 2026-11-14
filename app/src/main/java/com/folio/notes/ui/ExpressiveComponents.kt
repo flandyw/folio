@@ -1,10 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,8 +56,6 @@ import com.folio.notes.settings.showEditorToolNames
     onClick: () -> Unit,
     icon: ImageVector,
     label: String,
-    /** Current ink colour shown as an underline, so the pen reads its colour without opening options. */
-    indicatorColor: Color? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
     val hold = rememberLongPressGuard()
@@ -82,14 +77,7 @@ import com.folio.notes.settings.showEditorToolNames
             ),
         ) { Icon(icon, label, Modifier.size(22.dp)) }
         if (showNames) Text(label.substringBefore(" —"), Modifier.align(Alignment.BottomCenter), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        // The ink underline sits just under the glyph, inside the button, with or without a name below.
-        if (indicatorColor != null) {
-            Box(
-                Modifier.align(Alignment.TopCenter).padding(top = touchSize - 6.dp).size(width = 14.dp, height = 3.dp)
-                    .background(indicatorColor, CircleShape)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            )
-        }
+
     }
 }
 

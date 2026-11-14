@@ -34,6 +34,7 @@ import com.folio.notes.ui.PopoverTile
 import com.folio.notes.workspace.LocalSplitView
 
 internal val EditorFloatingGroupHeight: Dp @Composable get() = if (showEditorToolNames()) (if (largeEditorControls()) 72.dp else 60.dp) else if (largeEditorControls()) 56.dp else 40.dp
+internal val DockIconSize = 22.dp
 internal val DockButtonWidth: Dp @Composable get() = if (largeEditorControls()) 48.dp else 40.dp
 internal val DockButtonHeight: Dp @Composable get() = if (largeEditorControls()) 48.dp else 36.dp
 /** The gap between neighbouring buttons in the left and right groups. */
@@ -306,7 +307,7 @@ private val BarGap = FolioSpacing.dp12
         enableUserInput = onLongClick == null) {
         // The hold and the tap share one guard so a long-press never also fires the tap on release.
         IconButton(hold.click(onClick), enabled = enabled, modifier = Modifier.width(DockButtonWidth).height(DockButtonHeight).then(if (onLongClick != null) Modifier.longPressAction(hold, onLongClick) else Modifier)) {
-            Icon(icon, label, Modifier.size(22.dp), tint = tint)
+            Icon(icon, label, Modifier.size(DockIconSize), tint = tint)
         }
     }
 }

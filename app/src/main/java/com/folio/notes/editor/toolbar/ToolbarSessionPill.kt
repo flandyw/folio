@@ -53,7 +53,7 @@ internal enum class SessionTone { RUNNING, PAUSED, ALERT }
     ) {
         Row(Modifier.padding(start = FolioSpacing.dp10, end = FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-            Icon(icon, null, Modifier.size(16.dp), tint = iconTint)
+            Icon(icon, null, Modifier.size(DockIconSize), tint = iconTint)
             Text(value, Modifier.widthIn(min = minWidth), style = style, maxLines = 1, softWrap = false,
                 color = if (tone == SessionTone.ALERT) colors.error else androidx.compose.ui.graphics.Color.Unspecified)
         }

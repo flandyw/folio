@@ -1,6 +1,5 @@
 package com.folio.notes.ui
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
@@ -15,23 +14,15 @@ import androidx.compose.ui.graphics.vector.toPath
 import androidx.compose.ui.unit.dp
 
 /**
- * Folio's own glyphs, used everywhere in the app instead of the Material set, in a filled
- * style. A glyph is SVG path data: line work (a 2 dp round stroke), then solid parts, whose inner
- * shapes are cut out (even-odd), so detail is negative space rather than a second colour.
- *
- * Nothing here is sized by eye. [icon] measures what was drawn and scales it so its longer side,
- * stroke included, is exactly its size on the 24 dp grid, centred: 20 for a glyph (18 when it
- * fills its square to the corners, the usual optical keyline), less only for
- * the bare marks (chevrons, plus, close, the … dots) that would shout at full size. The stroke
- * stays 2 dp whatever the scale, so a redrawn glyph can never come out bigger, smaller or heavier
- * than its neighbours.
+ * Original Folio glyphs: filled silhouettes on a centred 24 dp canvas.
+ * Details use even-odd cut-outs; open marks use rounded 2 dp strokes.
+ * Related glyphs use the same contour; selection must never change their size.
+ * [icon] fits the visible bounds to 20 dp (smaller for bare navigation marks),
+ * keeping stroke weight constant. No shape-dependent resizing or stock icon fallback.
  */
 internal object FolioIcons {
     private val ink = SolidColor(Color.Black)
     private const val STROKE = 2f
-    /** How close to a corner of its box, as a share of the box, ink must come to count as filling it. */
-    private const val BOXY_REACH = .22f
-
     /** [mirror] flips a directional glyph in a right-to-left layout. */
     private fun icon(line: String, solid: String = "", size: Float = 20f, mirror: Boolean = false): Lazy<ImageVector> = lazy {
         val lines = addPathNodes(line)
@@ -56,18 +47,8 @@ internal object FolioIcons {
             }
             return box to target / maxOf(box.width, box.height)
         }
-        // A glyph that fills its square to the corners looks bigger than a round or leaning one of
-        // the same extent, so it gets Material's square keyline (18) instead of the full 20.
-        val raw = fit(0f, size).first
-        val reach = BOXY_REACH * maxOf(raw.width, raw.height)
-        val corners = listOf(raw.topLeft, raw.topRight, raw.bottomLeft, raw.bottomRight).count { corner ->
-            listOf(linePoints, solidPoints).any { points ->
-                (0 until points.size / 3).any { i -> (Offset(points[i * 3 + 1], points[i * 3 + 2]) - corner).getDistance() < reach }
-            }
-        }
-        val target = if (size == 20f && corners >= 3 && minOf(raw.width, raw.height) > .8f * maxOf(raw.width, raw.height)) 18f else size
         // The stroke's share of the box depends on the scale, so settle it in two passes.
-        val (box, scale) = fit(STROKE / 2f / fit(0f, target).second, target)
+        val (box, scale) = fit(STROKE / 2f / fit(0f, size).second, size)
         ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f, autoMirror = mirror).apply {
             addGroup(pivotX = box.center.x, pivotY = box.center.y, scaleX = scale, scaleY = scale,
                 translationX = 12f - box.center.x, translationY = 12f - box.center.y)
@@ -79,13 +60,13 @@ internal object FolioIcons {
     }
 
     // Tools
-    val Pen by icon("", "M18.29 3.44L20.56 5.71L20.56 7.12L18.79 8.89L15.11 5.21L16.88 3.44Z M14.19 6.13L17.87 9.81L10.66 17.02L4.58 19.42L6.98 13.34Z")
+    val Pen by icon("", "M15.4 4.2L17.1 2.5Q18.2 1.4 19.3 2.5L21.5 4.7Q22.6 5.8 21.5 6.9L19.8 8.6Z M14.2 5.4L18.6 9.8L9.5 18.9Q9.1 19.3 8.5 19.5L3.5 21Q2.6 21.3 2.9 20.4L4.5 15.5Q4.7 14.9 5.1 14.5Z M5.6 16.1L4.7 19.2L7.8 18.3Z")
     val Pencil by icon("", "M18.29 3.44L20.56 5.71L20.56 7.12L18.79 8.89L15.11 5.21L16.88 3.44Z M14.19 6.13L17.87 9.81L11.01 16.67L7.33 12.99Z M6.41 13.91L10.09 17.59L4.58 19.42Z")
     val Fountain by icon("", "M12 22L6 12 9.5 3H14.5L18 12Z M10.4 11A1.6 1.6 0 1 0 13.6 11A1.6 1.6 0 1 0 10.4 11ZM11.4 14H12.6V20H11.4Z")
     val Marker by icon("", "M17.59 2.74L21.26 6.41L21.26 7.83L13.84 15.25L11.29 15.82L8.18 12.71L8.75 10.16L16.17 2.74Z M7.69 13.91L10.09 16.31L7.9 18.51L4.58 19.42L5.49 16.1Z")
     val Brush by icon("", "M18.5 3.5C19.5 4.5 19.5 5.7 18.5 6.7L12 13.2 8.8 10 15.3 3.5C16.3 2.5 17.5 2.5 18.5 3.5Z M7.5 11.5C5.2 11.9 4 13.6 4 15.8 4 17.6 3 18.5 2 19 5.8 20.2 10.6 19 10.8 14.6Z")
-    val Highlighter by icon("", "M17.59 2.74L21.26 6.41L21.26 7.83L13.84 15.25L11.29 15.82L8.18 12.71L8.75 10.16L16.17 2.74Z M7.33 13.56L10.44 16.67L8.61 18.51L3.02 17.87Z")
-    val Eraser by icon("", "M15.89 3.87L20.13 8.11L20.13 9.53L13.98 15.68L8.32 10.02L14.47 3.87Z M7.4 10.94L13.06 16.6L10.23 19.42L8.11 19.42L4.58 15.89L4.58 13.77Z")
+    val Highlighter by icon("", "M14.4 3.2Q15.8 1.8 17.2 3.2L20.8 6.8Q22.2 8.2 20.8 9.6L14.6 15.8Q13.8 16.6 12.8 16.2L7.8 11.2Q7.4 10.2 8.2 9.4Z M7 12.4L11.6 17L9.3 19.3Q9 19.6 8.5 19.6H3.5Q2.7 19.6 3.3 19Z M12.2 7L17 11.8L18.1 10.7L13.3 5.9Z")
+    val Eraser by icon("", "M11.7 3.6Q13.1 2.2 14.5 3.6L20.4 9.5Q21.8 10.9 20.4 12.3L15.7 17L7 8.3Z M5.8 9.5L14.5 18.2L12.5 20.2Q11.7 21 10.6 21H8.1Q7 21 6.2 20.2L2.8 16.8Q1.4 15.4 2.8 14Z")
     val Lasso by icon("M20.42 10.84A8.5 6 0 0 1 18.71 13.68 M16.32 15.17A8.5 6 0 0 1 12.11 16 M8.97 15.61A8.5 6 0 0 1 5.42 13.8 M3.9 11.83A8.5 6 0 0 1 3.69 8.74 M4.93 6.67A8.5 6 0 0 1 8.21 4.63 M11.28 4.02A8.5 6 0 0 1 15.59 4.56 M18.17 5.88A8.5 6 0 0 1 20.26 8.59 M11 16.2C10 18 10.8 19.5 8.5 20.8")
     val Text by icon("", "M5 4.5H19V7H13.3V20H10.7V7H5Z", 17f)
     val Hand by icon("", "M8 13V6A1.5 1.5 0 0 1 11 6V4.5A1.5 1.5 0 0 1 14 4.5V5.5A1.5 1.5 0 0 1 17 5.5V8A1.5 1.5 0 0 1 20 8V14.5C20 18.5 17.3 21 13.5 21H12.5C10.1 21 8.6 20.1 7.3 18.3L4.5 14.6C3.9 13.7 4.1 12.7 4.8 12.2 5.6 11.6 6.6 11.8 7.2 12.6Z M10.45 7.5H11.55V12.5H10.45ZM13.45 6.5H14.55V12.5H13.45ZM16.45 9H17.55V12.5H16.45Z")
@@ -103,7 +84,7 @@ internal object FolioIcons {
     val Pentagon by icon("M12 3.5L20.56 9.72 17.29 19.78H6.71L3.44 9.72Z")
     val Hexagon by icon("M12 3L19.79 7.5V16.5L12 21 4.21 16.5V7.5Z")
     val Star by icon("M12 3.1L14.47 9.2 21.03 9.66 15.99 13.9 17.58 20.29 12 16.8 6.42 20.29 8.01 13.9 2.97 9.66 9.53 9.2Z")
-    val StarFilled by icon("", "M12 3.1L14.47 9.2 21.03 9.66 15.99 13.9 17.58 20.29 12 16.8 6.42 20.29 8.01 13.9 2.97 9.66 9.53 9.2Z")
+    val StarFilled by icon("M12 3.1L14.47 9.2 21.03 9.66 15.99 13.9 17.58 20.29 12 16.8 6.42 20.29 8.01 13.9 2.97 9.66 9.53 9.2Z", "M12 3.1L14.47 9.2 21.03 9.66 15.99 13.9 17.58 20.29 12 16.8 6.42 20.29 8.01 13.9 2.97 9.66 9.53 9.2Z")
     val Graph by icon("M3 12H21 M12 3V21 M6 9L3 12 6 15 M18 9L21 12 18 15 M9 6L12 3 15 6 M9 18L12 21 15 18")
 
     // Bar
@@ -120,8 +101,8 @@ internal object FolioIcons {
     val Search by icon("M4 10.5A6.5 6.5 0 1 0 17 10.5A6.5 6.5 0 1 0 4 10.5Z M15.3 15.3L20 20")
     val Layers by icon("M3.5 12.5L12 17 20.5 12.5 M3.5 16.5L12 21 20.5 16.5", "M12 3L21 7.5 12 12 3 7.5Z")
     val AddPage by icon("", "M6.5 3H14L19 8V19.5A1.5 1.5 0 0 1 17.5 21H6.5A1.5 1.5 0 0 1 5 19.5V4.5A1.5 1.5 0 0 1 6.5 3Z M11.2 10.5H12.8V13.2H15.5V14.8H12.8V17.5H11.2V14.8H8.5V13.2H11.2Z")
-    val Bookmark by icon("M7 4H17A1 1 0 0 1 18 5V20L12 15.5 6 20V5A1 1 0 0 1 7 4Z")
-    val BookmarkFilled by icon("", "M7 3H17A1.5 1.5 0 0 1 18.5 4.5V21L12 16.5 5.5 21V4.5A1.5 1.5 0 0 1 7 3Z")
+    val Bookmark by icon("M8 4H16Q18 4 18 6V20L12 16L6 20V6Q6 4 8 4Z")
+    val BookmarkFilled by icon("M8 4H16Q18 4 18 6V20L12 16L6 20V6Q6 4 8 4Z", "M8 4H16Q18 4 18 6V20L12 16L6 20V6Q6 4 8 4Z")
     val Image by icon("", "M4.5 4H19.5A1.5 1.5 0 0 1 21 5.5V18.5A1.5 1.5 0 0 1 19.5 20H4.5A1.5 1.5 0 0 1 3 18.5V5.5A1.5 1.5 0 0 1 4.5 4Z M5.5 17.5L9.5 12.5 12.5 16 15 13 18.5 17.5Z M6.9 8.5A1.6 1.6 0 1 0 10.1 8.5A1.6 1.6 0 1 0 6.9 8.5Z")
     val Fit by icon("M4 8.5V5.5A1.5 1.5 0 0 1 5.5 4H8.5 M15.5 4H18.5A1.5 1.5 0 0 1 20 5.5V8.5 M20 15.5V18.5A1.5 1.5 0 0 1 18.5 20H15.5 M8.5 20H5.5A1.5 1.5 0 0 1 4 18.5V15.5", "M8 8.5H16V15.5H8Z")
     val FitAll by icon("M4 8.5V5.5A1.5 1.5 0 0 1 5.5 4H8.5 M15.5 4H18.5A1.5 1.5 0 0 1 20 5.5V8.5 M20 15.5V18.5A1.5 1.5 0 0 1 18.5 20H15.5 M8.5 20H5.5A1.5 1.5 0 0 1 4 18.5V15.5", "M9 12A3 3 0 1 0 15 12A3 3 0 1 0 9 12Z")
@@ -166,8 +147,8 @@ internal object FolioIcons {
     val Down by icon("M12 5V19 M6 13L12 19 18 13", "", 16f)
     val Plus by icon("M12 5V19 M5 12H19", "", 16f)
     val Minus by icon("M5 12H19", "", 16f)
-    val Flag by icon("M6 21V4", "M6 4H18.5L16 8.5 18.5 13H6Z")
-    val FlagOutline by icon("M6 21V4.5H18L15.5 8.75 18 13H6")
+    val Flag by icon("M6 21V4H18L15.5 8.5L18 13H6", "M6 4H18L15.5 8.5L18 13H6Z")
+    val FlagOutline by icon("M6 21V4H18L15.5 8.5L18 13H6")
     val TextSize by icon("M3 18L6 10 9 18 M4.1 15.5H7.9 M11 18L15.5 6 20 18 M12.7 14H18.3")
     val ClearInk by icon("M4 14C6 10 7.5 8 9 8 11.2 8 9.8 15 12 15 13.6 15 14.4 11.5 16 11.5 17.2 11.5 17.5 13 19 13 M5 20L19 4")
     val Paper by icon("", "M6.5 3H17.5A1.5 1.5 0 0 1 19 4.5V19.5A1.5 1.5 0 0 1 17.5 21H6.5A1.5 1.5 0 0 1 5 19.5V4.5A1.5 1.5 0 0 1 6.5 3ZM8 7.5H16V9H8ZM8 11.2H16V12.7H8ZM8 15H13V16.5H8Z")
@@ -238,7 +219,7 @@ internal object FolioIcons {
     val Pdf by icon("", "M6.5 3H14L19 8V19.5A1.5 1.5 0 0 1 17.5 21H6.5A1.5 1.5 0 0 1 5 19.5V4.5A1.5 1.5 0 0 1 6.5 3Z M13.4 4.6L17.4 8.6H13.4ZM7.5 12.5H16.5V17H7.5Z")
     val FindInPage by icon("", "M6.5 3H14L19 8V19.5A1.5 1.5 0 0 1 17.5 21H6.5A1.5 1.5 0 0 1 5 19.5V4.5A1.5 1.5 0 0 1 6.5 3Z M13.4 4.6L17.4 8.6H13.4ZM8.3 13.5A3.2 3.2 0 1 0 14.7 13.5A3.2 3.2 0 1 0 8.3 13.5ZM9.7 13.5A1.8 1.8 0 1 0 13.3 13.5A1.8 1.8 0 1 0 9.7 13.5ZM13.4 16.4L14.4 15.4 17 18 16 19Z")
     val Folder by icon("", "M3 6.5A1.5 1.5 0 0 1 4.5 5H9.5L11.5 7H19.5A1.5 1.5 0 0 1 21 8.5V17.5A1.5 1.5 0 0 1 19.5 19H4.5A1.5 1.5 0 0 1 3 17.5Z")
-    val FolderOpen by icon("M3 6.5A1.5 1.5 0 0 1 4.5 5H9.5L11.5 7H19.5A1.5 1.5 0 0 1 21 8.5V17.5A1.5 1.5 0 0 1 19.5 19H4.5A1.5 1.5 0 0 1 3 17.5Z")
+    val FolderOpen by icon("M3 10V7Q3 5 5 5H9L12 8H19 M3 10H21L19 19H5Z")
     val FolderAdd by icon("", "M3 6.5A1.5 1.5 0 0 1 4.5 5H9.5L11.5 7H19.5A1.5 1.5 0 0 1 21 8.5V17.5A1.5 1.5 0 0 1 19.5 19H4.5A1.5 1.5 0 0 1 3 17.5ZM14.2 10H15.8V12.2H18V13.8H15.8V16H14.2V13.8H12V12.2H14.2Z")
     val FolderOff by icon("M3 6.5A1.5 1.5 0 0 1 4.5 5H9.5L11.5 7H19.5A1.5 1.5 0 0 1 21 8.5V17.5A1.5 1.5 0 0 1 19.5 19H4.5A1.5 1.5 0 0 1 3 17.5Z M4 2.5L21 21.5")
     val Archive by icon("", "M4 4H20A1 1 0 0 1 21 5V7.5A1 1 0 0 1 20 8.5H4A1 1 0 0 1 3 7.5V5A1 1 0 0 1 4 4ZM4.5 10H19.5V19A1.5 1.5 0 0 1 18 20.5H6A1.5 1.5 0 0 1 4.5 19Z M9.5 12.5H14.5V14.2H9.5Z")
@@ -265,7 +246,7 @@ internal object FolioIcons {
     val List by icon("", "M4 5H7V8H4ZM4 10.5H7V13.5H4ZM4 16H7V19H4ZM10 5H19A1 1 0 0 1 20 6V7A1 1 0 0 1 19 8H10A1 1 0 0 1 9 7V6A1 1 0 0 1 10 5ZM10 10.5H19A1 1 0 0 1 20 11.5V12.5A1 1 0 0 1 19 13.5H10A1 1 0 0 1 9 12.5V11.5A1 1 0 0 1 10 10.5ZM10 16H19A1 1 0 0 1 20 17V18A1 1 0 0 1 19 19H10A1 1 0 0 1 9 18V17A1 1 0 0 1 10 16Z", 20f, mirror = true)
     val ListAdd by icon("M4 7H14 M4 12H14 M4 17H10 M17.5 13V20 M14 16.5H21", "", 20f, mirror = true)
     val Bullets by icon("M9.5 6.5H20 M9.5 12H20 M9.5 17.5H20", "M3.4 6.5A1.6 1.6 0 1 0 6.6 6.5A1.6 1.6 0 1 0 3.4 6.5ZM3.4 12A1.6 1.6 0 1 0 6.6 12A1.6 1.6 0 1 0 3.4 12ZM3.4 17.5A1.6 1.6 0 1 0 6.6 17.5A1.6 1.6 0 1 0 3.4 17.5Z", 20f, mirror = true)
-    val Numbered by icon("M10 6.5H20 M10 12H20 M10 17.5H20 M4.3 5.4L5.6 4.6V8.4 M4.2 10.6C4.4 9.7 6.6 9.7 6.6 10.9 6.6 11.9 4.2 12.6 4.2 13.9H6.8 M4.2 16C5 15.3 6.6 15.5 6.6 16.6 6.6 17.5 5.4 17.7 5.4 17.7 6.6 17.7 7 19.7 4.2 19.4", "", 20f, mirror = true)
+    val Numbered by icon("M11 7H20 M11 17H20 M4 5L6 4V10 M4 10H8 M4 15Q4 13 6 13Q8 13 8 15Q8 16 4 20H8", "", 20f, mirror = true)
     val Sort by icon("M4 7H20 M4 12H15 M4 17H10", "", 20f, mirror = true)
     val Filter by icon("M4 7H20 M7 12H17 M10 17H14")
     val FilterOff by icon("M9 7H20 M7 12H17 M10 17H14 M4 3.5L20 20.5")
