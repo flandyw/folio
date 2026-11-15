@@ -80,6 +80,9 @@ internal object ChatCompletions {
         }.sortedBy { if (it.slug in routers) 0 else if (it.suggested) 1 else 2 }
     }
 
+    /** A model named by the user rather than listed: assumed able, held to the schema by the instructions alone. */
+    fun custom(id: String) = ChatGptModel(id, id, json = "none")
+
     /**
      * [content] and [format] arrive in the Responses shapes the rest of Folio builds. The schema is always spelled
      * out in the system message too, because many models here cannot enforce one; [structured] false leaves the

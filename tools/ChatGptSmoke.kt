@@ -256,6 +256,7 @@ fun main() {
       {"id":"~v/new-latest","architecture":{"output_modalities":["text"]}},
       {"id":"openrouter/auto","architecture":{"output_modalities":["text","image"]}}]}"""))
     check(trimmed.map { it.slug } == listOf("openrouter/auto", "~v/new-latest", "v/new") && trimmed.map { it.suggested } == listOf(true, true, false))
+    check(ChatCompletions.custom("v/unlisted") == ChatGptModel("v/unlisted", "v/unlisted", emptyList(), true, "none", false))
     val nim = ChatCompletions.models(JSONObject("""{"data":[{"id":"meta/llama-vision"},{"id":"nvidia/nv-embedqa"},{"id":"meta/llama-guard"},{"id":"meta/codellama-70b"}]}"""))
     check(nim == listOf(ChatGptModel("meta/llama-vision", "meta/llama-vision", emptyList(), true, "none")))
     val pictured = JSONArray().put(JSONObject().put("type", "input_text").put("text", "Page 1"))

@@ -32,6 +32,8 @@ object AppPrefs {
     const val DEFAULT_AI_IMPORT_CHECK = true
     /** Prefix + provider id (`AiProvider.id`): the Page review model last chosen there; unset or no longer offered = the provider's default. */
     const val AI_REVIEW_MODEL = "ai.reviewModel."
+    /** Prefix + provider id: a string set of model ids the user typed in because the provider's list omits them. */
+    const val AI_CUSTOM_MODELS = "ai.customModels."
     /** Model slug for background classification; unset follows Page review's model. */
     const val AI_CLASSIFY_MODEL = "ai.classifyModel"
     /** Reasoning level for background classification; unset = lightest the model offers (`ChatGptInference.classifyEffort`). */

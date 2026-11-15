@@ -131,6 +131,7 @@ import com.folio.notes.ui.FolioSpacing
 
 @Composable internal fun ChatGptModelPicker(state: ChatGptState, manager: ChatGptManager) {
     var menu by remember { mutableStateOf(false) }
+    val provider = state.accounts.firstOrNull { it.client == state.active }?.provider ?: AiProvider.CHATGPT
     val selected = state.models.firstOrNull { it.slug == state.model }
     Box {
         OutlinedButton({ menu = true }, Modifier.fillMaxWidth(), enabled = !state.busy, shape = FolioShapes.large) {
@@ -142,24 +143,30 @@ import com.folio.notes.ui.FolioSpacing
             Icon(FolioIcons.ChevronDown, null, Modifier.size(20.dp))
         }
         FolioMenuPopover(menu, { menu = false }, title = "Choose a model") {
-            ModelMenuItems(state.models, state.model, markTextOnly = true) { manager.selectModel(it.slug); menu = false }
+            ModelMenuItems(state.models, state.model, markTextOnly = true,
+                onCustom = if (provider.key) ({ id -> if (manager.addModel(id)) { manager.selectModel(id.trim()); menu = false } }) else null) { manager.selectModel(it.slug); menu = false }
             FolioMenuItem({ Text("Refresh available models") }, { menu = false; manager.refreshModels() }, leadingIcon = { Icon(FolioIcons.RotateRight, null) })
         }
     }
 }
 
 /** The catalog as menu rows. A long one gets a search field and, until something is typed, shows only its short list (or its first rows). */
-@Composable internal fun ModelMenuItems(models: List<ChatGptModel>, selected: String?, markTextOnly: Boolean = false, onPick: (ChatGptModel) -> Unit) {
+@Composable internal fun ModelMenuItems(models: List<ChatGptModel>, selected: String?, markTextOnly: Boolean = false,
+    onCustom: ((String) -> Unit)? = null, onPick: (ChatGptModel) -> Unit) {
     var query by remember { mutableStateOf("") }
-    if (models.size > 12) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(FolioSpacing.dp4), singleLine = true,
-        shape = FolioShapes.large, placeholder = { Text("Search ${models.size} models") })
+    if (models.size > 12 || onCustom != null) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(FolioSpacing.dp4), singleLine = true,
+        shape = FolioShapes.large, placeholder = { Text(if (onCustom != null) "Search ${models.size} models or type a model ID" else "Search ${models.size} models") })
     val words = query.lowercase().split(' ').filter(String::isNotEmpty)
     val matches = models.filter { model -> words.all { it in model.name.lowercase() || it in model.slug.lowercase() } }
-    val short = if (words.isEmpty() && models.any { it.suggested }) matches.filter { it.suggested } else matches.take(if (words.isEmpty()) 15 else 40)
+    val short = if (words.isEmpty() && models.any { it.suggested }) matches.filter { it.suggested } else matches.take(if (words.isEmpty() && models.size > 60) 15 else 60)
     val shown = (listOfNotNull(matches.firstOrNull { it.slug == selected }) + short).distinct()
     shown.forEach { model ->
         FolioMenuItem({ Text(if (markTextOnly && !model.images) "${model.name} · text only" else model.name) }, { onPick(model) }, selected = model.slug == selected)
     }
+    // Some providers serve models their list omits; an exact ID can be used as typed.
+    val typed = query.trim()
+    if (onCustom != null && typed.length >= 2 && typed.none { it.isWhitespace() } && models.none { it.slug == typed })
+        FolioMenuItem({ Text("Use model ID \"$typed\"") }, { onCustom(typed) }, leadingIcon = { Icon(FolioIcons.Plus, null) })
     if (matches.size > shown.size || matches.isEmpty()) Text(if (matches.isEmpty()) "No models match." else "${matches.size - shown.size} more. Search by name to find them, or try \"free\".",
         Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

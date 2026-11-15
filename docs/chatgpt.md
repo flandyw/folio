@@ -271,7 +271,11 @@ smoke test's table checks all read the enum; no other code changes. It must serv
   opens on about twenty **suggested** rows: its Auto and Free routers and the `~vendor/family-latest` aliases (GPT,
   Claude, Gemini, DeepSeek, GLM, Grok, Kimi…), which follow new releases, so Folio names no model version and the
   list does not go stale. Auto is the default. Every other model is one search away (typing "free" lists the free
-  ones). Catalogs without suggestions show their first fifteen rows until searched.
+  ones). Catalogs without suggestions are shown whole up to sixty models (NVIDIA, AMD), else their first fifteen.
+- **Unlisted models:** a provider can serve models its `/models` list omits (preview or account-specific ones).
+  Typing an exact id in the Page review picker offers **Use model ID**, which adds it for that provider
+  (`ChatGptManager.addModel`, remembered in `AppPrefs.AI_CUSTOM_MODELS`); it then appears in the classification
+  picker too. A wrong id fails on first use with the provider's "no longer offers this model" message.
 - **Schema:** the JSON schema is always written into the system message, and `response_format` is added when the
   model supports it (`json_schema`, else `json_object`). A model that rejects the field (HTTP 400/422) is asked once
   more without it. Replies may be fenced or wrapped in a sentence (`ChatCompletions.json`), inline `<think>` text is

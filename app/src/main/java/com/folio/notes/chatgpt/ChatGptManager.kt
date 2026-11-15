@@ -189,6 +189,21 @@ internal class ChatGptManager(private val context: Context) {
         mutable.update { it.copy(model = slug, effort = efforts[slug]?.takeIf { effort -> effort in selected.efforts }) }
         prefs.edit().putString(AppPrefs.AI_REVIEW_MODEL + provider().id, slug).apply()
     }
+    /**
+     * Offers a model the provider's list leaves out (some serve more than they list), by its exact id. Remembered for
+     * this provider; a wrong id fails on first use with the provider's "no such model" message.
+     */
+    fun addModel(id: String): Boolean {
+        val slug = id.trim()
+        val provider = provider()
+        if (!provider.key || slug.length !in 2..200 || slug.any { it.isWhitespace() }) return false
+        if (mutable.value.models.none { it.slug == slug }) {
+            prefs.edit().putStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id,
+                prefs.getStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id, null).orEmpty() + slug).apply()
+            mutable.update { it.copy(models = it.models + ChatCompletions.custom(slug)) }
+        }
+        return true
+    }
     fun selectEffort(effort: String?) {
         val current = mutable.value
         if (current.busy) return
@@ -450,7 +465,9 @@ internal class ChatGptManager(private val context: Context) {
     private suspend fun models() {
         val provider = provider()
         val listing = json(Request.Builder().url("${provider.base}/models").header("Authorization", "Bearer ${access()}").build(), provider)
-        val models = if (provider.key) ChatCompletions.models(listing) else listing.getJSONArray("models").let { catalog ->
+        val models = if (provider.key) ChatCompletions.models(listing).let { listed ->
+            listed + (prefs.getStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id, null).orEmpty() - listed.map { it.slug }.toSet()).sorted().map(ChatCompletions::custom)
+        } else listing.getJSONArray("models").let { catalog ->
             (0 until catalog.length()).map { catalog.getJSONObject(it) }.filter { it.optString("visibility") == "list" }.map(ChatGptInference::model) }
         val selected = mutable.value.model?.takeIf { slug -> models.any { it.slug == slug } }
             ?: prefs.getString(AppPrefs.AI_REVIEW_MODEL + provider.id, null)?.takeIf { slug -> models.any { it.slug == slug } }
