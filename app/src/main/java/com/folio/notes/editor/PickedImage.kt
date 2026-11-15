@@ -3,6 +3,8 @@ package com.folio.notes.editor
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
@@ -47,12 +49,32 @@ internal class PickedImage(val bytes: ByteArray, val width: Int, val height: Int
                     Bitmap.createScaledBitmap(decoded, (decoded.width * s).toInt().coerceAtLeast(1),
                         (decoded.height * s).toInt().coerceAtLeast(1), true).also { decoded.recycle() }
                 } else decoded
+                val upright = upright(raw, capped)
                 val out = ByteArrayOutputStream()
-                check(capped.compress(Bitmap.CompressFormat.JPEG, 85, out)) { "This picture could not be saved" }
-                val w = capped.width; val h = capped.height
-                capped.recycle()
+                check(upright.compress(Bitmap.CompressFormat.JPEG, 85, out)) { "This picture could not be saved" }
+                val w = upright.width; val h = upright.height
+                upright.recycle()
                 PickedImage(out.toByteArray(), w, h)
             } ?: error("This picture could not be opened")
+        }
+
+        /** Turns photos upright: cameras store them as the sensor saw them and say how to turn them in EXIF. */
+        private fun upright(raw: ByteArray, bitmap: Bitmap): Bitmap {
+            val orientation = runCatching {
+                ExifInterface(raw.inputStream()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+            val m = Matrix()
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
+                ExifInterface.ORIENTATION_TRANSPOSE -> { m.postRotate(90f); m.postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_TRANSVERSE -> { m.postRotate(270f); m.postScale(-1f, 1f) }
+                else -> return bitmap
+            }
+            return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true).also { if (it !== bitmap) bitmap.recycle() }
         }
     }
 }

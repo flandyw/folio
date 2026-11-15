@@ -145,7 +145,7 @@ class InkView(context: Context) : View(context) {
             // A half-dragged picture belongs to the hand tool.
             // A boxed allocation still waiting for its marks goes with the mark-area tool.
             if (value != Tool.MARK_AREA && markRegionShown != null) { markRegionShown = null; onMarkRegion(null, null); invalidate() }
-            if (value != Tool.HAND) { movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; endImageCrop(false); clearImageSelection() }
+            if (value != Tool.HAND && value != Tool.IMAGE) { movingImage = null; resizingImage = false; imageMoved = false; pendingLink = null; endImageCrop(false); clearImageSelection() }
         }
     var inkColor = Color.rgb(47, 49, 47)
     var inkWidth = 3f
@@ -488,6 +488,8 @@ class InkView(context: Context) : View(context) {
     var onImagesChanged: (List<PageImage>) -> Unit = {}
     /** A tap on a picture with the hand tool, so the editor can offer delete and layering. */
     var onImageSelected: (PageImage?) -> Unit = {}
+    /** A clean tap on empty page with [Tool.IMAGE], in page units: the host places a picture there. */
+    var onImageToolTap: (InkPoint) -> Unit = {}
     /** Tappable links of the shown PDF page, in Folio page coordinates. */
     var pdfLinks: List<PdfLink> = emptyList()
     /** A tap on a PDF link with the hand tool, so the editor can open or follow it. */
@@ -2466,7 +2468,7 @@ class InkView(context: Context) : View(context) {
                 stylus = isStylus(event, 0)
                 ignored = false
                 // Typing is a finger job even when finger drawing is off, so the text tool never pans.
-                navigating = !ignored && (touchNavigation || tool == Tool.HAND || tool == Tool.STICKY_NOTE || (tool != Tool.TEXT && !fingerDrawing && !stylus))
+                navigating = !ignored && (touchNavigation || tool == Tool.HAND || tool == Tool.IMAGE || tool == Tool.STICKY_NOTE || (tool != Tool.TEXT && !fingerDrawing && !stylus))
                 if (navigating) suspendWritingFollow()
                 lastX = event.rawX; lastY = event.rawY
                 panVelocity.resetTracking()
@@ -2482,10 +2484,10 @@ class InkView(context: Context) : View(context) {
                 if (touchNavigation) {
                     // This delayed DOWN belongs to a recognized pinch, never an ink/tool tap.
                     tapOff = false
-                } else if (cropImageId != null && !readOnly && !navigationOnly && tool == Tool.HAND && !ignored) {
+                } else if (cropImageId != null && !readOnly && !navigationOnly && handlesPictures && !ignored) {
                     if (beginCrop(event, 0)) navigating = false
                     else tapOff = !cropFrameContains(point(event, 0))
-                } else if (!readOnly && !navigationOnly && tool == Tool.HAND && !ignored && beginImage(event, 0)) {
+                } else if (!readOnly && !navigationOnly && handlesPictures && !ignored && beginImage(event, 0)) {
                     navigating = false
                 } else if (tool == Tool.HAND && !ignored && beginLink(event, 0)) {
                     navigating = false
@@ -2497,11 +2499,14 @@ class InkView(context: Context) : View(context) {
                 // Pen-only mode is where a finger means "navigate", so a hand that has not travelled
                 // yet is left where it is. The pen takes the gesture over the moment its tip lands.
                 if (!touchNavigation && cropImageId == null) tapOff = !readOnly && !ignored &&
-                    ((tool == Tool.HAND && selectedImageId != null && movingImage == null) || (tool == Tool.LASSO && hasSelection() && navigating))
+                    ((handlesPictures && selectedImageId != null && movingImage == null) || (tool == Tool.LASSO && hasSelection() && navigating))
+                // The image tool places a picture where empty page is tapped; a selected picture is put down first.
+                imageToolTap = tool == Tool.IMAGE && !touchNavigation && !readOnly && !navigationOnly && !ignored &&
+                    cropImageId == null && movingImage == null && selectedImageId == null
                 panGate.arm(navigating && !touchNavigation && !stylus && !fingerDrawing, centroidX(event), centroidY(event))
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                removeCallbacks(longPressRunnable); tapOff = false
+                removeCallbacks(longPressRunnable); tapOff = false; imageToolTap = false
                 if (!stylus && !ignored) {
                     clearShapeHold()
                     endObjectLift()
@@ -2787,6 +2792,13 @@ class InkView(context: Context) : View(context) {
                 positionObjectsOnRelease(event)
                 val hadImage = movingImage != null
                 val hadLink = pendingLink != null
+                if (imageToolTap) {
+                    imageToolTap = false
+                    if (!hadImage && hypot(event.x - tapOffX, event.y - tapOffY) <= ViewConfiguration.get(context).scaledTouchSlop) {
+                        val at = point(event, event.findPointerIndex(pointerId).coerceAtLeast(0))
+                        onImageToolTap(if (page.infinite) at else clampToPage(at))
+                    }
+                }
                 val tappedZone = pendingZone
                 pendingZone = null
                 if (tappedZone != null) offerZone(tappedZone)
@@ -2813,7 +2825,7 @@ class InkView(context: Context) : View(context) {
                 }
                 performClick()
             }
-            MotionEvent.ACTION_CANCEL -> { reportNavigating(false); removeCallbacks(longPressRunnable); tapOff = false; touchChord.reset(); cancelGesture() }
+            MotionEvent.ACTION_CANCEL -> { reportNavigating(false); removeCallbacks(longPressRunnable); tapOff = false; imageToolTap = false; touchChord.reset(); cancelGesture() }
         }
         reportSelectionViewBounds()
         if (!dirtyInvalidated) invalidate()
@@ -3238,6 +3250,9 @@ class InkView(context: Context) : View(context) {
     private val cropInset = FloatArray(4)
     private var cropEdges = 0
     private var tapOff = false
+    private var imageToolTap = false
+    /** Tools that pick up, move, resize and crop pictures. */
+    private val handlesPictures get() = tool == Tool.HAND || tool == Tool.IMAGE
     private var tapOffX = 0f; private var tapOffY = 0f
 
     private fun cropImage(): PageImage? = cropImageId?.let { id -> page.images.find { it.id == id } }

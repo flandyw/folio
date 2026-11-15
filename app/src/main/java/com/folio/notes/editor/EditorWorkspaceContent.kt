@@ -809,7 +809,8 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                 val image = picked.placement(target, at)
                 model.addImage(image, picked.bytes, target.id)
                 selectedImage = target.id to image
-                borrowTool(Tool.HAND)
+                // The image tool moves and crops pictures itself; anything else lends the hand for it.
+                if (tool != Tool.IMAGE) borrowTool(Tool.HAND)
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (e: Exception) {
                 model.reportError("Couldn't add this picture: ${e.message.orEmpty()}")
@@ -829,13 +830,26 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     fun pasteInView() = paste(visibleCentre())
     // Asked for at a spot on the page (the long-press menu), the picture lands there.
     var pictureAt by remember { mutableStateOf<InkPoint?>(null) }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    // A photo taken from the picker lands in one reused cache file; the picture itself is copied into the notebook.
+    val cameraFile = remember { java.io.File(context.cacheDir, "camera/capture.jpg") }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val at = pictureAt ?: visibleCentre()
         pictureAt = null
-        uri?.let {
-            try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
-            insertImage(it, at)
-        }
+        if (result.resultCode != android.app.Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val uri = result.data?.data ?: cameraFile.takeIf { it.length() > 0 }?.let(android.net.Uri::fromFile)
+        uri?.let { insertImage(it, at) }
+    }
+    /** Photos, files and the camera in one system sheet; the picture lands at [at], else in view. */
+    fun pickPicture(at: InkPoint? = null) {
+        pictureAt = at
+        cameraFile.parentFile?.mkdirs(); cameraFile.delete()
+        val output = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", cameraFile)
+        val camera = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).putExtra(android.provider.MediaStore.EXTRA_OUTPUT, output)
+            .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .apply { clipData = android.content.ClipData.newRawUri(null, output) }
+        val pick = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        try { imagePicker.launch(Intent.createChooser(pick, "Add a picture").putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(camera))) }
+        catch (_: android.content.ActivityNotFoundException) { pictureAt = null; model.reportError("No app can provide a picture") }
     }
     // Link rectangles arrive once per notebook; a native notebook simply has none.
     LaunchedEffect(note.id) {
@@ -1151,6 +1165,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                             onCanvasZoom = { if (!preview) documentZoom = it },
                             onPageEdges = { left, right -> if (!preview && item.id == page.id) { pageEdgeLeft = left; pageEdgeRight = right } },
                             onImageSelected = { image -> selectedImage = image?.let { item.id to it } },
+                            onImageToolTap = ::pickPicture,
                             onCropMode = { if (item.id == page.id) cropActive = it },
                             onNavigating = { inkNavigating = it },
                             onLongPress = { x, y, at -> if (item.id == page.id) pageMenu = Triple(x, y, at) },
@@ -1206,6 +1221,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                         onCanvasZoom = { documentZoom = it },
                         onCameraChanged = { savedCanvas = it },
                         onImageSelected = { image -> selectedImage = image?.let { page.id to it } },
+                        onImageToolTap = ::pickPicture,
                         onCropMode = { cropActive = it },
                         onNavigating = { inkNavigating = it },
                         onLongPress = { x, y, at -> pageMenu = Triple(x, y, at) },
@@ -1268,6 +1284,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                                     onImageSelected = { image ->
                                     selectedImage = image?.let { item.id to it }
                                 },
+                                    onImageToolTap = ::pickPicture,
                                     onPdfLink = ::openPdfLink,
                                     onReplaceZone = marking::replaceZone,
                                     onPageFrame = transfers::paper,
@@ -1384,7 +1401,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                     hiddenSlots = if (music != null) setOf(ToolbarSlot.STICKY_NOTE, ToolbarSlot.MARK_AREA) else emptySet(),
                     shapeTools = if (music != null) ShapeTools.toList() else ShapePickerTools.toList(),
                     tool = tool,
-                    onTool = { selectTool(it) },
+                    onTool = { selectTool(it); if (it == Tool.IMAGE) pickPicture() },
                     options = options,
                     onOptions = ::changeOptions,
                     quick = quick,
@@ -1452,7 +1469,6 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                                 when { !layer.visible -> "Hidden layer: ${layer.name}"; layer.locked -> "Locked layer: ${layer.name}"; else -> null }
                             },
                             layerHidden = PageLayers.effective(page.layers).firstOrNull { it.id == model.activeLayerOf(page) }?.visible == false,
-                            onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
                             bookmarked = page.bookmarked,
                             onBookmark = { model.togglePageBookmark(page.id) },
                             layersPopover = {
@@ -1471,7 +1487,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                                 NotebookOptionsContent(dismiss, page.pdfIndex != null, state.saveFailed,
                                     onRetry = model::retrySave,
                                     onExam = { examPanel = true }, onRecordMark = { markDialog = true }, onTimer = { timerPanel = true },
-                                    onInsertImage = { imagePicker.launch(arrayOf("image/*")) },
+                                    onInsertImage = { pickPicture() },
                                     onContents = { pdfContentsOpen = true; loadOutline() },
                                     onSearchNotes = { noteSearchOpen = true })
                             }
@@ -1643,7 +1659,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
             onPaste = { paste(at) }, canPaste = canPaste,
             onSelectAll = ::selectAllInk,
             onText = { finishTextEditing(hideKeyboard = false); borrowTool(Tool.TEXT); placeTextBox(page, at) },
-            onImage = { pictureAt = at; imagePicker.launch(arrayOf("image/*")) },
+            onImage = { pickPicture(at) },
             canUndo = state.canUndo || textEditor?.box?.text?.isNotBlank() == true, canRedo = state.canRedo,
             onUndo = { finishTextEditing(); undoEditor() }, onRedo = { finishTextEditing(); redoEditor() },
             onDismiss = { pageMenu = null })
@@ -1659,7 +1675,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         EditorCommand("Browse pages", run = { pageBrowser = true }),
         EditorCommand(if (page.bookmarked) "Remove bookmark from this page" else "Bookmark this page", run = { model.togglePageBookmark(page.id) }),
         EditorCommand("Rename notebook", run = { finishTextEditing(); rename = true }),
-        EditorCommand("Insert picture", run = { imagePicker.launch(arrayOf("image/*")) }),
+        EditorCommand("Insert picture", run = { pickPicture() }),
         EditorCommand(if (singlePage) "Switch to continuous scroll" else "Switch to single page view",
             enabled = music == null && !page.infinite, reason = "Canvases always scroll freely", run = { setSinglePage(!singlePage) }),
         EditorCommand(if (rulerOn) "Hide ruler" else "Show ruler", run = { rulerOn = !rulerOn }),

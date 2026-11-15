@@ -19,7 +19,7 @@ import com.folio.notes.model.Tool
  * switch rather than a tool: the straightedge stays out while any tool is in hand.
  */
 enum class ToolbarSlot {
-    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA, STICKY_NOTE, LASER, RULER;
+    PEN, SHAPES, HIGHLIGHTER, ERASER, TEXT, LASSO, HAND, MARK_AREA, STICKY_NOTE, LASER, RULER, IMAGE;
 
     /** Tools behind this slot; [SHAPES] expands to the last-used shape tool, [RULER] holds none. */
     val tools: List<Tool> get() = when (this) {
@@ -34,6 +34,7 @@ enum class ToolbarSlot {
         STICKY_NOTE -> listOf(Tool.STICKY_NOTE)
         LASER -> listOf(Tool.LASER)
         RULER -> emptyList()
+        IMAGE -> listOf(Tool.IMAGE)
     }
 
     companion object {
@@ -117,7 +118,7 @@ object ToolbarLayouts {
 
     val DEFAULT_ORDER: List<ToolbarSlot> = listOf(
         ToolbarSlot.PEN, ToolbarSlot.HIGHLIGHTER, ToolbarSlot.ERASER,
-        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.STICKY_NOTE,
+        ToolbarSlot.LASSO, ToolbarSlot.TEXT, ToolbarSlot.SHAPES, ToolbarSlot.HAND, ToolbarSlot.STICKY_NOTE, ToolbarSlot.IMAGE,
         ToolbarSlot.RULER, ToolbarSlot.LASER, ToolbarSlot.MARK_AREA
     )
 

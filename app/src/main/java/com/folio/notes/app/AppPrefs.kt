@@ -27,6 +27,11 @@ import com.folio.notes.workspace.SplitPanes
  * and every screen reads the same value.
  */
 object AppPrefs {
+    /** Ask ChatGPT (when signed in) to check PDF imports the on-device classifier is unsure about. */
+    const val AI_IMPORT_CHECK = "import.aiCheck"
+    const val DEFAULT_AI_IMPORT_CHECK = true
+    /** Notification permission is requested once, the first time a background check starts. */
+    const val NOTIFICATIONS_ASKED = "notifications.asked"
     const val DEFAULT_UX_HINTS = true
     const val DEFAULT_UX_LABELS = false
     const val DEFAULT_UX_LARGE_CONTROLS = false

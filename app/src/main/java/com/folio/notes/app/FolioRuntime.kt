@@ -497,6 +497,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun removePdfImport(uri: Uri): Unit = backupService.removePdfImport(uri)
 
     fun cancelPdfImport(): Unit = backupService.cancelPdfImport()
+    fun setAiImportCheck(enabled: Boolean): Unit = backupService.setAiImportCheck(enabled)
 
     fun importPdfs(folderId: String?, reviewed: List<PendingPdfImport> = _state.value.pendingPdfImports): Unit = backupService.importPdfs(folderId, reviewed)
     fun importVcaaPapers(folderId: String?, papers: List<VcaaExam>): Unit = backupService.importVcaaPapers(folderId, papers)

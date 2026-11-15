@@ -66,6 +66,8 @@ private fun spec(slot: ToolbarSlot): SlotSpec = when (slot) {
     ToolbarSlot.STICKY_NOTE -> SlotSpec(FolioIcons.Sticky, "Sticky note", " — drag a rectangle, then type or draw", options = false)
     ToolbarSlot.MARK_AREA -> SlotSpec(FolioIcons.MarkArea, "Mark area", " — box a “[n marks]” label the scan missed", options = false)
     ToolbarSlot.LASER -> SlotSpec(FolioIcons.Laser, "Laser pointer", " — point and circle without writing")
+    // No settings to open: tapping the active slot picks another picture instead.
+    ToolbarSlot.IMAGE -> SlotSpec(FolioIcons.Image, "Image", " — add a picture or photo; tap the page to place one there, tap a picture to move, resize or crop it", options = false)
     ToolbarSlot.RULER -> SlotSpec(FolioIcons.Ruler, "Ruler", " — draw straight along its edge; one finger moves it, two turn it", options = false)
 }
 

@@ -239,3 +239,27 @@ Device checks: review a multi-page answer against a rubric; generate 12 notes,
 edit/deselect and add them, then undo; request hints-only practice; ask a follow-up,
 cancel/retry it and confirm previous feedback remains until completion; change
 the current page and confirm the old review cannot write into the changed page.
+
+## Background import classification
+
+PDF import first classifies on the device (`exam/ExamDetection.kt`): filename, PDF text and metadata,
+scanned-cover OCR, and an exact match of the file name against the bundled VCAA catalog
+(`vcaa-exam-resources.json`), which settles subject, year, source and paper for official downloads.
+When the result is still uncertain (`ExamDetectionResult.uncertain`: a missing subject, year or type, or a
+tentative field) and a ChatGPT account with plan usage is connected, `BackupService.checkWithAi` asks
+ChatGPT in the background. It sends only text: the filename, PDF metadata and up to 4,000 characters of
+each of the first three pages (plus scanned-cover text), never images, using the chosen model at its lightest
+reasoning level with a strict schema (`ExamAiClassification`). The reply is validated locally and merged
+without overriding any field the device was already confident about.
+
+While the file is in review, untouched details are replaced by the merged suggestion; edited details get a
+**Use these details** suggestion instead. If the file was imported first, only the notebook's empty fields are
+filled, and nothing is filled for a file imported as a plain PDF. When Folio is out of sight a notification
+(`FolioNotifications`, channel *Document details*) says the details are ready; the permission is requested once,
+the first time a check starts. The import dialog's **Double-check with ChatGPT** switch (`AppPrefs.AI_IMPORT_CHECK`,
+on by default, shown only when connected) turns it off and stops waiting checks. Checks are an ordinary coroutine,
+so Android can still end a long one while Folio is in the background; failures show a quiet message and change nothing.
+`node tools/import-smoke.cjs` checks the catalog match, reply validation, merge and gap filling.
+
+On-device language models (Gemini Nano through ML Kit's GenAI Prompt API) were considered and not added: the API
+is still alpha and the OnePlus Pad 3 is not on its published device list.

@@ -21,6 +21,7 @@ import com.folio.notes.document.DocumentHistoryCodec
 import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamEvidenceCollector
 import com.folio.notes.exam.detectImportedExam
+import com.folio.notes.vcaa.VcaaCatalog
 import com.folio.notes.exam.smartImportedNotebookName
 import com.folio.notes.model.Folder
 import com.folio.notes.model.NoteCodec
@@ -624,10 +625,16 @@ class NoteRepository(private val context: Context) {
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { ExamDocumentEvidence() }
                 val ocrPages = scanPdfFrontMatter(renderer, document.pages)
-                val detection = detectImportedExam(filename) { document.copy(ocrPages = ocrPages) }
-                val exam = detection.toExamTags()
+                val evidence = document.copy(ocrPages = ocrPages)
+                // A paper downloaded from VCAA keeps its official file name, which the bundled catalog knows exactly.
+                val known = runCatching { VcaaCatalog.load(context).exams.firstOrNull {
+                    it.url.substringBefore('?').substringAfterLast('/').equals(filename, ignoreCase = true) }?.tags }.getOrNull()
+                val detection = detectImportedExam(filename, known) { evidence }
+                // Studies without a built-in subject (Dance, …) keep the catalog's name as text.
+                val exam = detection.toExamTags().let { if (it.subject == null && known != null) it.copy(subjectText = known.subjectText) else it }
                 PendingPdfImport(uri, smartImportedNotebookName(exam, title), exam, detected = true,
-                    filename = filename, pageCount = renderer.pageCount, detection = detection, plainPdf = !exam.isTagged)
+                    filename = filename, pageCount = renderer.pageCount, detection = detection, plainPdf = !exam.isTagged,
+                    evidence = evidence)
             }
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {

@@ -241,6 +241,10 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun updatePdfImport(item: PendingPdfImport): Unit = runtime.updatePdfImport(item)
     fun removePdfImport(uri: Uri): Unit = runtime.removePdfImport(uri)
     fun cancelPdfImport(): Unit = runtime.cancelPdfImport()
+    fun setAiImportCheck(enabled: Boolean): Unit = runtime.setAiImportCheck(enabled)
+    val aiImportCheck: Boolean get() = runtime.prefs.getBoolean(AppPrefs.AI_IMPORT_CHECK, AppPrefs.DEFAULT_AI_IMPORT_CHECK)
+    /** Only offered while a ChatGPT account with plan usage is connected. */
+    val aiImportCheckAvailable: Boolean get() = getApplication<FolioApplication>().chatGpt.canClassify
     fun importPdfs(folderId: String?, reviewed: List<PendingPdfImport> = runtime._state.value.pendingPdfImports): Unit = runtime.importPdfs(folderId, reviewed)
     fun importVcaaPapers(folderId: String?, papers: List<VcaaExam>): Unit = runtime.importVcaaPapers(folderId, papers)
     fun importDownloadedPdfs(folderId: String?, items: List<PendingPdfImport>, files: List<java.io.File>): Unit = runtime.importDownloadedPdfs(folderId, items, files)

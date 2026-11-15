@@ -2,6 +2,7 @@ package com.folio.notes.app
 
 import android.net.Uri
 import com.folio.notes.exam.ExamDetectionResult
+import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamFilter
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerState
@@ -23,6 +24,9 @@ data class PdfSearchState(
     val results: List<PdfSearchHit> = emptyList()
 )
 
+/** ChatGPT's background second opinion on a tentative import. */
+enum class AiCheck { RUNNING, APPLIED, SUGGESTED, FAILED }
+
 /** A PDF being reviewed before import; the fields are editable and become the notebook metadata. */
 data class PendingPdfImport(
     val uri: Uri,
@@ -35,7 +39,11 @@ data class PendingPdfImport(
     val inspectionError: String? = null,
     val useSmartTitle: Boolean = true,
     val plainPdf: Boolean = false,
-    val savedExam: ExamTags? = null
+    val savedExam: ExamTags? = null,
+    /** The bounded front-matter text detection read, kept so a background check need not reopen the PDF. */
+    val evidence: ExamDocumentEvidence = ExamDocumentEvidence(),
+    val aiCheck: AiCheck? = null,
+    val aiTags: ExamTags? = null
 ) {
     val originalTitle: String get() = filename.substringBeforeLast('.', filename).ifBlank { "Imported document" }
 

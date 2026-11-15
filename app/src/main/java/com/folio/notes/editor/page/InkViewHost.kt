@@ -191,6 +191,7 @@ import kotlinx.coroutines.launch
                 view.onTextEdit = onTextEdit; view.onTextCreate = onTextCreate
                 view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
                 view.onImageSelected = onImageSelected
+                view.onImageToolTap = actions.onImageToolTap
                 view.onCropMode = onCropMode; view.onNavigating = onNavigating; view.onLongPress = onLongPress
                 view.pdfLinks = pageLinks
                 view.onPdfLink = onPdfLink

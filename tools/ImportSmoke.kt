@@ -1,5 +1,6 @@
 package com.folio.notes
 
+import com.folio.notes.exam.ExamAiClassification
 import com.folio.notes.exam.ExamClassifier
 import com.folio.notes.exam.ExamDetectionResult
 import com.folio.notes.exam.ExamDocumentEvidence
@@ -139,6 +140,28 @@ fun main() {
         try { detectImportedExam("paper.pdf") { throw CancellationException() } }
         catch (_: CancellationException) { cancelled = true }
         check(cancelled)
+    }
+    scenario("A known VCAA file name settles every field") {
+        val known = ExamTags(subject = VceSubject.CHEMISTRY, year = 2023, company = "VCAA", type = ExamType.EXAM)
+        val result = ExamClassifier.classify(ExamEvidenceCollector.collect("2023chem-w.pdf", known = known))
+        check(result.subject == VceSubject.CHEMISTRY && result.year == 2023 && result.company == "VCAA" && result.type == ExamType.EXAM) { result }
+        check(!result.uncertain && result.reviewFields.isEmpty()) { result }
+        check(detect("notes.pdf").uncertain)
+    }
+    scenario("ChatGPT replies are validated locally") {
+        val tags = ExamAiClassification.parse("""{"subject":"MATHS_METHODS","subject_other":null,"year":2024,"company":"NEAP","type":"EXAM_2","marks_total":80}""")
+        check(tags.subject == VceSubject.MATHS_METHODS && tags.year == 2024 && tags.company == "NEAP" && tags.type == ExamType.EXAM_2 && tags.marksTotal == 80) { tags }
+        val wild = ExamAiClassification.parse("""{"subject":"OTHER","subject_other":"Dance","year":3024,"company":null,"type":"POEM","marks_total":0}""")
+        check(wild.subject == null && wild.subjectText == "Dance" && wild.year == null && wild.company == "" && wild.type == null && wild.marksTotal == null) { wild }
+        check(ExamAiClassification.format().getJSONObject("schema").getJSONArray("required").length() == 6)
+        check(ExamAiClassification.prompt("x.pdf", ExamDocumentEvidence(listOf(PdfPageText(0, "a".repeat(9000))))).length < 4_100)
+    }
+    scenario("ChatGPT never overrides confident on-device fields") {
+        val detection = detect("paper.pdf", "CHEMISTRY\n2024\nEXAM\nReading time\nTotal marks: 120")
+        val merged = ExamAiClassification.merge(detection, ExamTags(subject = VceSubject.PHYSICS, year = 2019, company = "NEAP", marksTotal = 99))
+        check(merged.subject == VceSubject.CHEMISTRY && merged.year == 2024 && merged.marksTotal == 120 && merged.company == "NEAP") { merged }
+        val filled = ExamAiClassification.fillGaps(ExamTags(year = 2022), ExamTags(subject = VceSubject.BIOLOGY, year = 2020, type = ExamType.SAC))
+        check(filled.subject == VceSubject.BIOLOGY && filled.year == 2022 && filled.type == ExamType.SAC) { filled }
     }
     println("$checks import scenarios passed")
 }

@@ -95,6 +95,7 @@ internal data class EditorPageActions(
     val onCanvasViewport: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     val onPageEdges: (Boolean, Boolean) -> Unit = { _, _ -> },
     val onImageSelected: (PageImage?) -> Unit = {},
+    val onImageToolTap: (InkPoint) -> Unit = {},
     val onPdfLink: (PdfLink) -> Unit = {},
     val onEraserFinished: (() -> Unit)? = null,
     val onUndo: (() -> Unit)? = null,

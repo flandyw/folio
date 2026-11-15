@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.folio.notes.app.AiCheck
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.app.PendingPdfImport
@@ -100,6 +101,18 @@ internal fun PdfImportDialog(
                         IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Cancel import") }
                     }
                     ImportDestination(folder, state.folders, { destination = it }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                    if (model.aiImportCheckAvailable) {
+                        var aiCheck by remember { mutableStateOf(model.aiImportCheck) }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Double-check with ChatGPT", style = MaterialTheme.typography.titleSmall)
+                                Text("Sends the cover text of uncertain files. You'll get a notification if Folio is closed.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(aiCheck, { aiCheck = it; model.setAiImportCheck(it) })
+                        }
+                    }
                     if (checkingDuplicates) Text("Checking for existing copies…", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
                     if (duplicateCheckError) Text("Some PDFs could not be checked for duplicates. You can still review and import them.", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
                     if (files.size > 1) TextButton({
@@ -283,6 +296,23 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (item.detection.reviewFields.isNotEmpty()) Text("Some details are tentative or disagree. Check them before importing.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val muted = MaterialTheme.colorScheme.onSurfaceVariant
+                        when (item.aiCheck) {
+                            AiCheck.RUNNING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                LoadingIndicator(Modifier.size(24.dp))
+                                Text("ChatGPT is double-checking these details…", style = MaterialTheme.typography.bodySmall, color = muted)
+                            }
+                            AiCheck.APPLIED -> Text("Checked by ChatGPT. Details printed clearly on the paper were kept.",
+                                style = MaterialTheme.typography.bodySmall, color = muted)
+                            AiCheck.SUGGESTED -> item.aiTags?.let { tags ->
+                                Column {
+                                    Text("ChatGPT suggests: ${tags.summaryLine().ifBlank { "no details" }}", style = MaterialTheme.typography.bodySmall, color = muted)
+                                    TextButton({ onUpdate(item.withExam(tags).copy(aiCheck = AiCheck.APPLIED)) }, shapes = ButtonDefaults.shapes()) { Text("Use these details") }
+                                }
+                            }
+                            AiCheck.FAILED -> Text("ChatGPT couldn’t check this document.", style = MaterialTheme.typography.bodySmall, color = muted)
+                            null -> {}
+                        }
                         TextButton({ editDetails = !editDetails }, shapes = ButtonDefaults.shapes()) {
                             Icon(if (editDetails) FolioIcons.ChevronUp else FolioIcons.Pen, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text(if (editDetails) "Hide details" else "Edit details")

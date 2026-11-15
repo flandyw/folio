@@ -109,7 +109,6 @@ private val BarGap = FolioSpacing.dp12
     layerHidden: Boolean = false,
     bookmarked: Boolean,
     onBookmark: () -> Unit,
-    onInsertImage: () -> Unit,
     layersPopover: @Composable () -> Unit,
     onInsertPage: () -> Unit,
     onDuplicatePage: () -> Unit,
@@ -147,7 +146,7 @@ private val BarGap = FolioSpacing.dp12
         MeasureNaturalWidth(timerWidth) { timer() }
         val split = LocalSplitView.current
         // Narrow panes fold find and layers into a menu and finally stack the tools onto their own
-        // row, so nothing goes missing; a wide pane also takes the bookmark, picture and zoom buttons.
+        // row, so nothing goes missing; a wide pane also takes the bookmark and zoom buttons.
         // The row's side insets come out of the width first, so the fold points match what is drawn.
         val rowWidth = maxWidth - BarInset * 2
         // With the tab strip turned off, the way home moves onto the bar.
@@ -163,8 +162,8 @@ private val BarGap = FolioSpacing.dp12
         val fold = !fits(maxOf(leftFull, rightBase))
         val stacked = !fits(maxOf(leftFolded, rightBase))
         val rightNow = if (timerInline) rightWithTimer else rightBase
-        val dense = fits(maxOf(leftDense, rightNow + dockWidth(2)))
-        val side = if (dense) maxOf(leftDense, rightNow + dockWidth(2)) else maxOf(if (fold) leftFolded else leftFull, rightNow)
+        val dense = fits(maxOf(leftDense, rightNow + dockWidth(1)))
+        val side = if (dense) maxOf(leftDense, rightNow + dockWidth(1)) else maxOf(if (fold) leftFolded else leftFull, rightNow)
         EditorBar(
             tabs = if (showTabs) tabs else null, activeId = activeTabId,
             onHome = onClose, onSelectTab = onSelectTab, onCloseTab = onCloseTab, onNewTab = onNewTab, onCloseTabs = onCloseTabs
@@ -194,10 +193,7 @@ private val BarGap = FolioSpacing.dp12
                 if (dense) DockButton(bookmarkIcon, bookmarkLabel, onBookmark, tint = if (bookmarked) MaterialTheme.colorScheme.primary else LocalContentColor.current)
             } }, right = { DockRow {
                 if (timerInline) timer()
-                if (dense) {
-                    DockButton(FolioIcons.Image, "Insert picture", onInsertImage)
-                    DockButton(FolioIcons.Fit, fitLabel, onFit)
-                }
+                if (dense) DockButton(FolioIcons.Fit, fitLabel, onFit)
                 onChatGpt?.let { DockButton(FolioIcons.Sparkle, "Review page with ChatGPT", it) }
                 // Opens a second document beside this one, or closes the split; lit while the split is open.
                 split?.let { DockButton(FolioIcons.Split, if (it.open) "Close split view" else "Split view — open a document beside",
@@ -222,7 +218,6 @@ private val BarGap = FolioSpacing.dp12
                                 PopoverGroup("Page") {
                                     // The bar only shows these when it is wide; they must still be reachable here.
                                     if (!dense) PopoverRow(bookmarkIcon, bookmarkLabel) { run(onBookmark) }
-                                    if (!dense) PopoverRow(FolioIcons.Image, "Insert picture") { run(onInsertImage) }
                                     if (!dense) PopoverRow(FolioIcons.Fit, fitLabel) { run(onFit) }
                                     if (onFitAll != null) PopoverRow(FolioIcons.FitAll, "Fit all content") { run(onFitAll) }
                                 }

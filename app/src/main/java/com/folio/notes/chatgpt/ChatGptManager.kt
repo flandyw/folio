@@ -9,6 +9,9 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Base64
 import androidx.compose.ui.geometry.Rect
+import com.folio.notes.exam.ExamAiClassification
+import com.folio.notes.exam.ExamDocumentEvidence
+import com.folio.notes.exam.ExamTags
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.hiddenFromLibrary
@@ -18,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -88,6 +93,12 @@ internal class ChatGptManager(private val context: Context) {
     private val efforts = mutableMapOf<String, String?>()
 
     fun setForeground(visible: Boolean) { foreground.value = visible }
+    val visible: Boolean get() = foreground.value
+    /** A signed-in account with plan usage; background classification never prompts for sign-in. */
+    val canClassify: Boolean get() = mutable.value.let { state -> state.accounts.any { it.client == state.active && it.connected && it.plan } }
+    // Background classification runs beside panel operations; token renewal must not race (refresh tokens rotate).
+    private val accessLock = Mutex()
+    private val classifyLock = Mutex()
 
     private suspend fun awaitForeground() {
         if (!foreground.value) mutable.update { it.copy(status = "Sign-in received. Return to Folio to finish connecting…") }
@@ -374,7 +385,7 @@ internal class ChatGptManager(private val context: Context) {
             if (it.getString("client_id") == record.getString("client_id")) record else it
         }))
     }
-    private suspend fun access(): String {
+    private suspend fun access(): String = accessLock.withLock {
         var record = active()
         if (record.optString("subject").isBlank() || record.optString("id_token").isBlank())
             throw ChatGptFailure("Finish signing in before testing the connection.")
@@ -394,7 +405,7 @@ internal class ChatGptManager(private val context: Context) {
             replaceRecord(record); save()
         }
         if (!granted(record)) throw ChatGptFailure("ChatGPT plan usage is no longer enabled. Reconnect your account.")
-        return record.optString("access_token").takeIf(String::isNotBlank) ?: throw ChatGptFailure("Reconnect your ChatGPT account.")
+        record.optString("access_token").takeIf(String::isNotBlank) ?: throw ChatGptFailure("Reconnect your ChatGPT account.")
     }
     private suspend fun models() {
         val catalog = json(Request.Builder().url("${ChatGptProtocol.RESOURCE}/models").header("Authorization", "Bearer ${access()}").build()).getJSONArray("models")
@@ -461,6 +472,29 @@ internal class ChatGptManager(private val context: Context) {
         }
         mutable.update { it.copy(usage = it.usage + (client to (it.usage[client] ?: ChatGptUsageSummary()).add(response.usage))) }
         return response.text
+    }
+    /**
+     * Text-only exam classification, off the panel's busy/status state so it never blocks or relabels a review.
+     * Uses the chosen model at its lightest reasoning level.
+     */
+    suspend fun classifyExam(filename: String, document: ExamDocumentEvidence): ExamTags = classifyLock.withLock {
+        if (!canClassify) throw ChatGptFailure("Connect a ChatGPT account with plan usage first.")
+        if (mutable.value.models.isEmpty()) models()
+        val client = active().getString("client_id")
+        val model = mutable.value.models.firstOrNull { it.slug == mutable.value.model } ?: mutable.value.models.first()
+        val body = JSONObject().put("model", model.slug).put("store", false).put("stream", true)
+            .put("instructions", ExamAiClassification.instructions)
+            .put("input", JSONArray().put(JSONObject().put("role", "user").put("content", JSONArray()
+                .put(JSONObject().put("type", "input_text").put("text", ExamAiClassification.prompt(filename, document))))))
+            .put("text", JSONObject().put("format", ExamAiClassification.format()))
+        model.efforts.firstOrNull { it in listOf("none", "minimal", "low") }?.let { body.put("reasoning", JSONObject().put("effort", it)) }
+        val response = request(Request.Builder().url("${ChatGptProtocol.RESOURCE}/responses").header("Authorization", "Bearer ${access()}")
+            .header("Accept", "text/event-stream").post(ChatGptTransport.once(body.toString().toRequestBody("application/json".toMediaType()))).build()) {
+            if (!it.isSuccessful) throw ChatGptProtocol.apiFailure(runCatching { JSONObject(it.body?.string().orEmpty()) }.getOrDefault(JSONObject()), it.code)
+            ChatGptProtocol.response(checkNotNull(it.body).charStream().buffered())
+        }
+        mutable.update { it.copy(usage = it.usage + (client to (it.usage[client] ?: ChatGptUsageSummary()).add(response.usage))) }
+        ExamAiClassification.parse(response.text)
     }
     fun test() = start("Testing your ChatGPT connection…", ChatGptOperation.TEST) {
         val text = respond(JSONArray().put(JSONObject().put("type", "input_text").put("text", "Reply with exactly: Folio connection works.")), "Complete the user's connection test.")

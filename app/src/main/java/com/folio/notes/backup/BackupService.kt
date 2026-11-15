@@ -3,10 +3,13 @@ package com.folio.notes.backup
 import android.app.Application
 import android.net.Uri
 import com.folio.notes.FolioApplication
+import com.folio.notes.app.AiCheck
 import com.folio.notes.app.AppPrefs
+import com.folio.notes.app.FolioNotifications
 import com.folio.notes.app.FolioRuntime
 import com.folio.notes.app.PdfSearchState
 import com.folio.notes.app.PendingPdfImport
+import com.folio.notes.exam.ExamAiClassification
 import com.folio.notes.exam.ExamFilter
 import com.folio.notes.model.Notebook
 import com.folio.notes.pdf.importBatch
@@ -24,6 +27,11 @@ import kotlinx.coroutines.sync.withPermit
 internal class BackupService(private val runtime: FolioRuntime) {
     internal var pdfInspectionJob: Job? = null
     internal val pdfInspectionGate = Mutex()
+    // Main-thread only. Checks outlive the review dialog; an imported file's result fills its notebook's gaps.
+    private val aiChecks = mutableMapOf<Uri, Job>()
+    private val importedFrom = mutableMapOf<Uri, String>()
+    // A result that lands while its file is still being copied in waits here for the notebook.
+    private val lateSuggestions = mutableMapOf<Uri, com.folio.notes.exam.ExamTags>()
     fun export(block: suspend () -> Unit) {
         with(runtime) {
             if (_state.value.exporting) return
@@ -57,6 +65,7 @@ internal class BackupService(private val runtime: FolioRuntime) {
                     _state.update { state -> state.copy(pendingPdfImports = state.pendingPdfImports.map {
                         if (it.uri == uri) inspected.copy(detected = true) else it
                     }) }
+                    checkWithAi(inspected)
                 }
             }
         }
@@ -70,8 +79,66 @@ internal class BackupService(private val runtime: FolioRuntime) {
         }
     }
 
+    /** Turning the check on asks about every tentative file still in review; turning it off stops waiting ones. */
+    fun setAiImportCheck(enabled: Boolean) {
+        with(runtime) {
+            prefs.edit().putBoolean(AppPrefs.AI_IMPORT_CHECK, enabled).apply()
+            val pending = _state.value.pendingPdfImports
+            if (enabled) pending.filter { it.detected && it.aiCheck == null }.forEach(::checkWithAi)
+            else pending.filter { it.aiCheck == AiCheck.RUNNING }.forEach { item ->
+                aiChecks.remove(item.uri)?.cancel(); setAiCheck(item.uri) { it.copy(aiCheck = null) }
+            }
+        }
+    }
+
+    private fun setAiCheck(uri: Uri, transform: (PendingPdfImport) -> PendingPdfImport) {
+        runtime._state.update { state -> state.copy(pendingPdfImports = state.pendingPdfImports.map { if (it.uri == uri) transform(it) else it }) }
+    }
+
+    /**
+     * Background ChatGPT second opinion for a file the on-device classifier is unsure about. Untouched details are
+     * replaced by the merged suggestion; edited ones get a suggestion to accept. If the file was imported meanwhile,
+     * only its notebook's empty fields are filled. A notification says so when Folio is out of sight.
+     */
+    private fun checkWithAi(item: PendingPdfImport) {
+        with(runtime) {
+            val app = getApplication<FolioApplication>()
+            val chatGpt = app.chatGpt
+            if (!prefs.getBoolean(AppPrefs.AI_IMPORT_CHECK, AppPrefs.DEFAULT_AI_IMPORT_CHECK) || !chatGpt.canClassify ||
+                item.inspectionError != null || !item.detection.uncertain || aiChecks[item.uri]?.isActive == true) return
+            val uri = item.uri
+            setAiCheck(uri) { it.copy(aiCheck = AiCheck.RUNNING) }
+            // shortcut: an ordinary coroutine, so Android may kill a long background request; a foreground service if that bites.
+            aiChecks[uri] = scope.launch {
+                val suggested = try { ExamAiClassification.merge(item.detection, chatGpt.classifyExam(item.filename, item.evidence)) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { setAiCheck(uri) { it.copy(aiCheck = AiCheck.FAILED) }; aiChecks.remove(uri); return@launch }
+                aiChecks.remove(uri)
+                val pending = _state.value.pendingPdfImports.firstOrNull { it.uri == uri }
+                val (title, message) = if (pending != null) {
+                    val untouched = !pending.plainPdf && pending.exam == pending.detection.toExamTags()
+                    setAiCheck(uri) { if (untouched) it.withExam(suggested).copy(aiCheck = AiCheck.APPLIED, aiTags = suggested)
+                        else it.copy(aiCheck = AiCheck.SUGGESTED, aiTags = suggested) }
+                    if (chatGpt.visible) return@launch
+                    pending.title to if (untouched) "Exam details are filled in. Check them before importing." else "Suggested exam details are ready to review."
+                } else {
+                    val noteId = importedFrom.remove(uri) ?: run { if (_state.value.busy) lateSuggestions[uri] = suggested; return@launch }
+                    val note = _state.value.notes.firstOrNull { it.id == noteId } ?: return@launch
+                    val filled = ExamAiClassification.fillGaps(note.exam, suggested)
+                    if (filled == note.exam) return@launch
+                    updateExamTags(note.id, filled)
+                    val text = "Filled in missing exam details: ${filled.summaryLine()}"
+                    if (chatGpt.visible) { reportNotice("${note.title}: $text"); return@launch }
+                    note.title to text
+                }
+                FolioNotifications.classificationReady(app, uri.hashCode(), title, message)
+            }
+        }
+    }
+
     fun removePdfImport(uri: Uri) {
         with(runtime) {
+            aiChecks.remove(uri)?.cancel()
             _state.update { it.copy(pendingPdfImports = it.pendingPdfImports.filterNot { item -> item.uri == uri }) }
             if (_state.value.pendingPdfImports.isEmpty()) cancelPdfImport()
         }
@@ -81,6 +148,7 @@ internal class BackupService(private val runtime: FolioRuntime) {
         with(runtime) {
             pdfInspectionJob?.cancel()
             pdfInspectionJob = null
+            aiChecks.values.forEach { it.cancel() }; aiChecks.clear()
             _state.update { it.copy(pendingPdfImports = emptyList()) }
         }
     }
@@ -178,16 +246,23 @@ internal class BackupService(private val runtime: FolioRuntime) {
         with(runtime) {
             scope.launch {
                 val imported = mutableListOf<Notebook>()
+                val late = mutableMapOf<String, com.folio.notes.exam.ExamTags>()
                 val failures = initialFailures.toMutableList()
                 try {
                     ready.await()
                     importBatch(items,
                         importItem = { item ->
-                            getApplication<FolioApplication>().storageGate.withLock { repository.importPdf(item.uri, folderId, options[item.uri] ?: item) }
+                            val option = options[item.uri] ?: item
+                            getApplication<FolioApplication>().storageGate.withLock { repository.importPdf(item.uri, folderId, option) }
+                                .also { note -> if (!option.plainPdf) {
+                                    if (aiChecks[item.uri]?.isActive == true) importedFrom[item.uri] = note.id
+                                    lateSuggestions.remove(item.uri)?.let { late[note.id] = it }
+                                } }
                         },
                         onSuccess = { note ->
                             imported += note
                             _state.update { it.copy(notes = it.notes + note) }
+                            late.remove(note.id)?.let { updateExamTags(note.id, ExamAiClassification.fillGaps(note.exam, it)) }
                         },
                         onFailure = { index, error ->
                             failures += "PDF $index: ${error.message ?: "Protected, damaged, or unavailable file"}"

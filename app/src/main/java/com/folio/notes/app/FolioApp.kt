@@ -611,6 +611,16 @@ import java.io.File
             }
             }
         }
+        // Asked once, the first time a background check starts, so its result can reach a closed app.
+        val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        val aiChecking = state.pendingPdfImports.any { it.aiCheck == AiCheck.RUNNING }
+        LaunchedEffect(aiChecking) {
+            if (aiChecking && android.os.Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean(AppPrefs.NOTIFICATIONS_ASKED, false) &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                prefs.edit().putBoolean(AppPrefs.NOTIFICATIONS_ASKED, true).apply()
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         if (state.pendingPdfImports.isNotEmpty() && !state.busy && !state.loading && !state.loadFailed) {
             PdfImportDialog(state, model::cancelPdfImport, model::updatePdfImport, model::removePdfImport, model) { folder, reviewed -> model.importPdfs(folder, reviewed) }
         }
