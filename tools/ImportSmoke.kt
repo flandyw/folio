@@ -2,6 +2,7 @@ package com.folio.notes
 
 import com.folio.notes.exam.ExamAiClassification
 import com.folio.notes.exam.ExamClassifier
+import com.folio.notes.exam.ExamEvidenceCodec
 import com.folio.notes.exam.ExamDetectionResult
 import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamEvidenceCollector
@@ -173,6 +174,26 @@ fun main() {
         check(applied.subject == VceSubject.CHEMISTRY && applied.company == "NEAP" && applied.type == ExamType.EXAM_1) { applied }
         check(ExamReclassify.changed(current, ExamTags()).isEmpty()) // a blank suggestion never clears anything
         check(ExamReclassify.apply(current, suggested, setOf(ExamField.SUBJECT)).subject == VceSubject.PHYSICS)
+    }
+    scenario("Prompts carry only the first two pages, bounded") {
+        val doc = ExamDocumentEvidence((0..2).map { PdfPageText(it, "p$it " + "x".repeat(5000)) }, ocrPages = listOf(PdfPageText(2, "late scan")))
+        val prompt = ExamAiClassification.prompt("x.pdf", doc)
+        check("Page 1" in prompt && "Page 2" in prompt && "Page 3" !in prompt && "late scan" !in prompt && prompt.length < 5_200) { prompt.length }
+    }
+    scenario("Batch replies keep only asked-about ids") {
+        val reply = """{"results":[{"id":"a","subject":"CHEMISTRY","subject_other":null,"year":2022,"company":null,"type":null,"marks_total":null},
+            {"id":"zz","subject":"PHYSICS","subject_other":null,"year":null,"company":null,"type":null,"marks_total":null},
+            {"id":"a","subject":"BIOLOGY","subject_other":null,"year":null,"company":null,"type":null,"marks_total":null}]}"""
+        val parsed = ExamAiClassification.parseBatch(reply, setOf("a", "b"))
+        check(parsed.keys == setOf("a") && parsed.getValue("a").subject == VceSubject.CHEMISTRY && parsed.getValue("a").year == 2022) { parsed }
+        check("=== Document id: n1 ===" in ExamAiClassification.batchPrompt(listOf(Triple("n1", "a.pdf", ExamDocumentEvidence()))))
+        check(ExamAiClassification.batchFormat().getJSONObject("schema").getJSONObject("properties").has("results"))
+    }
+    scenario("Evidence cache round-trips and misses on a changed PDF") {
+        val doc = ExamDocumentEvidence(listOf(PdfPageText(0, "Cover \"quoted\"")), listOf("Title"), listOf(PdfPageText(1, "scan")))
+        val text = ExamEvidenceCodec.encode(doc, true, "10:20")
+        check(ExamEvidenceCodec.decode(text, "10:20") == (doc to true))
+        check(ExamEvidenceCodec.decode(text, "11:20") == null && ExamEvidenceCodec.decode("{broken", "10:20") == null)
     }
     println("$checks import scenarios passed")
 }

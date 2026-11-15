@@ -247,9 +247,8 @@ scanned-cover OCR, and an exact match of the file name against the bundled VCAA 
 (`vcaa-exam-resources.json`), which settles subject, year, source and paper for official downloads.
 When the result is still uncertain (`ExamDetectionResult.uncertain`: a missing subject, year or type, or a
 tentative field) and a ChatGPT account with plan usage is connected, `BackupService.checkWithAi` asks
-ChatGPT in the background. It sends only text: the filename, PDF metadata and up to 4,000 characters of
-each of the first three pages (plus scanned-cover text), never images, using the chosen model at its lightest
-reasoning level with a strict schema (`ExamAiClassification`). The reply is validated locally and merged
+ChatGPT in the background. It sends only text: the filename, PDF metadata and up to 2,500 characters of
+each of the first two pages (plus their scanned text), never images, with a strict schema (`ExamAiClassification`). The reply is validated locally and merged
 without overriding any field the device was already confident about.
 
 While the file is in review, untouched details are replaced by the merged suggestion; edited details get a
@@ -279,3 +278,26 @@ Review lists only notebooks with differences, field by field (current → sugges
 every change and each field or notebook can be toggled. A suggestion never clears a field. **Apply** writes the
 chosen fields through `updateExamTags`; a notebook whose details changed since the check is skipped and reported.
 Proposals are memory-only and do not survive process death. Notebook titles are not renamed.
+
+### Classification model
+
+Background classification has its own model and reasoning level (`ClassifierModelControls`, shown under the ChatGPT
+switch in the import dialog and in Reclassify notebooks), so a smaller, faster model can sort documents while Page
+review keeps a stronger one. `AppPrefs.AI_CLASSIFY_MODEL` unset follows Page review's model; a model that is no longer
+offered falls back the same way. `AppPrefs.AI_CLASSIFY_EFFORT` unset means the lightest level the model offers
+(none/minimal/low), `model` omits the field, and an unsupported level falls back to lightest
+(`ChatGptInference.classifyModel` / `classifyEffort`, checked by `node tools/chatgpt-smoke.cjs`).
+
+### Speed
+
+- Scanned-cover OCR (the slowest device step) runs only when filename/title, embedded text and metadata leave the
+  result uncertain, both on import and when reclassifying.
+- Prompts carry only pages 1–2, 2,500 characters each (`ExamAiClassification.PROMPT_PAGES`).
+- Up to three classification requests run at once (`ChatGptManager.CLASSIFY_PARALLEL`), so several imports or
+  batches overlap.
+- Reclassify reads PDFs one at a time while earlier notebooks are with ChatGPT, and sends six notebooks per request
+  (`ExamAiClassification.BATCH`, `batchFormat`/`parseBatch`, matched by notebook id). A failed batch, or a notebook its
+  reply omits, is retried alone before falling back to the device result.
+- Extracted front matter is cached in `cacheDir/exam-evidence/<id>.json` (`ExamEvidenceCodec`), keyed by the stored
+  PDF's size and modification time, so a repeat run reads no PDFs. It never lives in the notebook directory, so
+  backups and the storage format are unaffected; Android may clear it at any time.

@@ -4,13 +4,17 @@ import com.folio.notes.FolioApplication
 import com.folio.notes.app.FolioNotifications
 import com.folio.notes.app.FolioRuntime
 import com.folio.notes.exam.ExamAiClassification
+import com.folio.notes.exam.ExamDetectionResult
+import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamField
 import com.folio.notes.exam.ExamReclassify
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.detectImportedExam
+import com.folio.notes.model.Notebook
 import com.folio.notes.model.hiddenFromLibrary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -43,37 +47,56 @@ internal class LibraryReclassifier(private val runtime: FolioRuntime) {
     fun start(noteIds: Set<String>, useAi: Boolean) {
         if (mutable.value.running || noteIds.isEmpty()) return
         val app = runtime.getApplication<FolioApplication>()
+        val chatGpt = app.chatGpt
         val notes = runtime._state.value.notes.filter { it.id in noteIds && !it.hiddenFromLibrary }
         mutable.value = ReclassifyState(running = true, total = notes.size)
+        fun finish(note: Notebook, suggested: ExamTags, byAi: Boolean) {
+            val proposal = ReclassifyProposal(note.id, note.title, note.exam, suggested, byAi, ExamReclassify.gaps(note.exam, suggested))
+            mutable.update { state -> state.copy(done = state.done + 1,
+                proposals = if (proposal.changed.isEmpty()) state.proposals else state.proposals + proposal) }
+        }
         job = runtime.scope.launch {
             try {
-                for (note in notes) {
-                    val evidence = runtime.repository.notebookExamEvidence(note.id)
-                    // The notebook's title stands in for the file name: it is often the imported file's name.
-                    var detection = detectImportedExam(note.title) { evidence }
-                    var suggested = detection.toExamTags()
-                    var byAi = false
-                    if (useAi && detection.uncertain && app.chatGpt.canClassify) {
-                        try { suggested = ExamAiClassification.merge(detection, app.chatGpt.classifyExam(note.title, evidence)); byAi = true }
-                        catch (e: CancellationException) { throw e }
-                        catch (_: Exception) { mutable.update { it.copy(aiFailures = it.aiFailures + 1) } }
+                coroutineScope {
+                    // The device pass reads PDFs one at a time (they share one PDF lock) while earlier batches are with
+                    // ChatGPT; the manager caps how many requests are in flight.
+                    val waiting = mutableListOf<Unsure>()
+                    fun send(batch: List<Unsure>) = launch {
+                        val answers = try { chatGpt.classifyExams(batch.map { Triple(it.note.id, it.note.title, it.evidence) }) }
+                        catch (e: CancellationException) { throw e } catch (_: Exception) { emptyMap() }
+                        for (item in batch) {
+                            // A failed batch or a document it skipped is asked about alone before giving up.
+                            val tags = answers[item.note.id] ?: try { chatGpt.classifyExam(item.note.title, item.evidence) }
+                                catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                            if (tags == null) mutable.update { it.copy(aiFailures = it.aiFailures + 1) }
+                            finish(item.note, tags?.let { ExamAiClassification.merge(item.detection, it) } ?: item.detection.toExamTags(), tags != null)
+                        }
                     }
-                    val proposal = ReclassifyProposal(note.id, note.title, note.exam, suggested, byAi, ExamReclassify.gaps(note.exam, suggested))
-                    mutable.update { state -> state.copy(done = state.done + 1,
-                        proposals = if (proposal.changed.isEmpty()) state.proposals else state.proposals + proposal) }
+                    for (note in notes) {
+                        val evidence = runtime.repository.notebookExamEvidence(note.id, note.title)
+                        // The notebook's title stands in for the file name: it is often the imported file's name.
+                        val detection = detectImportedExam(note.title) { evidence }
+                        if (useAi && detection.uncertain && chatGpt.canClassify) {
+                            waiting += Unsure(note, evidence, detection)
+                            if (waiting.size == ExamAiClassification.BATCH) { send(waiting.toList()); waiting.clear() }
+                        } else finish(note, detection.toExamTags(), false)
+                    }
+                    if (waiting.isNotEmpty()) send(waiting.toList())
                 }
-                mutable.update { it.copy(running = false, ready = true) }
-                if (!app.chatGpt.visible) mutable.value.let {
+                mutable.update { it.copy(running = false, ready = true, proposals = it.proposals.sortedBy { p -> p.title.lowercase() }) }
+                if (!chatGpt.visible) mutable.value.let {
                     FolioNotifications.classificationReady(app, "reclassify".hashCode(), "Library details ready to review",
                         "${it.proposals.size} of ${it.total} notebooks have suggested changes. Open Folio to review them.")
                 }
             } catch (e: CancellationException) {
                 // Keep what was found so far reviewable.
-                mutable.update { it.copy(running = false, ready = true) }
+                mutable.update { it.copy(running = false, ready = true, proposals = it.proposals.sortedBy { p -> p.title.lowercase() }) }
                 throw e
             }
         }
     }
+
+    private class Unsure(val note: Notebook, val evidence: ExamDocumentEvidence, val detection: ExamDetectionResult)
 
     fun cancel() { job?.cancel() }
 

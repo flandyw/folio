@@ -158,6 +158,14 @@ fun main() {
     check(ChatGptInference.model(catalog("gpt-6.1-sol")).efforts == listOf("low", "medium", "high", "xhigh", "max"))
     check("none" in ChatGptInference.model(catalog("gpt-6-luna")).efforts)
     check(ChatGptInference.model(catalog("future-model")).efforts.isEmpty())
+    check(ChatGptInference.classifyEffort(null, listOf("none", "low", "high")) == "none")
+    check(ChatGptInference.classifyEffort("high", listOf("low", "high")) == "high")
+    check(ChatGptInference.classifyEffort("max", listOf("low", "high")) == "low") // unsupported falls back to lightest
+    check(ChatGptInference.classifyEffort(ChatGptInference.MODEL_DEFAULT, listOf("low")) == null)
+    check(ChatGptInference.classifyEffort(null, emptyList()) == null)
+    val offered = listOf(ChatGptModel("a", "A"), ChatGptModel("b", "B"))
+    check(ChatGptInference.classifyModel("b", "a", offered)?.slug == "b" && ChatGptInference.classifyModel("gone", "a", offered)?.slug == "a" &&
+        ChatGptInference.classifyModel(null, null, offered)?.slug == "a")
     check(ChatGptInference.model(catalog("future-model").put("supported_reasoning_levels",
         JSONArray().put(JSONObject().put("effort", "high")).put("low").put("unknown").put("low"))).efforts == listOf("high", "low"))
     check(ChatGptInference.model(catalog("gpt-6.1-sol").put("supported_reasoning_levels", JSONArray())).efforts.isEmpty())

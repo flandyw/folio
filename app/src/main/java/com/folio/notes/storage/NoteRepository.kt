@@ -21,6 +21,7 @@ import com.folio.notes.document.DocumentHistoryCodec
 import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamEvidenceCollector
 import com.folio.notes.exam.detectImportedExam
+import com.folio.notes.exam.ExamEvidenceCodec
 import com.folio.notes.vcaa.VcaaCatalog
 import com.folio.notes.exam.smartImportedNotebookName
 import com.folio.notes.model.Folder
@@ -624,12 +625,13 @@ class NoteRepository(private val context: Context) {
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { ExamDocumentEvidence() }
-                val ocrPages = scanPdfFrontMatter(renderer, document.pages)
-                val evidence = document.copy(ocrPages = ocrPages)
                 // A paper downloaded from VCAA keeps its official file name, which the bundled catalog knows exactly.
                 val known = runCatching { VcaaCatalog.load(context).exams.firstOrNull {
                     it.url.substringBefore('?').substringAfterLast('/').equals(filename, ignoreCase = true) }?.tags }.getOrNull()
-                val detection = detectImportedExam(filename, known) { evidence }
+                // OCR is the slow step: only scanned covers of a document the cheap evidence leaves uncertain are read.
+                val cheap = detectImportedExam(filename, known) { document }
+                val evidence = if (cheap.uncertain) document.copy(ocrPages = scanPdfFrontMatter(renderer, document.pages)) else document
+                val detection = if (evidence === document) cheap else detectImportedExam(filename, known) { evidence }
                 // Studies without a built-in subject (Dance, …) keep the catalog's name as text.
                 val exam = detection.toExamTags().let { if (it.subject == null && known != null) it.copy(subjectText = known.subjectText) else it }
                 PendingPdfImport(uri, smartImportedNotebookName(exam, title), exam, detected = true,
@@ -644,13 +646,17 @@ class NoteRepository(private val context: Context) {
     }
 
     /**
-     * The same bounded front-matter evidence import reads, from a notebook's stored PDF (embedded text, metadata and
-     * scanned-cover OCR). A notebook without a PDF, or one that cannot be read, has none.
+     * The same bounded front-matter evidence import reads, from a notebook's stored PDF (embedded text, metadata, and
+     * scanned-cover OCR only when [title] plus that text leave the result uncertain). Cached in cacheDir by the PDF's
+     * size and date, so a repeat run reads nothing. A notebook without a readable PDF has none.
      */
-    suspend fun notebookExamEvidence(noteId: String): ExamDocumentEvidence = withContext(Dispatchers.IO) {
+    suspend fun notebookExamEvidence(noteId: String, title: String): ExamDocumentEvidence = withContext(Dispatchers.IO) {
         val file = pdfs.sourcePdfFile(noteId) ?: return@withContext ExamDocumentEvidence()
+        val stamp = "${file.length()}:${file.lastModified()}"
+        val cache = File(File(context.cacheDir, "exam-evidence").apply { mkdirs() }, "${checked(noteId)}.json")
         try {
-            val document = pdfs.pdfMetadataLock.withLock {
+            val cached = runCatching { ExamEvidenceCodec.decode(cache.readText(), stamp) }.getOrNull()
+            var document = cached?.first ?: pdfs.pdfMetadataLock.withLock {
                 pdfs.ensurePdfBox()
                 PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024).setTempDir(context.cacheDir)).use { doc ->
                     ExamDocumentEvidence(
@@ -658,8 +664,14 @@ class NoteRepository(private val context: Context) {
                         metadata = listOfNotNull(doc.documentInformation.title, doc.documentInformation.subject, doc.documentInformation.author))
                 }
             }
-            val ocr = PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)).use { scanPdfFrontMatter(it, document.pages) }
-            document.copy(ocrPages = ocr)
+            var ocrChecked = cached?.second ?: false
+            if (!ocrChecked && detectImportedExam(title) { document }.uncertain) {
+                document = document.copy(ocrPages = PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
+                    .use { scanPdfFrontMatter(it, document.pages) })
+                ocrChecked = true
+            }
+            if (cached == null || cached.second != ocrChecked) runCatching { cache.writeText(ExamEvidenceCodec.encode(document, ocrChecked, stamp)) }
+            document
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { ExamDocumentEvidence() }
     }

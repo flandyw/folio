@@ -34,6 +34,16 @@ internal object ChatGptInference {
         }
         return ChatGptModel(slug, value.optString("display_name", slug), efforts)
     }
+    /** Background classification setting: null = lightest available, [MODEL_DEFAULT] = omit, else a level the model supports. */
+    const val MODEL_DEFAULT = "model"
+    fun classifyEffort(preference: String?, efforts: List<String>): String? = when {
+        preference == MODEL_DEFAULT -> null
+        preference != null && preference in efforts -> preference
+        else -> efforts.firstOrNull { it in listOf("none", "minimal", "low") }
+    }
+    /** The chosen classification model if still offered, else the review panel's model, else the first. */
+    fun classifyModel(preference: String?, selected: String?, models: List<ChatGptModel>): ChatGptModel? =
+        models.firstOrNull { it.slug == preference } ?: models.firstOrNull { it.slug == selected } ?: models.firstOrNull()
     fun effortLabel(effort: String?): String = when (effort) {
         null -> "Model default"; "xhigh" -> "Extra high"; "max" -> "Maximum"
         else -> effort.replaceFirstChar { it.uppercase() }

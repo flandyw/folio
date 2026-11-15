@@ -112,6 +112,7 @@ internal fun PdfImportDialog(
                             }
                             Switch(aiCheck, { aiCheck = it; model.setAiImportCheck(it) })
                         }
+                        if (aiCheck) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                     }
                     if (checkingDuplicates) Text("Checking for existing copies…", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
                     if (duplicateCheckError) Text("Some PDFs could not be checked for duplicates. You can still review and import them.", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)

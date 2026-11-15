@@ -243,6 +243,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun cancelPdfImport(): Unit = runtime.cancelPdfImport()
     fun setAiImportCheck(enabled: Boolean): Unit = runtime.setAiImportCheck(enabled)
     internal val reclassifier get() = runtime.reclassifier
+    internal val chatGpt get() = getApplication<FolioApplication>().chatGpt
     val aiImportCheck: Boolean get() = runtime.prefs.getBoolean(AppPrefs.AI_IMPORT_CHECK, AppPrefs.DEFAULT_AI_IMPORT_CHECK)
     /** Only offered while a ChatGPT account with plan usage is connected. */
     val aiImportCheckAvailable: Boolean get() = getApplication<FolioApplication>().chatGpt.canClassify

@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Base64
 import androidx.compose.ui.geometry.Rect
+import com.folio.notes.app.AppPrefs
 import com.folio.notes.exam.ExamAiClassification
 import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamTags
@@ -23,6 +24,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -98,7 +101,9 @@ internal class ChatGptManager(private val context: Context) {
     val canClassify: Boolean get() = mutable.value.let { state -> state.accounts.any { it.client == state.active && it.connected && it.plan } }
     // Background classification runs beside panel operations; token renewal must not race (refresh tokens rotate).
     private val accessLock = Mutex()
-    private val classifyLock = Mutex()
+    private val classifySlots = Semaphore(CLASSIFY_PARALLEL)
+    private val modelsLock = Mutex()
+    companion object { const val CLASSIFY_PARALLEL = 3 }
 
     private suspend fun awaitForeground() {
         if (!foreground.value) mutable.update { it.copy(status = "Sign-in received. Return to Folio to finish connecting…") }
@@ -416,6 +421,12 @@ internal class ChatGptManager(private val context: Context) {
         mutable.update { it.copy(models = models, model = selected, effort = efforts[selected]?.takeIf { effort -> effort in models.firstOrNull { model -> model.slug == selected }?.efforts.orEmpty() }) }
         if (models.isEmpty()) throw ChatGptFailure("No models are available to this ChatGPT connection.")
     }
+    /** Loads the catalog for pickers outside the panel; quiet, and only when an account can use it. */
+    fun loadModelsQuietly() { scope.launch {
+        if (mutable.value.models.isNotEmpty() || !canClassify) return@launch
+        try { modelsLock.withLock { if (mutable.value.models.isEmpty()) models() } }
+        catch (e: CancellationException) { throw e } catch (_: Exception) {}
+    } }
     fun refreshModels() = start("Loading available models…", ChatGptOperation.MODELS) { models() }
     fun selectAccount(client: String) = start("Opening ChatGPT account…") {
         require(records().any { it.getString("client_id") == client })
@@ -475,26 +486,38 @@ internal class ChatGptManager(private val context: Context) {
     }
     /**
      * Text-only exam classification, off the panel's busy/status state so it never blocks or relabels a review.
-     * Uses the chosen model at its lightest reasoning level.
+     * Uses the classification model and reasoning level from [AppPrefs] (lightest level by default).
+     * Up to [CLASSIFY_PARALLEL] requests run at once; each mostly waits on the network and the model.
      */
-    suspend fun classifyExam(filename: String, document: ExamDocumentEvidence): ExamTags = classifyLock.withLock {
+    suspend fun classifyExam(filename: String, document: ExamDocumentEvidence): ExamTags =
+        ExamAiClassification.parse(classify(ExamAiClassification.prompt(filename, document), ExamAiClassification.format()))
+
+    /** Several documents in one request, keyed by the caller's ids; ids missing from the reply are absent. */
+    suspend fun classifyExams(items: List<Triple<String, String, ExamDocumentEvidence>>): Map<String, ExamTags> =
+        ExamAiClassification.parseBatch(classify(ExamAiClassification.batchPrompt(items), ExamAiClassification.batchFormat()),
+            items.map { it.first }.toSet())
+
+    private suspend fun classify(prompt: String, format: JSONObject): String = classifySlots.withPermit {
         if (!canClassify) throw ChatGptFailure("Connect a ChatGPT account with plan usage first.")
-        if (mutable.value.models.isEmpty()) models()
+        if (mutable.value.models.isEmpty()) modelsLock.withLock { if (mutable.value.models.isEmpty()) models() }
         val client = active().getString("client_id")
-        val model = mutable.value.models.firstOrNull { it.slug == mutable.value.model } ?: mutable.value.models.first()
+        val prefs = context.getSharedPreferences("preferences", 0)
+        val model = ChatGptInference.classifyModel(prefs.getString(AppPrefs.AI_CLASSIFY_MODEL, null), mutable.value.model, mutable.value.models)
+            ?: throw ChatGptFailure("No models are available to this ChatGPT connection.")
         val body = JSONObject().put("model", model.slug).put("store", false).put("stream", true)
             .put("instructions", ExamAiClassification.instructions)
             .put("input", JSONArray().put(JSONObject().put("role", "user").put("content", JSONArray()
-                .put(JSONObject().put("type", "input_text").put("text", ExamAiClassification.prompt(filename, document))))))
-            .put("text", JSONObject().put("format", ExamAiClassification.format()))
-        model.efforts.firstOrNull { it in listOf("none", "minimal", "low") }?.let { body.put("reasoning", JSONObject().put("effort", it)) }
+                .put(JSONObject().put("type", "input_text").put("text", prompt)))))
+            .put("text", JSONObject().put("format", format))
+        ChatGptInference.classifyEffort(prefs.getString(AppPrefs.AI_CLASSIFY_EFFORT, null), model.efforts)
+            ?.let { body.put("reasoning", JSONObject().put("effort", it)) }
         val response = request(Request.Builder().url("${ChatGptProtocol.RESOURCE}/responses").header("Authorization", "Bearer ${access()}")
             .header("Accept", "text/event-stream").post(ChatGptTransport.once(body.toString().toRequestBody("application/json".toMediaType()))).build()) {
             if (!it.isSuccessful) throw ChatGptProtocol.apiFailure(runCatching { JSONObject(it.body?.string().orEmpty()) }.getOrDefault(JSONObject()), it.code)
             ChatGptProtocol.response(checkNotNull(it.body).charStream().buffered())
         }
         mutable.update { it.copy(usage = it.usage + (client to (it.usage[client] ?: ChatGptUsageSummary()).add(response.usage))) }
-        ExamAiClassification.parse(response.text)
+        response.text
     }
     fun test() = start("Testing your ChatGPT connection…", ChatGptOperation.TEST) {
         val text = respond(JSONArray().put(JSONObject().put("type", "input_text").put("text", "Reply with exactly: Folio connection works.")), "Complete the user's connection test.")

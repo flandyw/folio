@@ -58,7 +58,7 @@ internal fun ReclassifyDialog(model: FolioViewModel, onDismiss: () -> Unit) {
                         run.running -> Column(Modifier.weight(1f).fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             ContainedLoadingIndicator(Modifier.size(64.dp))
-                            Text("Checking ${minOf(run.done + 1, run.total)} of ${run.total}…", style = MaterialTheme.typography.titleMedium)
+                            Text("Checked ${run.done} of ${run.total}…", style = MaterialTheme.typography.titleMedium)
                             Text("${run.proposals.size} with suggested changes so far", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OutlinedButton(reclassifier::cancel, shapes = ButtonDefaults.shapes()) { Text("Stop and review what's found") }
                         }
@@ -107,7 +107,9 @@ private fun Choose(model: FolioViewModel, notes: List<com.folio.notes.model.Note
                     Text("Sends the cover text of uncertain notebooks. Uses your plan.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(useAi, { useAi = it })
-            } else Text("Connect ChatGPT in Account & updates to double-check uncertain notebooks.", style = MaterialTheme.typography.bodySmall,
+            }
+            if (available && useAi) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.fillMaxWidth())
+            if (!available) Text("Connect ChatGPT in Account & updates to double-check uncertain notebooks.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button({ model.reclassifier.start(selected, useAi && available) }, modifier = Modifier.align(Alignment.End), enabled = selected.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
                 Icon(FolioIcons.Sparkle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
