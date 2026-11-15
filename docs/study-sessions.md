@@ -113,6 +113,14 @@ day streak, plan scope/search filters, plan "when" labels and per-block plan pro
   only enables Save when there is none; a blank title saves as "<subject> study";
   closing with unsaved edits asks first (`FolioPanel(canDismiss)`); a plan changed
   elsewhere shows a banner and cannot be saved over.
+- The timeline works to the minute everywhere: drawing a block, dragging a block or an edge, the razor,
+  "Move to now" and the Start/End steppers (− / + one minute; tap the time for the system time picker)
+  on both the draft and a selected block. It zooms in to a ten-minute window with minute ticks. The ruler
+  sits above the track and shows the exact range while anything is dragged, plus the current time.
+  A week strip (Monday to Sunday around the shown day) has a bar per day's counted study and a ring where
+  a plan is still waiting; tap a day to show it. A move or resize offers Undo while its message shows
+  (it restores that session's previous blocks). The selected block keeps Start / Continue / Edit / Mark
+  done in view and puts Zoom, Split, Select to merge, Repeat and Remove in its menu.
 - The timeline follows today past midnight, opens a date picker from its title,
   resets tools when the day changes, and lets result messages fade. Split and
   "Repeat" keep a plan's notes and topics.

@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.folio.notes.library.semanticsLabel
 import com.folio.notes.FolioApplication
+import com.folio.notes.input.guardUiTouches
+import com.folio.notes.ui.FolioMenuItem
+import com.folio.notes.ui.FolioMenuPopover
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.launch
@@ -55,13 +58,13 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private const val DAY = 24 * 60f
-private const val MIN_SPAN = 30f
-private const val SNAP = 5f
-// Dragging an edge or a whole block moves it to the minute.
+// Zoomed right in, ten minutes fill the strip, so a single minute is a comfortable drag.
+private const val MIN_SPAN = 10f
+// Everything lands on the minute: drawing, dragging, the steppers, the razor and "now".
 private const val STEP = 1f
 // The razor cuts to the minute, one minute in from either end.
 private const val CUT_EDGE = 1f
-private val TICK_STEPS = listOf(5f, 10f, 15f, 30f, 60f, 120f, 180f, 360f)
+private val TICK_STEPS = listOf(1f, 2f, 5f, 10f, 15f, 30f, 60f, 120f, 180f, 360f)
 private val QUICK_LOGS = listOf(25, 45, 60, 90)
 private val ROW = 56.dp
 private val BLOCK = 48.dp
@@ -100,7 +103,6 @@ private fun pack(blocks: List<Block>): Pair<Map<String, Int>, Int> {
     return rows to maxOf(1, ends.size)
 }
 
-private fun snap(minute: Float) = (minute / SNAP).roundToInt() * SNAP
 private fun step(minute: Float) = (minute / STEP).roundToInt() * STEP
 private fun clock(minute: Float): String {
     val total = minute.roundToInt()
@@ -256,6 +258,20 @@ internal fun StudyTimeline(
     val window = view ?: fit
     val span = window.end - window.start
 
+    // The week around the shown day: how much was studied each day, and which days still have a plan.
+    val weekStart = date.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+    val week = remember(state.entries, state.userId, weekStart, now / 60_000L) {
+        val entries = state.visibleEntries
+        val plans = entries.filter { it.planned && !it.completed && it.kind == "study" }.flatMap(::focalPlannedSlots)
+        (0..6).map { offset ->
+            val day = weekStart.plusDays(offset.toLong())
+            val from = day.atStartOfDay(zone).toInstant().toEpochMilli()
+            val until = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            WeekDay(day, if (from >= now) 0f else focalStudyMillisBetween(entries, from, minOf(now, until)).coerceAtLeast(0L) / 60_000f,
+                plans.any { it.startAt < until && (it.endAt ?: it.startAt) > from && (it.endAt ?: it.startAt) > now })
+        }
+    }
+
     val subjects = state.subjects
     val recentSubject = remember(state.entries, subjects) {
         state.visibleEntries.filter { it.completed && subjects.any { s -> s.id == it.subjectId } }
@@ -271,6 +287,8 @@ internal fun StudyTimeline(
     var subjectId by rememberSaveable { mutableStateOf<String?>(null) }
     var title by rememberSaveable { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
+    // The last move or resize can be taken back while its message is still showing.
+    var undo by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var razor by remember { mutableStateOf(false) }
     // The razor's pending cut: the block it is on and the (fractional) minute, until ticked or moved.
     var cut by remember { mutableStateOf<Pair<String, Float>?>(null) }
@@ -299,7 +317,7 @@ internal fun StudyTimeline(
         view = clampWindow(Span(center - size / 2f, center + size / 2f))
     }
     fun open(range: Span) {
-        val next = Span(range.start.coerceIn(0f, DAY - SNAP), range.end.coerceIn(range.start + SNAP, DAY))
+        val next = Span(range.start.coerceIn(0f, DAY - STEP), range.end.coerceIn(range.start + STEP, DAY))
         draft = next; reveal(next); selected = null; doneOverride = null; message = null
         if (subjectId == null) subjectId = recentSubject
     }
@@ -322,8 +340,17 @@ internal fun StudyTimeline(
     fun splittable(block: Block) = movable(block) && block.count == 1 && block.end - block.start >= 2 * CUT_EDGE
     fun persist(block: Block, range: Span) {
         val next = focalReplaceSessionBlock(block.entry, block.index, FocalStudyInterval(millisAt(range.start), millisAt(range.end)))
+        val before = focalSessionBlocks(block.entry)
         val ok = manager.editBlocks(block.entry.id, next, block.entry.completed)
-        message = if (ok) "Moved to ${clock(range.start)}–${clock(range.end)}" else "That block can't go there."
+        val text = if (ok) "Now ${clock(range.start)}–${clock(range.end)} · ${duration(range.end - range.start)}" else "That block can't go there."
+        message = text
+        if (ok) undo = text to { message = if (manager.editBlocks(block.entry.id, before, block.entry.completed)) "Put back" else "Could not undo that." }
+    }
+    /** A block's range with one edge stepped by [delta] minutes, inside the same limits as a drag. */
+    fun stepped(block: Block, grip: Grip, delta: Float): Span {
+        val limit = if (block.entry.completed) nowMin.coerceIn(block.end, DAY) else DAY
+        return if (grip == Grip.START) Span(step(block.start + delta).coerceIn(0f, block.end - STEP), block.end)
+        else Span(block.start, step(block.end + delta).coerceIn(block.start + STEP, limit))
     }
 
     /** A block's range while one of its edges or its body is dragged [dx] pixels. */
@@ -362,7 +389,7 @@ internal fun StudyTimeline(
     }
 
     /** Where a tap without a pointer position cuts: now if it is inside the block, else the middle. */
-    fun splitPoint(block: Block) = snap(if (isToday && nowMin - block.start >= SNAP && block.end - nowMin >= SNAP) nowMin else (block.start + block.end) / 2f)
+    fun splitPoint(block: Block) = step(if (isToday && nowMin - block.start >= CUT_EDGE && block.end - nowMin >= CUT_EDGE) nowMin else (block.start + block.end) / 2f)
     /** Razor: the session keeps the first part and a new one takes the rest. The new part is made first so a failure cannot lose study. */
     fun split(block: Block, at: Float) {
         cut = null
@@ -391,7 +418,7 @@ internal fun StudyTimeline(
     val geometry by rememberUpdatedState(window to (span to blocks))
     fun minuteAt(x: Float, magnetic: Boolean = true): Float {
         val (w, rest) = geometry
-        val minute = snap(w.start + (x / trackWidth.floatValue).coerceIn(0f, 1f) * rest.first)
+        val minute = step(w.start + (x / trackWidth.floatValue).coerceIn(0f, 1f) * rest.first)
         if (!magnetic) return minute.coerceIn(0f, DAY - 1f)
         // Pulls a minute onto a nearby block edge or "now" (within ~8dp) so blocks can sit flush.
         val reach = with(density) { 8.dp.toPx() } / trackWidth.floatValue * rest.first
@@ -402,7 +429,7 @@ internal fun StudyTimeline(
         // A tap just after you finished studying means "I just did this": end it now.
         if (isToday && anchor <= nowMin && anchor + 30f > nowMin) quick(30)
         // A tap makes a block sized for the zoom: ten minutes zoomed right in, half an hour otherwise.
-        else open(Span(anchor, anchor + if (span <= 60f) 10f else if (span <= 120f) 15f else 30f))
+        else open(Span(anchor, anchor + if (span <= 20f) 5f else if (span <= 60f) 10f else if (span <= 120f) 15f else 30f))
     }
     val trackRange by rememberUpdatedState { range: Span -> open(range) }
     val pickMinute by rememberUpdatedState { x: Float -> minuteAt(x) }
@@ -451,8 +478,9 @@ internal fun StudyTimeline(
                 razor = it; draft = null; selected = null; cut = null; picking = false; picks = emptySet()
                 message = if (it) "Razor: tap a block to place the cut, drag the tag to fine-tune, tick to split." else null
             }) { Icon(FolioIcons.Cut, "Razor tool: split a study block") }
-            OutlinedIconButton({ zoomBy(2f) }, enabled = span < DAY) { Icon(FolioIcons.Minus, "Zoom out") }
-            OutlinedIconButton({ zoomBy(.5f) }, enabled = span > MIN_SPAN) { Icon(FolioIcons.Plus, "Zoom in") }
+            Spacer(Modifier.width(FolioSpacing.dp8))
+            FilledTonalIconButton({ zoomBy(2f) }, enabled = span < DAY) { Icon(FolioIcons.Minus, "Zoom out") }
+            FilledTonalIconButton({ zoomBy(.5f) }, enabled = span > MIN_SPAN) { Icon(FolioIcons.Plus, "Zoom in") }
             TextButton({ view = null }, enabled = view != null) { Text("Fit") }
             TextButton({ view = Span(0f, DAY) }, enabled = span < DAY) { Text("24h") }
             if (isToday) TextButton({ view = clampWindow(Span(nowMin - span / 2f, nowMin + span / 2f)) }) { Text("Now") }
@@ -472,13 +500,14 @@ internal fun StudyTimeline(
             if (compact) {
                 // One band: the day, its totals, quick logs and zoom wrap only when the screen runs out.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), itemVerticalAlignment = Alignment.CenterVertically) {
-                    dayTitle(); dayNav(); stats()
+                    dayTitle(); dayNav(); WeekStrip(week, date, today, true) { epochDay = it.toEpochDay() }; stats()
                     if (isToday) quickLog()
                     Spacer(Modifier.weight(1f))
                     zoom()
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.weight(1f)) { dayTitle() }; dayNav() }
+                WeekStrip(week, date, today, false) { epochDay = it.toEpochDay() }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
                     itemVerticalAlignment = Alignment.CenterVertically) { stats(); Spacer(Modifier.weight(1f)); zoom() }
                 if (isToday) FlowRow { quickLog() }
@@ -510,6 +539,26 @@ internal fun StudyTimeline(
             }
             val undoDraftDrag = { draftOrigin?.let { draft = it }; draftOrigin = null }
             val trackHeight = rowHeight * rowCount + trackPad * 2 - (rowHeight - blockHeight)
+            // The ruler sits above the track, where a finger on a block never covers it: hour labels,
+            // the current time, and the exact range of whatever is being dragged.
+            Box(Modifier.fillMaxWidth().height(22.dp)) {
+                val bubble = adjust?.second ?: drag ?: draft?.takeIf { draftOrigin != null }
+                if (bubble != null) Text("${clock(bubble.start)}–${clock(bubble.end)} · ${duration(bubble.end - bubble.start)}",
+                    Modifier.align(Alignment.Center).background(scheme.inverseSurface, CircleShape).padding(horizontal = FolioSpacing.dp10, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelMedium, color = scheme.inverseOnSurface, maxLines = 1)
+                else {
+                    ticks.forEach { minute ->
+                        val at = x(minute)
+                        Text(clock(minute), Modifier.offset { IntOffset((at - if (at < 24.dp.toPx()) 0f else 16.dp.toPx()).roundToInt(), 2.dp.roundToPx()) },
+                            style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
+                    }
+                    if (isToday && nowMin in window.start..window.end) Box(Modifier.offset { IntOffset(x(nowMin).roundToInt(), 0) }.width(0.dp).fillMaxHeight()) {
+                        Text(clock(kotlin.math.floor(nowMin)), Modifier.wrapContentSize(Alignment.Center, unbounded = true)
+                            .background(scheme.error, CircleShape).padding(horizontal = FolioSpacing.dp6, vertical = 1.dp),
+                            style = MaterialTheme.typography.labelSmall, color = scheme.onError, maxLines = 1)
+                    }
+                }
+            }
             Box(Modifier.fillMaxWidth().height(trackHeight).clip(FolioShapes.large)
                 .background(scheme.surfaceContainerHighest.copy(alpha = .5f))
                 .border(1.dp, scheme.outlineVariant, FolioShapes.large)
@@ -565,6 +614,9 @@ internal fun StudyTimeline(
                 }
                 if (isToday && nowMin > window.start) Box(Modifier.width(with(density) { x(minOf(nowMin, window.end)).toDp() }).fillMaxHeight()
                     .background(scheme.surface.copy(alpha = .3f)))
+                if (blocks.isEmpty() && selection == null && !razor && !picking) Text(
+                    if (date < today) "Drag across to log study" else if (isToday) "Drag across to log or plan study" else "Drag across to plan study",
+                    Modifier.align(Alignment.Center), style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant.copy(alpha = .7f))
                 blocks.filter { it.end > window.start && it.start < window.end }.forEach { live ->
                     val range = adjust?.takeIf { it.first == live.key }?.second
                     // The running block follows the clock each second, not each 15s rebuild of the list.
@@ -626,7 +678,8 @@ internal fun StudyTimeline(
                                 .distinct().joinToString("→").ifBlank { block.entry.title.take(3) },
                                 style = MaterialTheme.typography.labelMedium, fontWeight = if (room >= 150.dp) FontWeight.Medium else null,
                                 color = text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (room >= 150.dp) Text(if (block.tone == Tone.LIVE || block.tone == Tone.PAUSED) label else "${clock(block.start)}–${clock(block.end)}",
+                            if (room >= 150.dp) Text((if (block.tone == Tone.LIVE || block.tone == Tone.PAUSED) label else "${clock(block.start)}–${clock(block.end)}") +
+                                if (room >= 200.dp) " · ${duration(block.end - block.start)}" else "",
                                 style = MaterialTheme.typography.labelSmall, color = text.copy(alpha = .75f), maxLines = 1)
                         }
                         if (pieces.size > 1) Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp)) {
@@ -688,17 +741,6 @@ internal fun StudyTimeline(
                 if (isToday && nowMin in window.start..window.end) Box(Modifier.offset { IntOffset(x(nowMin).roundToInt() - 1.dp.roundToPx(), 0) }
                     .width(2.dp).fillMaxHeight().background(scheme.error))
             }
-            // Tick labels, and the live range while dragging.
-            Box(Modifier.fillMaxWidth().height(18.dp)) {
-                val bubble = adjust?.second ?: drag
-                if (bubble != null) Text("${clock(bubble.start)}–${clock(bubble.end)} · ${duration(bubble.end - bubble.start)}",
-                    Modifier.align(Alignment.Center), style = MaterialTheme.typography.labelMedium)
-                else ticks.forEach { minute ->
-                    val at = x(minute)
-                    Text(clock(minute), Modifier.offset { IntOffset((at - if (at < 24.dp.toPx()) 0f else 16.dp.toPx()).roundToInt(), 0) },
-                        style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
-                }
-            }
             // Where this window sits in the day: tap or drag to pan.
             if (span < DAY) {
                 val overviewWidth = remember { mutableFloatStateOf(1f) }
@@ -730,7 +772,14 @@ internal fun StudyTimeline(
                         .fillMaxHeight().border(1.dp, scheme.primary.copy(alpha = .6f), FolioShapes.small))
                 }
             }
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
+            message?.let { text ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                    undo?.takeIf { it.first == text }?.let { (_, revert) ->
+                        TextButton({ undo = null; revert() }) { Icon(FolioIcons.Undo, null, Modifier.size(16.dp)); Spacer(Modifier.width(FolioSpacing.dp6)); Text("Undo") }
+                    }
+                }
+            }
 
             // ── Select mode: the picked blocks and Merge. ──
             if (picking) {
@@ -782,30 +831,25 @@ internal fun StudyTimeline(
                                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                                 val about = if (entry.planned) focalPlanDetails(entry).first else entry.notes
                                 if (about.isNotBlank()) Text(about.trim(), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                // To the minute without dragging: step either edge, or tap a time to type it.
+                                if (movable(picked)) FlowRow(Modifier.padding(top = FolioSpacing.dp6), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8),
+                                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                    listOf(Grip.START to "Start", Grip.END to "End").forEach { (grip, name) ->
+                                        val at = if (grip == Grip.START) picked.start else picked.end
+                                        TimeStepper(name, at, scheme.surface,
+                                            canStep = { delta -> stepped(picked, grip, delta) != Span(picked.start, picked.end) }) { target ->
+                                            val next = stepped(picked, grip, target - at)
+                                            if (next != Span(picked.start, picked.end)) persist(picked, next)
+                                        }
+                                    }
+                                }
                             }
                             if (!compact) IconButton({ selected = null }) { Icon(FolioIcons.Close, "Close details") }
                         }
                     }) { modifier ->
                         FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, if (compact) Alignment.End else Alignment.Start),
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4), itemVerticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton({ zoomTo(picked) }) { Text("Zoom") }
-                            if (splittable(picked)) OutlinedButton({ split(picked, splitPoint(picked)) }) { Text("Split") }
-                            if (mergeable(picked)) OutlinedButton({ pick(true, entry.id) }) { Text("Select to merge") }
-                            if (entry.planned) OutlinedButton({ onEditPlan(entry.id) }) { Text("Edit") }
-                            if (!timing && entry.kind == "study") {
-                                val notFinished = !entry.completed && (date > today || (isToday && picked.end > nowMin))
-                                OutlinedButton({
-                                    val ok = manager.editBlocks(entry.id, spansOf(entry, focus), !entry.completed)
-                                    message = if (!ok) "Wait for this session to sync before changing it." else if (entry.completed) "Marked not done" else "Marked done"
-                                }, enabled = !notFinished) { Text(if (entry.completed) "Not done" else "Mark done") }
-                            }
-                            // "Now" only exists on today; on another day it would just push the block to that day's end.
-                            if (isToday && missed(picked) && movable(picked) && picked.end - picked.start <= DAY - SNAP - nowMin) OutlinedButton({
-                                val length = picked.end - picked.start
-                                val start = minOf(DAY - SNAP - length, kotlin.math.ceil(nowMin / SNAP) * SNAP)
-                                persist(picked, Span(start, start + length))
-                            }) { Text("Move to now") }
-                            if (entry.subjectId != null && entry.kind == "study") OutlinedButton({
+                            val repeat = {
                                 val next = date.plusDays(1)
                                 val nextStart = next.atStartOfDay(zone).toInstant().toEpochMilli()
                                 val copy = FocalStudyEntry(notebookId = null, title = "", subjectId = entry.subjectId, kind = "study",
@@ -815,18 +859,50 @@ internal fun StudyTimeline(
                                     listOf(FocalStudyInterval(millisAt(picked.start, nextStart), millisAt(picked.end, nextStart)))) }.getOrDefault(false)
                                 message = if (!ok) "Could not plan that again."
                                     else "Planned again for ${clock(picked.start)} ${if (next == today.plusDays(1)) "tomorrow" else next.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}"
-                            }) { Text(if (isToday) "Repeat tomorrow" else "Repeat next day") }
-                            if (!timing && focalCanContinue(entry, now)) OutlinedButton({
-                                if (!manager.continueFocus(entry.id)) message = "Couldn't continue that session. Refresh and try again."
-                            }, enabled = canStart) { Text("Continue") }
+                            }
+                            // What you came to do first; the rarer tools wait in the menu.
                             if (!timing && entry.kind == "study") Button({
                                 if (entry.planned) onStartPlanned(entry.id) else onStartFocus(entry.subjectId)
-                            }, enabled = canStart) { Text(if (entry.planned) "Start" else "Study again") }
-                            if (!timing) {
-                                if (confirmRemove) Button({ val ok = manager.deleteSession(entry.id); confirmRemove = false
-                                    if (ok) selected = null; message = if (ok) "Study removed" else "Could not remove that. Try again." },
-                                    colors = ButtonDefaults.buttonColors(containerColor = scheme.error, contentColor = scheme.onError)) { Text("Remove for good?") }
-                                else OutlinedButton({ confirmRemove = true }) { Text("Remove") }
+                            }, enabled = canStart) {
+                                Icon(FolioIcons.Play, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp6))
+                                Text(if (entry.planned) "Start" else "Study again")
+                            }
+                            if (!timing && focalCanContinue(entry, now)) FilledTonalButton({
+                                if (!manager.continueFocus(entry.id)) message = "Couldn't continue that session. Refresh and try again."
+                            }, enabled = canStart) { Text("Continue") }
+                            if (entry.planned) OutlinedButton({ onEditPlan(entry.id) }) { Text("Edit") }
+                            if (!timing && entry.kind == "study") {
+                                val notFinished = !entry.completed && (date > today || (isToday && picked.end > nowMin))
+                                OutlinedButton({
+                                    val ok = manager.editBlocks(entry.id, spansOf(entry, focus), !entry.completed)
+                                    message = if (!ok) "Wait for this session to sync before changing it." else if (entry.completed) "Marked not done" else "Marked done"
+                                }, enabled = !notFinished) { Text(if (entry.completed) "Not done" else "Mark done") }
+                            }
+                            // "Now" only exists on today; on another day it would just push the block to that day's end.
+                            if (isToday && missed(picked) && movable(picked) && picked.end - picked.start <= DAY - STEP - nowMin) OutlinedButton({
+                                val length = picked.end - picked.start
+                                val start = minOf(DAY - STEP - length, kotlin.math.ceil(nowMin))
+                                persist(picked, Span(start, start + length))
+                            }) { Text("Move to now") }
+                            if (confirmRemove) Button({ val ok = manager.deleteSession(entry.id); confirmRemove = false
+                                if (ok) selected = null; message = if (ok) "Study removed" else "Could not remove that. Try again." },
+                                colors = ButtonDefaults.buttonColors(containerColor = scheme.error, contentColor = scheme.onError)) { Text("Remove for good?") }
+                            Box {
+                                var more by remember(picked.key) { mutableStateOf(false) }
+                                IconButton({ more = true }) { Icon(FolioIcons.MoreVertical, "More for this block") }
+                                FolioMenuPopover(more, { more = false }, Modifier.guardUiTouches(), title = "Block") {
+                                    FolioMenuItem({ Text("Zoom to block") }, { more = false; zoomTo(picked) }, leadingIcon = { Icon(FolioIcons.ZoomIn, null) })
+                                    if (splittable(picked)) FolioMenuItem({ Text("Split at ${clock(splitPoint(picked))}") }, { more = false; split(picked, splitPoint(picked)) },
+                                        leadingIcon = { Icon(FolioIcons.Cut, null) })
+                                    if (mergeable(picked)) FolioMenuItem({ Text("Select to merge") }, { more = false; pick(true, entry.id) }, leadingIcon = { Icon(FolioIcons.Merge, null) })
+                                    if (entry.subjectId != null && entry.kind == "study") FolioMenuItem({ Text(if (isToday) "Repeat tomorrow" else "Repeat next day") },
+                                        { more = false; repeat() }, leadingIcon = { Icon(FolioIcons.Repeat, null) })
+                                    if (!timing) {
+                                        HorizontalDivider()
+                                        FolioMenuItem({ Text("Remove", color = scheme.error) }, { more = false; confirmRemove = true },
+                                            leadingIcon = { Icon(FolioIcons.Delete, null, tint = scheme.error) }, destructive = true)
+                                    }
+                                }
                             }
                             if (compact) IconButton({ selected = null }) { Icon(FolioIcons.Close, "Close details") }
                         }
@@ -847,6 +923,12 @@ internal fun StudyTimeline(
                         }
                         val subjectName = subjects.firstOrNull { it.id == subjectId }?.name
                         Split(compact, Modifier, { modifier -> Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                            TimeStepper("Start", range.start, scheme.surface, canStep = { step(range.start + it) in 0f..(range.end - STEP) }) {
+                                draft = Span(it.coerceIn(0f, range.end - STEP), range.end) }
+                            TimeStepper("End", range.end, scheme.surface, canStep = { step(range.end + it) in (range.start + STEP)..(DAY - 1f) }) {
+                                draft = Span(range.start, it.coerceIn(range.start + STEP, DAY - 1f)) }
+                        }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             listOf(15, 30, 45, 60, 90).forEach { minutes ->
                                 FilterChip(range.end - range.start == minutes.toFloat(),
@@ -900,6 +982,67 @@ private fun ResizeHandles(key: Any, range: Span, x: (Float) -> Float, top: Dp, h
                 contentAlignment = Alignment.Center) {
                 Box(Modifier.width(2.dp).height(10.dp).background(color.copy(alpha = .6f), CircleShape))
             }
+        }
+    }
+}
+
+private data class WeekDay(val date: LocalDate, val studied: Float, val planned: Boolean)
+
+/**
+ * The week around the shown day: a bar for each day's study, a dot where a plan is still waiting.
+ * Tap a day to show it. The bars share one scale, so a strong day and a thin one read at a glance.
+ */
+@Composable
+private fun WeekStrip(week: List<WeekDay>, shown: LocalDate, today: LocalDate, compact: Boolean, onPick: (LocalDate) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val top = maxOf(60f, week.maxOf { it.studied })
+    Row(if (compact) Modifier else Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+        week.forEach { day ->
+            val active = day.date == shown
+            val name = day.date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))
+            Column((if (compact) Modifier.width(40.dp) else Modifier.weight(1f)).heightIn(min = 48.dp).clip(FolioShapes.medium)
+                .background(if (active) scheme.secondaryContainer else Color.Transparent)
+                .clickable(onClickLabel = "Show this day") { onPick(day.date) }
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "$name, ${if (day.studied >= 1f) duration(day.studied) + " studied" else "no study"}${if (day.planned) ", study planned" else ""}"
+                }.padding(vertical = FolioSpacing.dp4),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val ink = if (active) scheme.onSecondaryContainer else if (day.date == today) scheme.primary else scheme.onSurfaceVariant
+                Text(day.date.format(DateTimeFormatter.ofPattern(if (compact) "EEEEE" else "EEE", Locale.getDefault())),
+                    style = MaterialTheme.typography.labelSmall, color = ink, fontWeight = if (day.date == today) FontWeight.Bold else null, maxLines = 1)
+                Box(Modifier.width(if (compact) 14.dp else 22.dp).height(18.dp), contentAlignment = Alignment.BottomCenter) {
+                    Box(Modifier.fillMaxWidth().height(3.dp).background(scheme.outlineVariant, CircleShape))
+                    if (day.studied >= 1f) Box(Modifier.fillMaxWidth().fillMaxHeight((day.studied / top).coerceIn(.18f, 1f))
+                        .background(if (active) scheme.primary else scheme.primary.copy(alpha = .55f), FolioShapes.small))
+                    // A plan still waiting on that day: a ring above the bar.
+                    if (day.planned) Box(Modifier.align(Alignment.TopCenter).size(5.dp).border(1.dp, ink, CircleShape))
+                }
+                // The wide band is short on height, and its title already names the shown date.
+                if (!compact) Text("${day.date.dayOfMonth}", style = MaterialTheme.typography.labelSmall, color = ink, maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
+ * One edge of a block as a time: step it a minute either way, or tap the time to choose it exactly.
+ * [canStep] says whether a step of that many minutes is allowed; [onSet] gets the wanted minute of the day.
+ */
+@Composable
+private fun TimeStepper(label: String, minute: Float, color: Color, canStep: (Float) -> Boolean, onSet: (Float) -> Unit) {
+    val context = LocalContext.current
+    val whole = minute.roundToInt()
+    Surface(shape = CircleShape, color = color) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton({ onSet(step(minute - STEP)) }, enabled = canStep(-STEP)) { Icon(FolioIcons.Minus, "$label one minute earlier", Modifier.size(18.dp)) }
+            Column(Modifier.clip(FolioShapes.small).clickable(onClickLabel = "Choose the ${label.lowercase()} time") {
+                android.app.TimePickerDialog(context, { _, hour, min -> onSet(hour * 60f + min) }, (whole / 60).coerceIn(0, 23), whole % 60,
+                    android.text.format.DateFormat.is24HourFormat(context)).show()
+            }.widthIn(min = 64.dp).padding(horizontal = FolioSpacing.dp4), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(clock(whole.toFloat()), style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"), maxLines = 1)
+            }
+            IconButton({ onSet(step(minute + STEP)) }, enabled = canStep(STEP)) { Icon(FolioIcons.Plus, "$label one minute later", Modifier.size(18.dp)) }
         }
     }
 }
