@@ -43,7 +43,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
  * drills into a page; a tablet keeps the list beside the page. Search finds a setting by name and
  * scrolls to it. Every control saves as it changes.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}, onReclassify: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
     val focus = LocalFocusManager.current
@@ -103,7 +103,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
                         SettingsPage.PEN -> PenPage(app)
                         SettingsPage.EDITOR -> EditorPage()
                         SettingsPage.FOLLOW -> FollowPage()
-                        SettingsPage.LIBRARY -> LibraryPage(folders)
+                        SettingsPage.LIBRARY -> LibraryPage(folders, onReclassify)
                         SettingsPage.BACKUP -> BackupPage(backup)
                         SettingsPage.STUDY -> StudyPage()
                         SettingsPage.ACCOUNT -> AccountPage(account)
@@ -206,7 +206,7 @@ private enum class SettingsPage(val title: String, val summary: String, val icon
     PEN("Pen & touch", "Finger drawing, palm rejection, pencil, shapes and scribble", FolioIcons.Handwriting),
     EDITOR("Editor", "Toolbar, starting tool, zoom, text and keyboard", FolioIcons.Pen),
     FOLLOW("Writing follow", "Move the page as you write", FolioIcons.Book),
-    LIBRARY("Library", "New notebooks, covers, quick notes and swipes", FolioIcons.Book),
+    LIBRARY("Library", "Reclassify, new notebooks, covers, quick notes and swipes", FolioIcons.Book),
     BACKUP("Backup & restore", "Automatic backup and library files", FolioIcons.CloudUpload),
     STUDY("Study", "Exam timer and mistake practice", FolioIcons.Timer),
     ACCOUNT("Account & updates", "Focal, ChatGPT and app updates", FolioIcons.Account),
@@ -243,6 +243,7 @@ private object SettingsIndex {
             "Learn my line spacing" to "adaptive", "Line spacing" to "millimetres ruled", "Detect answer areas automatically" to "pdf lines", "Reset writing follow" to "defaults",
         ),
         SettingsPage.LIBRARY to listOf(
+            "Reclassify notebooks" to "library management exam details subject year ai chatgpt detect tag organise",
             "Paper" to "new notebook default ruled grid dots blank", "Cover design and colour" to "new notebook default", "First page as cover" to "thumbnail shelf",
             "Your cover colours" to "custom add remove", "Quick notes and canvases" to "folder save", "Swipe right" to "gesture favourite trash tags move share", "Swipe left" to "gesture favourite trash tags move share",
         ),

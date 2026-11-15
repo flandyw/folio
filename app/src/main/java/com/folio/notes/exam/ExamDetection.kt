@@ -374,3 +374,41 @@ object ExamAiClassification {
             type = current.type ?: suggested.type, marksTotal = current.marksTotal ?: suggested.marksTotal)
     }
 }
+
+/** Library reclassification: which fields a suggestion would change, and the exact tags a reviewed choice commits. */
+object ExamReclassify {
+    val fields = listOf(ExamField.SUBJECT, ExamField.YEAR, ExamField.COMPANY, ExamField.TYPE, ExamField.MARKS_TOTAL)
+
+    fun has(tags: ExamTags, field: ExamField): Boolean = when (field) {
+        ExamField.SUBJECT -> tags.subject != null || tags.subjectText.isNotBlank()
+        ExamField.YEAR -> tags.year != null
+        ExamField.COMPANY -> tags.company.isNotBlank()
+        ExamField.TYPE -> tags.type != null
+        ExamField.MARKS_TOTAL -> tags.marksTotal != null
+    }
+
+    fun label(tags: ExamTags, field: ExamField): String = when (field) {
+        ExamField.SUBJECT -> tags.subjectLabel
+        ExamField.YEAR -> tags.year?.toString().orEmpty()
+        ExamField.COMPANY -> tags.company
+        ExamField.TYPE -> tags.type?.label.orEmpty()
+        ExamField.MARKS_TOTAL -> tags.marksTotal?.let { "$it marks" }.orEmpty()
+    }
+
+    /** A suggestion never clears a field: only values it actually has, and that differ, count as changes. */
+    fun changed(current: ExamTags, suggested: ExamTags): Set<ExamField> =
+        fields.filter { has(suggested, it) && label(current, it) != label(suggested, it) }.toSet()
+
+    /** The default selection: fill what is empty, leave what the user already set. */
+    fun gaps(current: ExamTags, suggested: ExamTags): Set<ExamField> = changed(current, suggested).filterNot { has(current, it) }.toSet()
+
+    fun apply(current: ExamTags, suggested: ExamTags, chosen: Set<ExamField>): ExamTags {
+        var tags = current
+        if (ExamField.SUBJECT in chosen) tags = tags.copy(subject = suggested.subject, subjectText = suggested.subjectText)
+        if (ExamField.YEAR in chosen) tags = tags.copy(year = suggested.year)
+        if (ExamField.COMPANY in chosen) tags = tags.copy(company = suggested.company)
+        if (ExamField.TYPE in chosen) tags = tags.copy(type = suggested.type)
+        if (ExamField.MARKS_TOTAL in chosen) tags = tags.copy(marksTotal = suggested.marksTotal)
+        return tags
+    }
+}

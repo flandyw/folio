@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.settings
 
+import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -405,8 +406,12 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
 
 // ---- Library ------------------------------------------------------------------------------------
 
-@Composable internal fun LibraryPage(folders: List<Folder>) {
+@Composable internal fun LibraryPage(folders: List<Folder>, onReclassify: () -> Unit = {}) {
     val p = rememberPrefs()
+    SettingsGroup("Library management", footer = "Suggestions are reviewed field by field before anything changes.") {
+        SettingsLinkRow("Reclassify notebooks", "Find subject, year, source and type again, on the device or with ChatGPT", onClick = onReclassify,
+            leading = FolioIcons.Sparkle)
+    }
     val paper by rememberPref(p, AppPrefs.DEFAULT_PAPER) { AppPrefs.defaultPaper(it.getString(AppPrefs.DEFAULT_PAPER, null)) }
     val cover by rememberPref(p, AppPrefs.DEFAULT_COVER) { AppPrefs.defaultCover(it.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX).takeIf { _ -> it.contains(AppPrefs.DEFAULT_COVER) } ?: AppPrefs.DEFAULT_COVER_INDEX) }
     SettingsGroup("New notebooks") {

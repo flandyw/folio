@@ -79,6 +79,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal val documentWriteCoordinator by lazy { DocumentWriteCoordinator(_state, RepositoryWriteStorage(repository), application.storageScope, application.storageGate) { LibraryAutoBackup.requestAfterSave(application) } }
     internal val notebookCatalog by lazy { NotebookCatalog(this) }
     internal val backupService by lazy { BackupService(this) }
+    internal val reclassifier by lazy { com.folio.notes.library.LibraryReclassifier(this) }
     internal val notebookWorkflowService by lazy { NotebookWorkflowService(this) }
     internal val workspaceManager by lazy { WorkspaceManager(this) }
     internal val prefs = application.getSharedPreferences("preferences", 0)

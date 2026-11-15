@@ -263,3 +263,19 @@ so Android can still end a long one while Folio is in the background; failures s
 
 On-device language models (Gemini Nano through ML Kit's GenAI Prompt API) were considered and not added: the API
 is still alpha and the OnePlus Pad 3 is not on its published device list.
+
+## Reclassifying the library
+
+Settings › Library › **Reclassify notebooks** (`library/ReclassifyDialog.kt` over `LibraryReclassifier`) re-runs
+classification on existing notebooks. Pick notebooks (search, All / Missing details / PDFs / None; missing details
+is preselected), optionally **Ask ChatGPT when unsure**, then check. Each notebook's stored PDF is read like an
+import (`NoteRepository.notebookExamEvidence`: text, metadata, scanned-cover OCR) with the title standing in for
+the file name; notebooks without a PDF are judged on their title alone. The run lives in the application scope, so
+closing the dialog or Settings does not stop it, and a notification says when results are ready if Folio is in the
+background. **Stop** keeps what was found so far.
+
+Review lists only notebooks with differences, field by field (current → suggested), labelled *On device* or
+*ChatGPT*. The default selection only fills empty fields (`ExamReclassify.gaps`); **Replace existing too** selects
+every change and each field or notebook can be toggled. A suggestion never clears a field. **Apply** writes the
+chosen fields through `updateExamTags`; a notebook whose details changed since the check is skipped and reported.
+Proposals are memory-only and do not survive process death. Notebook titles are not renamed.

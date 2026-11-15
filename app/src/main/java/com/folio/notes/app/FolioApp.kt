@@ -190,6 +190,7 @@ import java.io.File
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
     var chatGptOpen by rememberSaveable { mutableStateOf(false) }
+    var reclassifyOpen by rememberSaveable { mutableStateOf(false) }
     var chatGptStartAccount by rememberSaveable { mutableStateOf(false) }
     val updates = remember(context) { (context.applicationContext as FolioApplication).updates }
     val updateState by updates.state.collectAsStateWithLifecycle()
@@ -646,6 +647,7 @@ import java.io.File
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
                     onChatGpt = { chatGptStartAccount = true; chatGptOpen = true },
+                    onReclassify = { reclassifyOpen = true },
                     folders = state.folders,
                     startWithWritingFollow = settingsStartWithFollow,
                     startWithBackup = settingsStartWithBackup,
@@ -675,6 +677,7 @@ import java.io.File
                 { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showMusic = false; showStudy = true }
             },
         )
+        if (reclassifyOpen) com.folio.notes.library.ReclassifyDialog(model) { reclassifyOpen = false }
         if (chatGptOpen) ChatGptPanel(
             manager = chatGpt,
             model = model, onDismiss = { chatGptOpen = false }, startWithAccount = chatGptStartAccount,

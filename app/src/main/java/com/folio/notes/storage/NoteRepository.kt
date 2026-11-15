@@ -643,6 +643,27 @@ class NoteRepository(private val context: Context) {
         } finally { scratch.delete() }
     }
 
+    /**
+     * The same bounded front-matter evidence import reads, from a notebook's stored PDF (embedded text, metadata and
+     * scanned-cover OCR). A notebook without a PDF, or one that cannot be read, has none.
+     */
+    suspend fun notebookExamEvidence(noteId: String): ExamDocumentEvidence = withContext(Dispatchers.IO) {
+        val file = pdfs.sourcePdfFile(noteId) ?: return@withContext ExamDocumentEvidence()
+        try {
+            val document = pdfs.pdfMetadataLock.withLock {
+                pdfs.ensurePdfBox()
+                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024).setTempDir(context.cacheDir)).use { doc ->
+                    ExamDocumentEvidence(
+                        pages = pdfs.extractPdfPageTexts(doc, ExamEvidenceCollector.MAX_PAGES, ExamEvidenceCollector.MAX_PAGE_CHARACTERS),
+                        metadata = listOfNotNull(doc.documentInformation.title, doc.documentInformation.subject, doc.documentInformation.author))
+                }
+            }
+            val ocr = PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)).use { scanPdfFrontMatter(it, document.pages) }
+            document.copy(ocrPages = ocr)
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { ExamDocumentEvidence() }
+    }
+
     suspend fun importPdf(uri: Uri, folder: String?, options: PendingPdfImport? = null): Notebook = withContext(Dispatchers.IO) {
         val title = options?.title ?: context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0).substringBeforeLast('.', it.getString(0)) else null

@@ -7,6 +7,7 @@ import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamEvidenceCollector
 import com.folio.notes.exam.ExamEvidenceSource
 import com.folio.notes.exam.ExamField
+import com.folio.notes.exam.ExamReclassify
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamType
 import com.folio.notes.exam.VceSubject
@@ -162,6 +163,16 @@ fun main() {
         check(merged.subject == VceSubject.CHEMISTRY && merged.year == 2024 && merged.marksTotal == 120 && merged.company == "NEAP") { merged }
         val filled = ExamAiClassification.fillGaps(ExamTags(year = 2022), ExamTags(subject = VceSubject.BIOLOGY, year = 2020, type = ExamType.SAC))
         check(filled.subject == VceSubject.BIOLOGY && filled.year == 2022 && filled.type == ExamType.SAC) { filled }
+    }
+    scenario("Reclassify review fills gaps by default and commits only chosen fields") {
+        val current = ExamTags(subject = VceSubject.CHEMISTRY, year = 2023, company = "")
+        val suggested = ExamTags(subject = VceSubject.PHYSICS, year = 2023, company = "NEAP", type = ExamType.EXAM_1)
+        check(ExamReclassify.changed(current, suggested) == setOf(ExamField.SUBJECT, ExamField.COMPANY, ExamField.TYPE))
+        check(ExamReclassify.gaps(current, suggested) == setOf(ExamField.COMPANY, ExamField.TYPE))
+        val applied = ExamReclassify.apply(current, suggested, ExamReclassify.gaps(current, suggested))
+        check(applied.subject == VceSubject.CHEMISTRY && applied.company == "NEAP" && applied.type == ExamType.EXAM_1) { applied }
+        check(ExamReclassify.changed(current, ExamTags()).isEmpty()) // a blank suggestion never clears anything
+        check(ExamReclassify.apply(current, suggested, setOf(ExamField.SUBJECT)).subject == VceSubject.PHYSICS)
     }
     println("$checks import scenarios passed")
 }
