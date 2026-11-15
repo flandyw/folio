@@ -115,13 +115,16 @@ internal class LibraryReclassifier(private val runtime: FolioRuntime) {
         val state = mutable.value
         if (state.running) return
         val notes = runtime._state.value.notes.associateBy { it.id }
-        var applied = 0; var skipped = 0
+        var skipped = 0
+        val finals = mutableMapOf<String, ExamTags>()
         state.proposals.filter { it.chosen.isNotEmpty() }.forEach { proposal ->
             val note = notes[proposal.noteId]
             if (note == null || note.exam != proposal.current) { skipped++; return@forEach }
-            runtime.updateExamTags(note.id, ExamReclassify.apply(note.exam, proposal.suggested, proposal.chosen))
-            applied++
+            finals[note.id] = ExamReclassify.apply(note.exam, proposal.suggested, proposal.chosen)
         }
+        // One state pass and one queued save for the whole review.
+        runtime.updateNotes(finals.keys) { note -> finals[note.id]?.let { note.copy(exam = it) } ?: note }
+        val applied = finals.size
         mutable.value = ReclassifyState(applied = buildString {
             append("Updated $applied notebook${if (applied == 1) "" else "s"}.")
             if (skipped > 0) append(" $skipped changed since the check and ${if (skipped == 1) "was" else "were"} left alone.")

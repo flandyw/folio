@@ -176,11 +176,9 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         }
     }
 
+    /** Exam details are organising, like tags and folders: they never move a notebook in "Last edited". */
     fun updateExamTags(noteId: String, tags: ExamTags) {
-        with(runtime) {
-            val note = _state.value.notes.notebook(noteId) ?: return
-            updateNote(note.copy(exam = tags))
-        }
+        with(runtime) { updateNotes(setOf(noteId)) { it.copy(exam = tags) } }
     }
 
     fun toggleExamTag(noteId: String, tag: ExamTagType) {
