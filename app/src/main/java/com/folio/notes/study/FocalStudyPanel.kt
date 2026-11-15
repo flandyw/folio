@@ -177,9 +177,11 @@ internal fun FocalStudyContent(
     }
     // Where the timeline sits in the context list (−1 when it spans the page above it), for "show on timeline".
     var timelineIndex by remember { mutableIntStateOf(-1) }
+    val pageScroll = rememberScrollState()
     fun showOnTimeline(entry: FocalStudyEntry) {
         timelineDay = Instant.ofEpochMilli(entry.startedAt).atZone(zone).toLocalDate().toEpochDay()
         if (timelineIndex >= 0) scope.launch { listState.animateScrollToItem(timelineIndex) }
+        else scope.launch { pageScroll.animateScrollTo(0) }
     }
 
     // ── Timer column: exam notice, the clock with its controls, and the wrap-up form. ──
@@ -551,16 +553,21 @@ internal fun FocalStudyContent(
     val top = if (dedicated) 0.dp else FolioSpacing.dp8
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         if (maxWidth >= 840.dp) {
-            // Landscape tablet: a time strip wants width, so the timeline spans both columns. It is
-            // capped at under half the height (scrolling inside) so the clock and history keep theirs.
+            // Landscape tablet: a time strip wants width, so the timeline spans both columns at its
+            // full height. The page scrolls as a whole: the columns below are a screen tall, and once
+            // one reaches its top the rest of the drag scrolls the page back up to the timeline.
             val spanning = dedicated && constraints.hasBoundedHeight
             SideEffect { timelineIndex = if (spanning || !dedicated) -1 else 1 }
-            val timelineMax = maxHeight * 0.45f
+            val pageHeight = maxHeight
             val columnsTop = if (spanning) FolioSpacing.dp12 else top
-            Column(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding()) {
-                if (spanning) Box(Modifier.fillMaxWidth().heightIn(max = timelineMax).verticalScroll(rememberScrollState())
-                    .padding(horizontal = FolioDestinationInset)) { timeline(true) }
-                Row(Modifier.fillMaxWidth().then(if (dedicated) Modifier.weight(1f) else Modifier),
+            Column(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding()
+                .then(if (spanning) Modifier.verticalScroll(pageScroll) else Modifier)) {
+                if (spanning) Box(Modifier.fillMaxWidth().padding(horizontal = FolioDestinationInset)) { timeline(true) }
+                Row(Modifier.fillMaxWidth().then(when {
+                    spanning -> Modifier.height(pageHeight)
+                    dedicated -> Modifier.weight(1f)
+                    else -> Modifier
+                }),
                     horizontalArrangement = Arrangement.spacedBy(FolioDestinationInset)) {
                     Column(Modifier.weight(5f).fillMaxHeight().verticalScroll(rememberScrollState())
                         .padding(start = FolioDestinationInset, top = columnsTop, bottom = FolioSpacing.dp16),
