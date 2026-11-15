@@ -114,7 +114,7 @@ private enum class ToolSub { PRESETS }
 /** A plain strip button with its tooltip; tools use [FolioToolToggle] instead. */
 @Composable private fun StripButton(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick, enabled = enabled, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(22.dp)) }
+        IconButton(onClick, enabled = enabled, modifier = Modifier.size(ToolbarButton), shapes = IconButtonDefaults.shapes()) { Icon(icon, label, Modifier.size(20.dp)) }
     }
 }
 
@@ -342,7 +342,7 @@ private enum class ToolSub { PRESETS }
             val selected = shape == tool
             IconButton({ chooseShape(shape) }, modifier = Modifier.size(ToolbarButton).semanticsLabel("${shapeLabel(shape)}${if (selected) ", selected" else ""}"),
                 colors = IconButtonDefaults.iconButtonColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
-                Icon(shapeIcon(shape), null, Modifier.size(20.dp))
+                Icon(shapeIcon(shape), null, Modifier.size(18.dp))
             }
         }
     }
@@ -385,7 +385,7 @@ private enum class ToolSub { PRESETS }
     /** The brush in use; tapping opens the brush cards, each drawn in the brush's own ink. */
     @Composable fun BrushSwitch() = Box {
         IconButton({ brushPicker = !brushPicker }, modifier = Modifier.size(ToolbarButton).semanticsLabel("Brush, ${options.style.brushLabel(tool).lowercase()}")) {
-            Icon(brushIcon(tool, options.style), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(brushIcon(tool, options.style), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (brushPicker) FolioPopover(onDismiss = { brushPicker = false }, width = 344.dp) {
             BrushPicker(tool, options) { brush -> tick(); onOptions(options.withBrush(tool, brush, widthPresetState)); brushPicker = false }
@@ -416,7 +416,7 @@ private enum class ToolSub { PRESETS }
                     // opacity, colour and the tool's own options all live in that one popover.
                     Box {
                         IconButton({ paletteFromQuickBar = !palette; onPalette(!palette) }, modifier = Modifier.size(ToolbarButton)) {
-                            Icon(FolioIcons.Tune, "Tool settings", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(FolioIcons.Tune, "Tool settings", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         ToolSettingsPopover(fromQuickBar = true)
                     }

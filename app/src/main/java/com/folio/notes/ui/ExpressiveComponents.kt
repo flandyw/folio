@@ -75,7 +75,7 @@ import com.folio.notes.settings.showEditorToolNames
                 checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
                 checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ),
-        ) { Icon(icon, label, Modifier.size(22.dp)) }
+        ) { Icon(icon, label, Modifier.size(20.dp)) }
         if (showNames) Text(label.substringBefore(" —"), Modifier.align(Alignment.BottomCenter), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
 
     }
