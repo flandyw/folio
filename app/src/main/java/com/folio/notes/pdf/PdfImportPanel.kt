@@ -163,7 +163,8 @@ internal fun PdfImportDialog(
                                 duplicates.keys.any { it !in acknowledged } -> "Review duplicate PDFs before importing"
                                 else -> "${files.size} PDF${if (files.size == 1) "" else "s"} ready"
                             }, style = MaterialTheme.typography.labelLarge)
-                            Text("Original files stay where they are", style = MaterialTheme.typography.bodySmall,
+                            Text(if (files.any { it.aiCheck == AiCheck.RUNNING }) "ChatGPT is still checking. Import now and details update when it's done."
+                                else "Original files stay where they are", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Button({ onImport(folder, files) }, enabled = valid && !checkingDuplicates && duplicates.keys.all { it in acknowledged }, shapes = ButtonDefaults.shapes(),
@@ -213,6 +214,8 @@ private fun ImportFileTile(item: PendingPdfImport, selected: Boolean, onSelect: 
             supportingContent = { Text(when {
                 item.inspectionError != null -> "Couldn’t read this file"
                 !item.detected -> "Finding document details"
+                item.aiCheck == AiCheck.RUNNING -> "ChatGPT is checking…"
+                item.aiCheck == AiCheck.SUGGESTED -> "ChatGPT suggestion to review"
                 item.plainPdf || !item.exam.isTagged -> "PDF document"
                 else -> item.exam.summaryLine()
             }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -301,7 +304,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                         when (item.aiCheck) {
                             AiCheck.RUNNING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 LoadingIndicator(Modifier.size(24.dp))
-                                Text("ChatGPT is double-checking these details…", style = MaterialTheme.typography.bodySmall, color = muted)
+                                Text("ChatGPT is double-checking these details. You can import now; they'll update when it's done.", style = MaterialTheme.typography.bodySmall, color = muted)
                             }
                             AiCheck.APPLIED -> Text("Checked by ChatGPT. Details printed clearly on the paper were kept.",
                                 style = MaterialTheme.typography.bodySmall, color = muted)

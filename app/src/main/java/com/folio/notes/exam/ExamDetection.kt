@@ -395,6 +395,13 @@ object ExamAiClassification {
             marksTotal = if (sure(ExamField.MARKS_TOTAL)) base.marksTotal else ai.marksTotal ?: base.marksTotal)
     }
 
+    /**
+     * A result that lands after import counts the same as one that landed in review: details the user never touched
+     * ([imported] was the device guess and the notebook still holds it) take the suggestion; anything else only fills gaps.
+     */
+    fun afterImport(current: ExamTags, imported: ExamTags, untouched: Boolean, suggested: ExamTags): ExamTags =
+        if (untouched && current == imported) suggested.copy(tags = current.tags) else fillGaps(current, suggested)
+
     /** After import: only empty fields are filled, so nothing the user chose is ever replaced. */
     fun fillGaps(current: ExamTags, suggested: ExamTags): ExamTags {
         val noSubject = current.subject == null && current.subjectText.isBlank()

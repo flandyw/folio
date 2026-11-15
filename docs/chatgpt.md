@@ -252,8 +252,10 @@ each of the first two pages (plus their scanned text), never images, with a stri
 without overriding any field the device was already confident about.
 
 While the file is in review, untouched details are replaced by the merged suggestion; edited details get a
-**Use these details** suggestion instead. If the file was imported first, only the notebook's empty fields are
-filled, and nothing is filled for a file imported as a plain PDF. When Folio is out of sight a notification
+**Use these details** suggestion instead. Importing does not have to wait: the dialog's file tiles and footer say a
+check is still running, and a result that lands after import is applied the same way (`ExamAiClassification.afterImport`):
+if the details were never edited, in review or since, the notebook takes the suggestion and a notebook still wearing its
+suggested name is renamed to match; otherwise only empty fields are filled. Nothing is filled for a file imported as a plain PDF. When Folio is out of sight a notification
 (`FolioNotifications`, channel *Document details*) says the details are ready; the permission is requested once,
 the first time a check starts. The import dialog's **Double-check with ChatGPT** switch (`AppPrefs.AI_IMPORT_CHECK`,
 on by default, shown only when connected) turns it off and stops waiting checks. Checks are an ordinary coroutine,

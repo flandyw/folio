@@ -164,6 +164,12 @@ fun main() {
         check(merged.subject == VceSubject.CHEMISTRY && merged.year == 2024 && merged.marksTotal == 120 && merged.company == "NEAP") { merged }
         val filled = ExamAiClassification.fillGaps(ExamTags(year = 2022), ExamTags(subject = VceSubject.BIOLOGY, year = 2020, type = ExamType.SAC))
         check(filled.subject == VceSubject.BIOLOGY && filled.year == 2022 && filled.type == ExamType.SAC) { filled }
+        val guess = ExamTags(subject = VceSubject.PHYSICS, year = 2019)
+        val ai = ExamTags(subject = VceSubject.BIOLOGY, year = 2020, type = ExamType.SAC)
+        check(ExamAiClassification.afterImport(guess, guess, untouched = true, ai) == ai) { "untouched guess takes the suggestion" }
+        val edited = guess.copy(year = 2021)
+        check(ExamAiClassification.afterImport(edited, guess, untouched = true, ai) == ExamAiClassification.fillGaps(edited, ai)) { "edited after import only fills gaps" }
+        check(ExamAiClassification.afterImport(guess, guess, untouched = false, ai) == ExamAiClassification.fillGaps(guess, ai)) { "edited in review only fills gaps" }
     }
     scenario("Reclassify review fills gaps by default and commits only chosen fields") {
         val current = ExamTags(subject = VceSubject.CHEMISTRY, year = 2023, company = "")

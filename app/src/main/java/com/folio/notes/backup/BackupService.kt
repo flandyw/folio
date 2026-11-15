@@ -29,7 +29,8 @@ internal class BackupService(private val runtime: FolioRuntime) {
     internal val pdfInspectionGate = Mutex()
     // Main-thread only. Checks outlive the review dialog; an imported file's result fills its notebook's gaps.
     private val aiChecks = mutableMapOf<Uri, Job>()
-    private val importedFrom = mutableMapOf<Uri, String>()
+    // The notebook a file became, with the details it was imported with, so a late result can tell what the user touched.
+    private val importedFrom = mutableMapOf<Uri, Pair<String, PendingPdfImport>>()
     // A result that lands while its file is still being copied in waits here for the notebook.
     private val lateSuggestions = mutableMapOf<Uri, com.folio.notes.exam.ExamTags>()
     fun export(block: suspend () -> Unit) {
@@ -122,17 +123,27 @@ internal class BackupService(private val runtime: FolioRuntime) {
                     if (chatGpt.visible) return@launch
                     pending.title to if (untouched) "Exam details are filled in. Check them before importing." else "Suggested exam details are ready to review."
                 } else {
-                    val noteId = importedFrom.remove(uri) ?: run { if (_state.value.busy) lateSuggestions[uri] = suggested; return@launch }
-                    val note = _state.value.notes.firstOrNull { it.id == noteId } ?: return@launch
-                    val filled = ExamAiClassification.fillGaps(note.exam, suggested)
-                    if (filled == note.exam) return@launch
-                    updateExamTags(note.id, filled)
-                    val text = "Filled in missing exam details: ${filled.summaryLine()}"
+                    val (noteId, option) = importedFrom.remove(uri) ?: run { if (_state.value.busy) lateSuggestions[uri] = suggested; return@launch }
+                    val note = applyAfterImport(noteId, option, suggested) ?: return@launch
+                    val text = "ChatGPT updated the exam details: ${note.exam.summaryLine()}"
                     if (chatGpt.visible) { reportNotice("${note.title}: $text"); return@launch }
                     note.title to text
                 }
                 FolioNotifications.classificationReady(app, uri.hashCode(), title, message)
             }
+        }
+    }
+
+    /** Applies a result that landed after import, renaming a notebook that still wears its suggested name. Returns the updated notebook, or null if nothing changed. */
+    private fun applyAfterImport(noteId: String, option: PendingPdfImport, suggested: com.folio.notes.exam.ExamTags): Notebook? {
+        with(runtime) {
+            val note = _state.value.notes.firstOrNull { it.id == noteId } ?: return null
+            val tags = ExamAiClassification.afterImport(note.exam, option.exam, option.exam == option.detection.toExamTags(), suggested)
+            if (tags == note.exam) return null
+            updateExamTags(noteId, tags)
+            if (option.useSmartTitle && note.title == option.title)
+                rename(note, com.folio.notes.exam.smartImportedNotebookName(tags, option.originalTitle))
+            return _state.value.notes.firstOrNull { it.id == noteId }
         }
     }
 
@@ -246,7 +257,7 @@ internal class BackupService(private val runtime: FolioRuntime) {
         with(runtime) {
             scope.launch {
                 val imported = mutableListOf<Notebook>()
-                val late = mutableMapOf<String, com.folio.notes.exam.ExamTags>()
+                val late = mutableMapOf<String, Pair<PendingPdfImport, com.folio.notes.exam.ExamTags>>()
                 val failures = initialFailures.toMutableList()
                 try {
                     ready.await()
@@ -255,14 +266,14 @@ internal class BackupService(private val runtime: FolioRuntime) {
                             val option = options[item.uri] ?: item
                             getApplication<FolioApplication>().storageGate.withLock { repository.importPdf(item.uri, folderId, option) }
                                 .also { note -> if (!option.plainPdf) {
-                                    if (aiChecks[item.uri]?.isActive == true) importedFrom[item.uri] = note.id
-                                    lateSuggestions.remove(item.uri)?.let { late[note.id] = it }
+                                    if (aiChecks[item.uri]?.isActive == true) importedFrom[item.uri] = note.id to option
+                                    lateSuggestions.remove(item.uri)?.let { late[note.id] = option to it }
                                 } }
                         },
                         onSuccess = { note ->
                             imported += note
                             _state.update { it.copy(notes = it.notes + note) }
-                            late.remove(note.id)?.let { updateExamTags(note.id, ExamAiClassification.fillGaps(note.exam, it)) }
+                            late.remove(note.id)?.let { (option, suggested) -> applyAfterImport(note.id, option, suggested) }
                         },
                         onFailure = { index, error ->
                             failures += "PDF $index: ${error.message ?: "Protected, damaged, or unavailable file"}"
