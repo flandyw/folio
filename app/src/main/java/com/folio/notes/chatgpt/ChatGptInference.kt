@@ -3,7 +3,9 @@ package com.folio.notes.chatgpt
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal data class ChatGptModel(val slug: String, val name: String, val efforts: List<String> = emptyList())
+/** [suggested]: on the picker's short list (the rest are found by searching). [images]: accepts page pictures. [json]: how it can be held to a schema (`schema`, `object` or `none`); see [ChatCompletions.body]. */
+internal data class ChatGptModel(val slug: String, val name: String, val efforts: List<String> = emptyList(),
+    val images: Boolean = true, val json: String = "schema", val suggested: Boolean = false)
 internal data class ChatGptUsage(val input: Long, val output: Long, val reasoning: Long?, val cached: Long?) {
     val total get() = input + output // Reasoning is already included in output.
 }
@@ -13,8 +15,8 @@ internal data class ChatGptUsageSummary(val completed: Int = 0, val reported: In
 }
 internal data class ChatGptResponse(val text: String, val usage: ChatGptUsage?)
 internal enum class ChatGptStage(val label: String) {
-    PREPARING("Preparing page"), SENDING("Sending request"), WAITING("ChatGPT is processing"),
-    REASONING("ChatGPT is thinking"), WRITING("Writing response"), CHECKING("Checking feedback"),
+    PREPARING("Preparing page"), SENDING("Sending request"), WAITING("The model is processing"),
+    REASONING("The model is thinking"), WRITING("Writing response"), CHECKING("Checking feedback"),
 }
 
 /** Server capabilities take priority. Fallbacks are limited to documented GPT-6 models. */

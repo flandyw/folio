@@ -103,13 +103,13 @@ private fun Choose(model: FolioViewModel, notes: List<com.folio.notes.model.Note
         Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (available) Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Ask ChatGPT when unsure", style = MaterialTheme.typography.titleSmall)
-                    Text("Sends the cover text of uncertain notebooks. Uses your plan.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Ask ${model.chatGpt.name} when unsure", style = MaterialTheme.typography.titleSmall)
+                    Text("Sends the cover text of uncertain notebooks. Uses your plan or key.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(useAi, { useAi = it })
             }
             if (available && useAi) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.fillMaxWidth())
-            if (!available) Text("Connect ChatGPT in Account & updates to double-check uncertain notebooks.", style = MaterialTheme.typography.bodySmall,
+            if (!available) Text("Connect ChatGPT or add an API key in Account & updates to double-check uncertain notebooks.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button({ model.reclassifier.start(selected, useAi && available) }, modifier = Modifier.align(Alignment.End), enabled = selected.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
                 Icon(FolioIcons.Sparkle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
@@ -126,7 +126,7 @@ private fun Review(run: ReclassifyState, reclassifier: LibraryReclassifier, modi
         Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(buildString {
                 append("${run.proposals.size} of ${run.done} checked notebooks have suggestions.")
-                if (run.aiFailures > 0) append(" ChatGPT couldn't check ${run.aiFailures}; device results are shown for those.")
+                if (run.aiFailures > 0) append(" AI couldn't check ${run.aiFailures}; device results are shown for those.")
             }, style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(false, reclassifier::chooseGaps, { Text("Only fill empty fields") })
@@ -144,7 +144,7 @@ private fun Review(run: ReclassifyState, reclassifier: LibraryReclassifier, modi
                             verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(all, null)
                             Text(proposal.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(if (proposal.byAi) "ChatGPT" else "On device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (proposal.byAi) "AI" else "On device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         ExamReclassify.fields.filter { it in proposal.changed }.forEach { field ->
                             val on = field in proposal.chosen

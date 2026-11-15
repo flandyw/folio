@@ -51,18 +51,18 @@ import java.text.NumberFormat
     }
 }
 
-@Composable internal fun ChatGptUsageLink() {
+@Composable internal fun ChatGptUsageLink(provider: AiProvider) {
     val context = LocalContext.current
-    TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://chatgpt.com/settings/usage"))) }) {
+    TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(provider.usageUrl))) }) {
         Icon(FolioIcons.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Manage usage")
     }
 }
 
-@Composable internal fun ChatGptUsageContent(summary: ChatGptUsageSummary?) {
+@Composable internal fun ChatGptUsageContent(summary: ChatGptUsageSummary?, provider: AiProvider) {
     val numbers = remember { NumberFormat.getIntegerInstance() }
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Text("ChatGPT usage", style = MaterialTheme.typography.titleMedium)
+            Text("${provider.label} usage", style = MaterialTheme.typography.titleMedium)
             if (summary != null) {
                 Text("${summary.completed} completed ${if (summary.completed == 1) "request" else "requests"} in this Folio session", style = MaterialTheme.typography.bodyMedium)
                 if (summary.reported > 0) Text("${numbers.format(summary.tokens)} reported tokens · ${summary.reported} ${if (summary.reported == 1) "request" else "requests"}", style = MaterialTheme.typography.bodyMedium)
@@ -72,9 +72,10 @@ import java.text.NumberFormat
                     last.cached?.takeIf { it > 0 }?.let { Text("${numbers.format(it)} cached input tokens", style = MaterialTheme.typography.bodySmall) }
                 } ?: Text("The last response did not report token usage.", style = MaterialTheme.typography.bodySmall)
             } else Text("Reported token usage will appear after your first completed response.", style = MaterialTheme.typography.bodyMedium)
-            Text("This covers completed requests reported to Folio during this app session. Canceled or failed requests may also use your plan. Remaining allowance and reset times are available in ChatGPT settings.",
+            Text("This covers completed requests reported to Folio during this app session. " + (if (provider.key) "Canceled or failed requests may also be charged to your key. Credits and limits are shown by ${provider.label}."
+                else "Canceled or failed requests may also use your plan. Remaining allowance and reset times are available in ChatGPT settings."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            ChatGptUsageLink()
+            ChatGptUsageLink(provider)
         }
     }
 }

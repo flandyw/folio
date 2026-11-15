@@ -409,7 +409,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
 @Composable internal fun LibraryPage(folders: List<Folder>, onReclassify: () -> Unit = {}) {
     val p = rememberPrefs()
     SettingsGroup("Library management", footer = "Suggestions are reviewed field by field before anything changes.") {
-        SettingsLinkRow("Reclassify notebooks", "Find subject, year, source and type again, on the device or with ChatGPT", onClick = onReclassify,
+        SettingsLinkRow("Reclassify notebooks", "Find subject, year, source and type again, on the device or with AI", onClick = onReclassify,
             leading = FolioIcons.Sparkle)
     }
     val paper by rememberPref(p, AppPrefs.DEFAULT_PAPER) { AppPrefs.defaultPaper(it.getString(AppPrefs.DEFAULT_PAPER, null)) }
@@ -598,7 +598,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     SettingsGroup("Accounts") {
         SettingsLinkRow("Focal account", "One account for study sessions and mistake sync.", onClick = a.onFocal)
         SettingsDivider()
-        SettingsLinkRow("ChatGPT", "Review your working and keep feedback as sticky notes.", onClick = a.onChatGpt)
+        SettingsLinkRow("AI review", "ChatGPT or your own API key: review your working and keep feedback as sticky notes.", onClick = a.onChatGpt)
     }
     SettingsGroup("Updates") {
         SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version when Folio opens.")

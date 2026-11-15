@@ -85,11 +85,11 @@ import kotlinx.coroutines.launch
             ChatGptOperation.CONNECTION -> manager.checkConnection()
             ChatGptOperation.DISCONNECT -> manager.disconnect()
             ChatGptOperation.ACCOUNT -> state.active?.let(manager::selectAccount)
-            ChatGptOperation.OPEN -> Unit
+            ChatGptOperation.OPEN, ChatGptOperation.KEY -> Unit
         }
     }
 
-    FolioPanel(if (accountTab) "ChatGPT account" else "Review with ChatGPT", onDismiss) {
+    FolioPanel(if (accountTab) "Accounts and keys" else "Review with ${account?.provider?.label ?: "AI"}", onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             SecondaryTabRow(if (accountTab) 1 else 0, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Tab(!accountTab, { focus.clearFocus(); accountTab = false }, text = { Text("Page review") }, icon = { Icon(FolioIcons.Sparkle, null, Modifier.size(20.dp)) })
@@ -113,7 +113,7 @@ import kotlinx.coroutines.launch
                                 canRetry = !state.busy && when (state.operation) {
                                     ChatGptOperation.REVIEW -> account?.connected == true && account.plan && state.model != null
                                     ChatGptOperation.TEST -> account?.connected == true && account.plan && state.model != null
-                                    ChatGptOperation.OPEN -> false
+                                    ChatGptOperation.OPEN, ChatGptOperation.KEY -> false
                                     else -> true
                                 })
                             if (feedback != null) {
@@ -132,7 +132,7 @@ import kotlinx.coroutines.launch
                                     ChatGptAccountSummary(account, { accountTab = true })
                                     ChatGptModelPicker(state, manager)
                                     ChatGptReasoningPicker(state, manager)
-                                } else ChatGptConnectCard(account, !state.busy, ::connect)
+                                } else ChatGptConnectCard(account, !state.busy, ::connect, onKey = { accountTab = true })
                                 if (note != null && page != null) {
                                     Text("Pages to review", style = MaterialTheme.typography.titleMedium)
                                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -157,7 +157,7 @@ import kotlinx.coroutines.launch
                                         Text("Hints only · let me solve it", Modifier.weight(1f))
                                         Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy)
                                     }
-                                    ChatGptNotice(FolioIcons.Lock, "Only the selected pages and your request are shared with OpenAI when you choose Review pages.")
+                                    ChatGptNotice(FolioIcons.Lock, "Only the selected pages and your request are shared with ${(account?.provider ?: AiProvider.CHATGPT).sharedWith} when you choose Review pages.")
                                 }
                             }
                             Spacer(Modifier.height(FolioSpacing.dp4))

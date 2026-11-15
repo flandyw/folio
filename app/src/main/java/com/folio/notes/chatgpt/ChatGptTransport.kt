@@ -40,7 +40,7 @@ internal object ChatGptTransport {
             else -> "the network request failed"
         }
         // Include only our known service hostname, never an exception's raw message.
-        val service = host?.takeIf { it == "auth.openai.com" || it == "api.openai.com" }
-        return ChatGptFailure("Could not reach ${service ?: "ChatGPT"}: $detail. Check your connection and try again.")
+        val service = host?.takeIf { it == "auth.openai.com" || AiProvider.entries.any { provider -> provider.base.startsWith("https://$it/") } }
+        return ChatGptFailure("Could not reach ${service ?: "the service"}: $detail. Check your connection and try again.")
     }
 }

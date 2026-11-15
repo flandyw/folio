@@ -1,6 +1,12 @@
 package com.folio.notes.chatgpt
 
 import com.folio.notes.ui.FolioIcons
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -19,6 +25,7 @@ import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 
 private fun accountStatus(account: ChatGptAccount): String = when {
+    account.provider.key -> "API key saved on this device"
     account.pending -> "Ready to finish connecting"
     !account.connected && !account.registered -> "Sign-in unfinished"
     !account.connected -> "Disconnected"
@@ -31,13 +38,13 @@ private fun accountStatus(account: ChatGptAccount): String = when {
         Icon(FolioIcons.CheckCircle, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
         Column(Modifier.weight(1f)) {
             Text(account.email, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("Using your ChatGPT plan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (account.provider.key) "Using your ${account.provider.label} API key" else "Using your ChatGPT plan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         TextButton(onManage) { Text("Manage") }
     }
 }
 
-@Composable internal fun ChatGptConnectCard(account: ChatGptAccount?, enabled: Boolean, onConnect: () -> Unit) {
+@Composable internal fun ChatGptConnectCard(account: ChatGptAccount?, enabled: Boolean, onConnect: () -> Unit, onKey: (() -> Unit)? = null) {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Icon(FolioIcons.Sparkle, null, Modifier.size(32.dp))
@@ -53,6 +60,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
             }, style = MaterialTheme.typography.bodyMedium)
             Text("Your notebook stays in Folio. A page is shared only when you request a review.", style = MaterialTheme.typography.bodySmall)
             FilledTonalButton(onConnect, enabled = enabled) { Text(connectionLabel(account)) }
+            onKey?.let { TextButton(it, enabled = enabled) { Text("Use an API key instead") } }
         }
     }
 }
@@ -74,7 +82,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
         if (state.error != null) ChatGptErrorCard(state, manager::clearError, ::retry, !state.busy && when (state.operation) {
-            ChatGptOperation.OPEN, ChatGptOperation.REVIEW -> false
+            ChatGptOperation.OPEN, ChatGptOperation.REVIEW, ChatGptOperation.KEY -> false
             ChatGptOperation.TEST -> account?.connected == true && account.plan && state.model != null
             else -> true
         })
@@ -84,7 +92,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
                 Icon(FolioIcons.CheckCircle, null, Modifier.size(32.dp))
                 Text("Ready to review", style = MaterialTheme.typography.titleLarge)
                 Text(account.email, style = MaterialTheme.typography.bodyLarge)
-                Text("Folio is connected to your ChatGPT plan. Choose Page review to send a page and keep the feedback you want.", style = MaterialTheme.typography.bodyMedium)
+                Text("Folio is connected to your ${if (account.provider.key) "${account.provider.label} key" else "ChatGPT plan"}. Choose Page review to send a page and keep the feedback you want.", style = MaterialTheme.typography.bodyMedium)
             }
         }
         if (state.accounts.isNotEmpty()) {
@@ -105,23 +113,24 @@ private fun accountStatus(account: ChatGptAccount): String = when {
                                     Text(accountStatus(saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 if (selected) Icon(FolioIcons.Check, "Selected account", Modifier.size(20.dp))
-                                if (!saved.connected) IconButton({ manager.removeAccount(saved.client) }, enabled = !state.busy) {
-                                    Icon(FolioIcons.Close, "Remove saved sign-in ${index + 1}", Modifier.size(20.dp))
+                                if (!saved.connected || saved.provider.key) IconButton({ manager.removeAccount(saved.client) }, enabled = !state.busy) {
+                                    Icon(FolioIcons.Close, if (saved.provider.key) "Remove ${saved.email}" else "Remove saved sign-in ${index + 1}", Modifier.size(20.dp))
                                 }
                             }
                         }
                     }
                     TextButton({ manager.signIn(null) }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
-                        Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add another account")
+                        Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (state.accounts.any { !it.provider.key }) "Add another ChatGPT account" else "Sign in with ChatGPT")
                     }
                 }
             }
         }
         if (account?.connected == true) Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            TextButton(manager::disconnect, enabled = !state.busy) { Text("Disconnect") }
-            if (state.error != null) TextButton({ manager.signIn() }, enabled = !state.busy) { Text("Sign in again") }
+            TextButton(manager::disconnect, enabled = !state.busy) { Text(if (account.provider.key) "Remove this key" else "Disconnect") }
+            if (state.error != null && !account.provider.key) TextButton({ manager.signIn() }, enabled = !state.busy) { Text("Sign in again") }
         }
-        ChatGptUsageContent(state.usage[state.active])
+        ApiKeyCard(!state.busy, state.error != null, manager::addKey)
+        ChatGptUsageContent(state.usage[state.active], account?.provider ?: AiProvider.CHATGPT)
         if (state.result != null) ChatGptNotice(if (state.operation == ChatGptOperation.TEST) FolioIcons.CheckCircle else FolioIcons.Info, state.result)
         Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -144,5 +153,39 @@ private fun accountStatus(account: ChatGptAccount): String = when {
             }
         }
         Text("Connections are protected on this device and kept separate from your notebooks and backups.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Paste a key for a provider that has no sign-in. The field is cleared once the key has been saved as a connection. */
+@Composable private fun ApiKeyCard(enabled: Boolean, failed: Boolean, onAdd: (AiProvider, String) -> Unit) {
+    val context = LocalContext.current
+    var providerName by rememberSaveable { mutableStateOf(AiProvider.OPENROUTER.name) }
+    var key by remember { mutableStateOf("") } // Not saveable: a key must not reach the saved instance state.
+    var sent by remember { mutableStateOf(false) }
+    val provider = AiProvider.valueOf(providerName)
+    // Busy again → idle after a submit: clear on success; a failure keeps the text for correction (its error card is above).
+    LaunchedEffect(enabled) { if (enabled && sent) { sent = false; if (!failed) key = "" } }
+    Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Text("Use an API key", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+            Text("${AiProvider.entries.filter { it.key }.joinToString { it.label }}: many models, some free, used with your own key instead of a ChatGPT plan.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                AiProvider.entries.filter { it.key }.forEach { option ->
+                    FilterChip(provider == option, { providerName = option.name }, label = { Text(option.label) }, enabled = enabled)
+                }
+            }
+            OutlinedTextField(key, { key = it.trim().take(512) }, Modifier.fillMaxWidth(), enabled = enabled, singleLine = true, shape = FolioShapes.large,
+                label = { Text("${provider.label} API key") }, placeholder = { Text("${provider.keyPrefix}…") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                TextButton({ context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(provider.keysUrl))) }) {
+                    Icon(FolioIcons.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Get a key")
+                }
+                Spacer(Modifier.weight(1f))
+                FilledTonalButton({ sent = true; onAdd(provider, key) }, enabled = enabled && key.isNotBlank()) { Text("Add key") }
+            }
+        }
     }
 }

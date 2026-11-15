@@ -48,10 +48,8 @@ internal fun ClassifierModelControls(chatGpt: ChatGptManager, modifier: Modifier
                 FolioMenuItem({ Text("Same as Page review") }, {
                     modelPref = null; prefs.edit().remove(AppPrefs.AI_CLASSIFY_MODEL).apply(); modelsOpen = false
                 }, selected = modelPref == null)
-                state.models.forEach { option ->
-                    FolioMenuItem({ Text(option.name) }, {
-                        modelPref = option.slug; prefs.edit().putString(AppPrefs.AI_CLASSIFY_MODEL, option.slug).apply(); modelsOpen = false
-                    }, selected = modelPref == option.slug)
+                ModelMenuItems(state.models, modelPref) { option ->
+                    modelPref = option.slug; prefs.edit().putString(AppPrefs.AI_CLASSIFY_MODEL, option.slug).apply(); modelsOpen = false
                 }
             }
         }

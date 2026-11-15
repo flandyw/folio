@@ -16,6 +16,7 @@ try {
     'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-classpath', runtime, '-d', classes,
     path.join(source, 'chatgpt/ChatGptProtocol.kt'),
     path.join(source, 'chatgpt/ChatGptInference.kt'),
+    path.join(source, 'chatgpt/AiProvider.kt'),
     path.join(source, 'chatgpt/ChatGptReview.kt'),
     path.join(source, 'chatgpt/ChatGptTransport.kt'),
     path.join(__dirname, 'ChatGptSmoke.kt')]);

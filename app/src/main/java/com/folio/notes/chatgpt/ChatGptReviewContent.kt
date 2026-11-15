@@ -46,7 +46,7 @@ import com.folio.notes.ui.FolioSpacing
         if (note == null) Column(Modifier.padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Icon(FolioIcons.Book, null, Modifier.size(32.dp), tint = scheme.primary)
             Text("Your page, with a second pair of eyes", style = MaterialTheme.typography.titleMedium)
-            Text("Open a notebook, then tap the sparkle button beside Share and choose Review page with ChatGPT. You can connect your account here first.",
+            Text("Open a notebook, then tap the sparkle button beside Share and to review the page. You can connect an account or add an API key here first.",
                 style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
         } else {
             val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
@@ -109,7 +109,7 @@ import com.folio.notes.ui.FolioSpacing
         OutlinedTextField(if (own) custom else details, { if (own) onCustom(it.take(4000)) else onDetails(it.take(3000)) },
             modifier = Modifier.fillMaxWidth(), enabled = enabled, minLines = 2, maxLines = 8, shape = FolioShapes.large,
             label = { Text(if (own) "Your feedback request" else "Anything to focus on? (optional)") },
-            placeholder = { Text(if (own) "Tell ChatGPT what you'd like checked…" else "Add the question, criteria or a specific step…") },
+            placeholder = { Text(if (own) "Describe what you'd like checked…" else "Add the question, criteria or a specific step…") },
             supportingText = { Text(if (own) "Ask for specific feedback on the selected pages." else when (intent) {
                 ChatGptReviewIntent.CHECK -> "Check the steps, explain mistakes, suggest improvements and give a mark if the page shows one."
                 ChatGptReviewIntent.EXPLAIN -> "Make the ideas and confusing steps easier to understand."
@@ -142,15 +142,30 @@ import com.folio.notes.ui.FolioSpacing
             Icon(FolioIcons.ChevronDown, null, Modifier.size(20.dp))
         }
         FolioMenuPopover(menu, { menu = false }, title = "Choose a model") {
-            state.models.forEach { available ->
-                FolioMenuItem({ Text(available.name) }, { manager.selectModel(available.slug); menu = false }, selected = available.slug == state.model)
-            }
+            ModelMenuItems(state.models, state.model, markTextOnly = true) { manager.selectModel(it.slug); menu = false }
             FolioMenuItem({ Text("Refresh available models") }, { menu = false; manager.refreshModels() }, leadingIcon = { Icon(FolioIcons.RotateRight, null) })
         }
     }
 }
 
+/** The catalog as menu rows. A long one gets a search field and, until something is typed, shows only its short list (or its first rows). */
+@Composable internal fun ModelMenuItems(models: List<ChatGptModel>, selected: String?, markTextOnly: Boolean = false, onPick: (ChatGptModel) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    if (models.size > 12) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(FolioSpacing.dp4), singleLine = true,
+        shape = FolioShapes.large, placeholder = { Text("Search ${models.size} models") })
+    val words = query.lowercase().split(' ').filter(String::isNotEmpty)
+    val matches = models.filter { model -> words.all { it in model.name.lowercase() || it in model.slug.lowercase() } }
+    val short = if (words.isEmpty() && models.any { it.suggested }) matches.filter { it.suggested } else matches.take(if (words.isEmpty()) 15 else 40)
+    val shown = (listOfNotNull(matches.firstOrNull { it.slug == selected }) + short).distinct()
+    shown.forEach { model ->
+        FolioMenuItem({ Text(if (markTextOnly && !model.images) "${model.name} · text only" else model.name) }, { onPick(model) }, selected = model.slug == selected)
+    }
+    if (matches.size > shown.size || matches.isEmpty()) Text(if (matches.isEmpty()) "No models match." else "${matches.size - shown.size} more. Search by name to find them, or try \"free\".",
+        Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
 @Composable internal fun ChatGptReasoningPicker(state: ChatGptState, manager: ChatGptManager) {
+    val provider = state.accounts.firstOrNull { it.client == state.active }?.provider ?: AiProvider.CHATGPT
     val model = state.models.firstOrNull { it.slug == state.model }
     var menu by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
@@ -170,11 +185,11 @@ import com.folio.notes.ui.FolioSpacing
                 }
             }
         }
-        if (!model?.efforts.isNullOrEmpty()) Text("Lower levels favor speed. Higher levels allow more thinking and can use more of your plan.",
+        if (!model?.efforts.isNullOrEmpty()) Text("Lower levels favor speed. Higher levels allow more thinking and can use more of your ${if (provider.key) "credits" else "plan"}.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Text("Using ChatGPT plan", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            ChatGptUsageLink()
+            Text(if (provider.key) "Using your ${provider.label} key" else "Using ChatGPT plan", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ChatGptUsageLink(provider)
         }
     }
 }

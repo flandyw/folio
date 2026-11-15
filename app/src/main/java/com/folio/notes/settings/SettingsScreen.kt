@@ -209,7 +209,7 @@ private enum class SettingsPage(val title: String, val summary: String, val icon
     LIBRARY("Library", "Reclassify, new notebooks, covers, quick notes and swipes", FolioIcons.Book),
     BACKUP("Backup & restore", "Automatic backup and library files", FolioIcons.CloudUpload),
     STUDY("Study", "Exam timer and mistake practice", FolioIcons.Timer),
-    ACCOUNT("Account & updates", "Focal, ChatGPT and app updates", FolioIcons.Account),
+    ACCOUNT("Account & updates", "Focal, AI review and app updates", FolioIcons.Account),
 }
 
 /**
@@ -256,7 +256,7 @@ private object SettingsIndex {
             "Paper guide" to "mistake practice", "Starting zoom" to "mistake practice handwriting size", "Confirm answer reveal and skip" to "mistake review single tap",
         ),
         SettingsPage.ACCOUNT to listOf(
-            "Focal account" to "sign in sync", "ChatGPT" to "ai feedback sign in", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
+            "Focal account" to "sign in sync", "AI review" to "ai feedback sign in chatgpt openrouter nvidia nim amd token factory api key", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
         ),
     ).flatMap { (page, rows) -> rows.map { (title, keywords) -> Hit(page, title, keywords) } }
 

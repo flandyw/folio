@@ -228,5 +228,72 @@ fun main() {
     val math = "Check \\(\\frac{1}{2}x^2\\)."
     check(ChatGptProtocol.feedback(feedback(JSONArray().put(annotation().put("text", math))).toString(), "review") == listOf(math))
     check(ChatGptProtocol.feedbackFormat().getBoolean("strict"))
+
+    // API-key providers: OpenAI-compatible Chat Completions.
+    check(AiProvider.of(JSONObject()) == AiProvider.CHATGPT && AiProvider.of(JSONObject().put("provider", "nvidia")) == AiProvider.NVIDIA)
+    check(AiProvider.keyProblem(AiProvider.OPENROUTER, "sk-or-v1-" + "a".repeat(40)) == null)
+    check(AiProvider.keyProblem(AiProvider.OPENROUTER, "nvapi-" + "a".repeat(40)) != null && AiProvider.keyProblem(AiProvider.NVIDIA, "nvapi-short") != null)
+    check(AiProvider.keyProblem(AiProvider.NVIDIA, "nvapi-" + "a".repeat(30) + "\u00e9") != null)
+    check(ChatGptTransport.failure(UnknownHostException("x"), "openrouter.ai").message?.contains("openrouter.ai") == true)
+    check(ChatGptTransport.failure(UnknownHostException("x"), "integrate.api.nvidia.com").message?.contains("integrate.api.nvidia.com") == true)
+    check(AiProvider.keyProblem(AiProvider.AMD, "a".repeat(32)) == null && AiProvider.of(JSONObject().put("provider", "amd")) == AiProvider.AMD)
+    check(ChatGptTransport.failure(UnknownHostException("x"), "developer.amd.com.cn").message?.contains("developer.amd.com.cn") == true)
+    // Every provider must be usable from its table entry alone.
+    check(AiProvider.entries.all { it.base.startsWith("https://") && !it.base.endsWith("/") && it.usageUrl.startsWith("https://") && (!it.key || it.keysUrl.startsWith("https://")) })
+    check(AiProvider.entries.map { it.id }.distinct().size == AiProvider.entries.size)
+    val listed = ChatCompletions.models(JSONObject("""{"data":[
+      {"id":"a/vision","name":"Vision","architecture":{"input_modalities":["text","image"],"output_modalities":["text"]},"supported_parameters":["reasoning","structured_outputs","response_format"]},
+      {"id":"a/text","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"supported_parameters":["response_format"]},
+      {"id":"a/picture","architecture":{"input_modalities":["text"],"output_modalities":["image"]}},{"name":"no id"}]}"""))
+    check(listed.map { it.slug } == listOf("a/vision", "a/text"))
+    check(listed[0] == ChatGptModel("a/vision", "Vision", listOf("low", "medium", "high"), true, "schema"))
+    check(listed[1] == ChatGptModel("a/text", "a/text", emptyList(), false, "object"))
+    val trimmed = ChatCompletions.models(JSONObject("""{"data":[
+      {"id":"v/old","expiration_date":"2026-12-11","architecture":{"output_modalities":["text"]}},
+      {"id":"v/new:batch","endpoints":["/api/v1/batches"],"architecture":{"output_modalities":["text"]}},
+      {"id":"v/painter","architecture":{"output_modalities":["image","text"]}},
+      {"id":"v/new","endpoints":["/api/v1/chat/completions"],"expiration_date":null,"architecture":{"output_modalities":["text"]}},
+      {"id":"~v/new-latest","architecture":{"output_modalities":["text"]}},
+      {"id":"openrouter/auto","architecture":{"output_modalities":["text","image"]}}]}"""))
+    check(trimmed.map { it.slug } == listOf("openrouter/auto", "~v/new-latest", "v/new") && trimmed.map { it.suggested } == listOf(true, true, false))
+    val nim = ChatCompletions.models(JSONObject("""{"data":[{"id":"meta/llama-vision"},{"id":"nvidia/nv-embedqa"},{"id":"meta/llama-guard"},{"id":"meta/codellama-70b"}]}"""))
+    check(nim == listOf(ChatGptModel("meta/llama-vision", "meta/llama-vision", emptyList(), true, "none")))
+    val pictured = JSONArray().put(JSONObject().put("type", "input_text").put("text", "Page 1"))
+        .put(JSONObject().put("type", "input_image").put("image_url", "data:image/png;base64,AA").put("detail", "high"))
+    val chat = ChatCompletions.body(listed[0], "Be brief.", pictured, ChatGptProtocol.feedbackFormat(), "low")
+    val messages = chat.getJSONArray("messages")
+    check(chat.getBoolean("stream") && chat.getString("model") == "a/vision" && chat.getJSONObject("reasoning").getString("effort") == "low")
+    check(messages.getJSONObject(0).getString("content").let { it.startsWith("Be brief.") && it.contains("folio_feedback").not() && it.contains("request_id") })
+    check(messages.getJSONObject(1).getJSONArray("content").getJSONObject(1).getJSONObject("image_url").getString("url") == "data:image/png;base64,AA")
+    check(chat.getJSONObject("response_format").getJSONObject("json_schema").getString("name") == "folio_feedback")
+    check(!ChatCompletions.body(listed[0], "x", pictured, ChatGptProtocol.feedbackFormat(), null, structured = false).has("response_format"))
+    val words = JSONArray().put(JSONObject().put("type", "input_text").put("text", "One")).put(JSONObject().put("type", "input_text").put("text", "Two"))
+    val plain = ChatCompletions.body(nim[0], "x", words, ChatGptProtocol.feedbackFormat(), null)
+    check(plain.getJSONArray("messages").getJSONObject(1).get("content") == "One\nTwo" && !plain.has("response_format") && !plain.has("reasoning"))
+    check(ChatCompletions.body(listed[1], "x", words, ChatGptProtocol.feedbackFormat(), null).getJSONObject("response_format").getString("type") == "json_object")
+    check(!ChatCompletions.body(listed[0], "x", words, null, null).has("response_format"))
+
+    fun chunk(delta: JSONObject, finish: Any? = null) = "data: " + JSONObject().put("choices", JSONArray().put(JSONObject().put("delta", delta).put("finish_reason", finish ?: JSONObject.NULL)))
+    fun chatRead(vararg lines: String, progress: (ChatGptStage) -> Unit = {}) = ChatCompletions.response(StringReader(lines.joinToString("\n\n")).buffered(), progress)
+    val seen = mutableListOf<ChatGptStage>()
+    val streamed = chatRead(": OPENROUTER PROCESSING", chunk(JSONObject().put("reasoning", "hm")), chunk(JSONObject().put("content", "<think>{no}</think>Hel")),
+        chunk(JSONObject().put("content", "lo"), "stop"),
+        "data: " + JSONObject().put("choices", JSONArray()).put("usage", JSONObject().put("prompt_tokens", 100).put("completion_tokens", 40)
+            .put("completion_tokens_details", JSONObject().put("reasoning_tokens", 30))), "data: [DONE]") { seen += it }
+    check(streamed.text == "Hello" && streamed.usage == ChatGptUsage(100, 40, 30, null))
+    check(seen == listOf(ChatGptStage.WAITING, ChatGptStage.REASONING, ChatGptStage.WRITING))
+    check(chatRead(chunk(JSONObject().put("content", "Done")), "data: [DONE]").let { it.text == "Done" && it.usage == null })
+    rejects { chatRead(chunk(JSONObject().put("content", "Cut off"))) } // no finish, no [DONE]
+    rejects { chatRead(chunk(JSONObject().put("content", "Too long"), "length"), "data: [DONE]") }
+    rejects { chatRead(chunk(JSONObject().put("content", "x"), "content_filter"), "data: [DONE]") }
+    rejects { chatRead(chunk(JSONObject().put("content", "x")), "data: " + JSONObject().put("error", JSONObject().put("code", 502))) }
+    rejects { chatRead(chunk(JSONObject().put("content", "<think>only thinking</think>"), "stop"), "data: [DONE]") }
+    rejects { chatRead(chunk(JSONObject().put("content", "x".repeat(ChatGptProtocol.MAX_TEXT + 1)), "stop")) }
+    // A fenced or chatty reply still has to pass the same local validation.
+    check(ChatGptProtocol.feedback(ChatCompletions.json("Here you go:\n```json\n${feedback()}\n```"), "review") == listOf("Check the units."))
+    rejects { ChatGptProtocol.feedback(ChatCompletions.json("I cannot read this page."), "review") }
+    check(ChatCompletions.failure(AiProvider.OPENROUTER, 402).message?.contains("credits") == true)
+    check(ChatCompletions.failure(AiProvider.NVIDIA, 401).message?.let { it.contains("NVIDIA NIM") && it.contains("API key") } == true)
+    check(ChatCompletions.failure(AiProvider.NVIDIA, 410).message?.contains("no longer offers") == true)
     println("ChatGPT smoke checks passed: address fallback, no POST replay, credential grants, PKCE, callback binding, signed identity, terminal streams, reasoning capabilities, usage counts, pending credential removal, timing estimates and LaTeX annotations.")
 }

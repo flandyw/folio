@@ -240,6 +240,53 @@ edit/deselect and add them, then undo; request hints-only practice; ask a follow
 cancel/retry it and confirm previous feedback remains until completion; change
 the current page and confirm the old review cannot write into the changed page.
 
+## OpenRouter, NVIDIA NIM and AMD Token Factory (API keys)
+
+Page review, import checks and Reclassify notebooks also run on **OpenRouter**, **NVIDIA NIM** or **AMD Token Factory**. The Account tab's
+**Use an API key** card takes a pasted key; it becomes one more saved connection beside any
+ChatGPT accounts, the selected connection decides where every request goes, and nothing else in the flows changes.
+Keys live in the same encrypted store as ChatGPT sign-ins and are never logged, shown again or backed up. Removing a
+key only deletes it here; it has to be revoked at the provider to stop working elsewhere.
+
+`AiProvider` (pure) is the one table of providers: base URL, key prefix, links and wording. `ChatGptManager.infer`
+is the single request path: ChatGPT keeps the Responses API, key providers get OpenAI-compatible Chat Completions
+through pure `ChatCompletions` (model catalog, request body, SSE reader, status messages), fed the same content,
+instructions and schema.
+
+**Adding a provider:** add one `AiProvider` entry (id, label, base URL, key prefix, key-check path, two links,
+who receives the data). The key card, account list, catalog, requests, error wording, network diagnostics and the
+smoke test's table checks all read the enum; no other code changes. It must serve OpenAI-style `GET /models`
+(`{"data":[{"id":…}]}`) and streaming `POST /chat/completions` with a Bearer key.
+
+- **Key check:** the key's shape is checked locally, then confirmed by the provider's `keyCheck` request, which spends
+  nothing (OpenRouter `GET /key`; AMD `GET /models`, which needs a valid key). NVIDIA's model list is public, so its
+  key is first proven by **Test text response** or a review.
+- **Models:** OpenRouter's catalog says which models read images, reason and enforce a schema; text-only models are
+  marked in the picker and refused for Page review before anything is sent (classification is text, so any model
+  works). A plain catalog (NVIDIA, AMD) has no capability fields: embedding/safety/parsing ids are hidden, the rest are offered.
+  The Page review model is remembered per provider (`AppPrefs.AI_REVIEW_MODEL`).
+- **A short list, not the whole catalog** (`ChatCompletions.models`, surveyed November 2026: OpenRouter 470 entries,
+  NVIDIA 83, AMD 12). Dropped outright: batch-only variants (no streaming endpoint), image/audio generators, models
+  with an `expiration_date`, and by name on plain catalogs embedding/safety/code/caption models. OpenRouter then
+  opens on about twenty **suggested** rows: its Auto and Free routers and the `~vendor/family-latest` aliases (GPT,
+  Claude, Gemini, DeepSeek, GLM, Grok, Kimi…), which follow new releases, so Folio names no model version and the
+  list does not go stale. Auto is the default. Every other model is one search away (typing "free" lists the free
+  ones). Catalogs without suggestions show their first fifteen rows until searched.
+- **Schema:** the JSON schema is always written into the system message, and `response_format` is added when the
+  model supports it (`json_schema`, else `json_object`). A model that rejects the field (HTTP 400/422) is asked once
+  more without it. Replies may be fenced or wrapped in a sentence (`ChatCompletions.json`), inline `<think>` text is
+  dropped, and the result then passes the same local validation as ChatGPT's, so nothing weaker reaches a page.
+- **Progress and usage:** the same stages, driven by stream chunks (keep-alive comments, reasoning deltas, content);
+  token usage is counted when the stream reports it, otherwise shown as unavailable.
+- **Errors** name the provider and the fix by HTTP status (key refused, credits spent, model withdrawn, pages too
+  large, model cannot take the request, rate limit, provider trouble); a stream that is cut off, filtered or ends in
+  an error never yields notes. Provider error bodies are not shown.
+
+`node tools/chatgpt-smoke.cjs` checks the catalog, body, stream reader, lenient JSON and messages. Device checks (a
+key for each provider is needed): add a wrong and a right key for each; review a handwritten page with a vision
+model and try a text-only one; run an import check and a Reclassify batch; switch between a key and a ChatGPT
+account mid-session and confirm each remembers its model; remove a key and restart.
+
 ## Background import classification
 
 PDF import first classifies on the device (`exam/ExamDetection.kt`): filename, PDF text and metadata,

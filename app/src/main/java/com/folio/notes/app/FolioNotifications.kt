@@ -19,7 +19,7 @@ internal object FolioNotifications {
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(NotificationChannel(CLASSIFICATION, "Document details", NotificationManager.IMPORTANCE_DEFAULT)
-            .apply { description = "When ChatGPT has finished checking an imported PDF" })
+            .apply { description = "When the AI check of an imported PDF has finished" })
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
         val open = PendingIntent.getActivity(context, id, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         manager.notify(CLASSIFICATION, id, Notification.Builder(context, CLASSIFICATION)

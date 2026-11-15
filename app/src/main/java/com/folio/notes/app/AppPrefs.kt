@@ -30,6 +30,8 @@ object AppPrefs {
     /** Ask ChatGPT (when signed in) to check PDF imports the on-device classifier is unsure about. */
     const val AI_IMPORT_CHECK = "import.aiCheck"
     const val DEFAULT_AI_IMPORT_CHECK = true
+    /** Prefix + provider id (`AiProvider.id`): the Page review model last chosen there; unset or no longer offered = the provider's default. */
+    const val AI_REVIEW_MODEL = "ai.reviewModel."
     /** Model slug for background classification; unset follows Page review's model. */
     const val AI_CLASSIFY_MODEL = "ai.classifyModel"
     /** Reasoning level for background classification; unset = lightest the model offers (`ChatGptInference.classifyEffort`). */

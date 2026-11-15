@@ -125,7 +125,7 @@ internal class BackupService(private val runtime: FolioRuntime) {
                 } else {
                     val (noteId, option) = importedFrom.remove(uri) ?: run { if (_state.value.busy) lateSuggestions[uri] = suggested; return@launch }
                     val note = applyAfterImport(noteId, option, suggested) ?: return@launch
-                    val text = "ChatGPT updated the exam details: ${note.exam.summaryLine()}"
+                    val text = "${chatGpt.name} updated the exam details: ${note.exam.summaryLine()}"
                     if (chatGpt.visible) { reportNotice("${note.title}: $text"); return@launch }
                     note.title to text
                 }
