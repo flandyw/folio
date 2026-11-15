@@ -185,13 +185,14 @@ import java.io.File
     var settings by rememberSaveable { mutableStateOf(false) }
     var settingsStartWithBackup by rememberSaveable { mutableStateOf(false) }
     var settingsStartWithFollow by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(settings) { if (!settings) { settingsStartWithFollow = false; settingsStartWithBackup = false } }
+    var settingsAiRequest by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(settings) { if (!settings) { settingsStartWithFollow = false; settingsStartWithBackup = false; settingsAiRequest = 0 } }
     var newNote by rememberSaveable { mutableStateOf(false) }
     val exportBusy = state.exporting
     var exportMenu by remember { mutableStateOf(false) }
     var chatGptOpen by rememberSaveable { mutableStateOf(false) }
     var reclassifyOpen by rememberSaveable { mutableStateOf(false) }
-    var chatGptStartAccount by rememberSaveable { mutableStateOf(false) }
+    val openAiSettings = { chatGptOpen = false; reclassifyOpen = false; settingsAiRequest++; settings = true }
     val updates = remember(context) { (context.applicationContext as FolioApplication).updates }
     val updateState by updates.state.collectAsStateWithLifecycle()
     val experimentalUpdates by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
@@ -537,7 +538,7 @@ import java.io.File
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
                             onShareLongPress = shareLongPress,
-                            onChatGpt = { chatGptStartAccount = false; chatGptOpen = true },
+                            onChatGpt = { chatGptOpen = true },
                             onBrowseLibrary = { purpose ->
                                 workspaceLibraryPurpose = purpose
                                 showMistakes = false
@@ -646,7 +647,8 @@ import java.io.File
                     updateContent = { UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard) },
                     onBack = { settings = false },
                     onFocal = { settings = false; focalAccountOpen = true },
-                    onChatGpt = { chatGptStartAccount = true; chatGptOpen = true },
+                    aiContent = { com.folio.notes.chatgpt.AiSettingsContent(chatGpt) },
+                    aiRequest = settingsAiRequest,
                     onReclassify = { reclassifyOpen = true },
                     folders = state.folders,
                     startWithWritingFollow = settingsStartWithFollow,
@@ -677,10 +679,10 @@ import java.io.File
                 { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showMusic = false; showStudy = true }
             },
         )
-        if (reclassifyOpen) com.folio.notes.library.ReclassifyDialog(model) { reclassifyOpen = false }
+        if (reclassifyOpen) com.folio.notes.library.ReclassifyDialog(model, onManageAi = openAiSettings) { reclassifyOpen = false }
         if (chatGptOpen) ChatGptPanel(
             manager = chatGpt,
-            model = model, onDismiss = { chatGptOpen = false }, startWithAccount = chatGptStartAccount,
+            model = model, onDismiss = { chatGptOpen = false }, onManage = openAiSettings,
         )
         if (exportMenu) FolioPanel(title = "Export notebook", onDismissRequest = { exportMenu = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

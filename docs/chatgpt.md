@@ -1,6 +1,7 @@
 # Experimental ChatGPT connection and page feedback
 
-Settings → Account & updates → Page review & account opens the **Account** tab.
+Settings → **AI** holds every saved connection (ChatGPT sign-ins and API keys), usage, connection tools and the
+classification model; it is no longer a tab of the review panel.
 In a notebook, the sparkle button beside Share opens **Page review** directly.
 The workspace follows Folio's theme and shape/spacing tokens, puts a real page
 preview beside the controls on wide tablets, and uses a scrolling column on narrow
@@ -26,7 +27,7 @@ panel visits and rotation, including selected/edited drafts, until you choose
 request, model refresh, account change or connection check does not discard the
 last completed review. This is session state; it does not survive process death.
 
-The Account tab groups saved accounts, plan status and usage management separately
+Settings › AI groups saved accounts, plan status and usage management separately
 from page review. **Connection tools** contains the model picker, text test and
 DNS/network diagnostics. A model catalog is loaded once on each panel visit when
 needed, with explicit retries after failures. Account and diagnostic operations
@@ -119,7 +120,7 @@ read and a 15-minute overall request; discovery, token exchange and other accoun
 operations retain their shorter timeouts. Cancel stops the request, while closing
 the panel keeps it running in the app-scoped manager.
 
-The Account tab shows per-account completed-request counts and token usage
+Settings › AI shows per-account completed-request counts and token usage
 reported by `response.completed`, including input, output, reasoning and cached
 input when provided. Reasoning is included in output, so is never added twice to
 the total. Missing/invalid usage is unavailable, never shown as zero; failed or
@@ -242,14 +243,15 @@ the current page and confirm the old review cannot write into the changed page.
 
 ## API-key providers
 
-Page review, import checks and Reclassify notebooks also run on **OpenRouter**, **NVIDIA NIM**, **AMD Token Factory**, **Vercel AI Gateway** or **Cloudflare Workers AI**. The Account tab's
+Page review, import checks and Reclassify notebooks also run on **OpenRouter**, **NVIDIA NIM**, **AMD Token Factory**, **Vercel AI Gateway** or **Cloudflare Workers AI**. Settings › AI's
 **Use an API key** card takes a pasted key; it becomes one more saved connection beside any
 ChatGPT accounts, the selected connection decides where every request goes, and nothing else in the flows changes.
 Keys live in the same encrypted store as ChatGPT sign-ins and are never logged, shown again or backed up. Removing a
 key only deletes it here; it has to be revoked at the provider to stop working elsewhere.
 
-The **AI provider** picker on Page review switches saved connections without opening the Account tab,
-including during follow-ups. Each provider keeps its chosen review model. **Add or manage providers** opens setup.
+The **AI provider** picker on Page review and in Reclassify notebooks switches saved connections without leaving the flow,
+including during follow-ups. Each provider keeps its chosen review model. **Add or manage providers** (and Reclassify's
+**Set up AI**) closes the panel and opens Settings › AI.
 Cloudflare setup also needs the 32-character account ID and a token with Workers AI Read and Edit permissions.
 The account ID is stored with that encrypted connection; the token is sent only to Cloudflare's fixed API host.
 Vercel uses `https://ai-gateway.vercel.sh/v1`; Cloudflare uses the account's `/ai/v1` endpoint for chat and

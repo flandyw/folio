@@ -185,7 +185,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text("Use an API key", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-            Text("Choose a provider and save its key once. Switch between saved providers directly from Page review.",
+            Text("Choose a provider and save its key once. Switch between saved providers directly from Page review or Reclassify notebooks.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 AiProvider.entries.filter { it.key }.forEach { option ->
@@ -211,3 +211,20 @@ private fun accountStatus(account: ChatGptAccount): String = when {
         }
     }
 }
+
+/** Settings › AI: saved connections, keys and the model used to sort the library. */
+@Composable internal fun AiSettingsContent(manager: ChatGptManager) {
+    val state by manager.state.collectAsState()
+    LaunchedEffect(manager) { manager.prepare() }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
+        ChatGptAccountContent(state, manager, Modifier.fillMaxWidth())
+        if (manager.canClassify) Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            Text("Classification model", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+            Text("Used by Reclassify notebooks and import checks for ${account(state)?.provider?.label ?: "this provider"}. A smaller model is faster and cheaper.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ClassifierModelControls(manager, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+private fun account(state: ChatGptState) = state.accounts.firstOrNull { it.client == state.active }

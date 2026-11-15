@@ -33,7 +33,7 @@ private fun ExamField.title() = when (this) {
  * background, then review every suggested field before anything is written.
  */
 @Composable
-internal fun ReclassifyDialog(model: FolioViewModel, onDismiss: () -> Unit) {
+internal fun ReclassifyDialog(model: FolioViewModel, onManageAi: () -> Unit, onDismiss: () -> Unit) {
     val reclassifier = model.reclassifier
     val run by reclassifier.state.collectAsState()
     val state by model.state.collectAsState()
@@ -64,7 +64,7 @@ internal fun ReclassifyDialog(model: FolioViewModel, onDismiss: () -> Unit) {
                             OutlinedButton(reclassifier::cancel, shapes = ButtonDefaults.shapes()) { Text("Stop and review what's found") }
                         }
                         run.ready -> Review(run, reclassifier, Modifier.weight(1f))
-                        else -> Choose(model, state.notes.filter { !it.hiddenFromLibrary }, run.applied, Modifier.weight(1f))
+                        else -> Choose(model, onManageAi, state.notes.filter { !it.hiddenFromLibrary }, run.applied, Modifier.weight(1f))
                     }
                 }
             }
@@ -73,10 +73,12 @@ internal fun ReclassifyDialog(model: FolioViewModel, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun Choose(model: FolioViewModel, notes: List<com.folio.notes.model.Notebook>, applied: String?, modifier: Modifier) {
+private fun Choose(model: FolioViewModel, onManageAi: () -> Unit, notes: List<com.folio.notes.model.Notebook>, applied: String?, modifier: Modifier) {
     var selected by rememberSaveable { mutableStateOf(notes.filter { note -> ExamReclassify.fields.any { !ExamReclassify.has(note.exam, it) } }.map { it.id }.toSet()) }
     var query by rememberSaveable { mutableStateOf("") }
-    val available = model.aiImportCheckAvailable
+    val ai by model.chatGpt.state.collectAsState()
+    // Read from state so switching provider here updates the switch and model list at once.
+    val available = ai.accounts.any { it.client == ai.active && it.connected && it.plan }
     var useAi by rememberSaveable { mutableStateOf(available) }
     val shown = notes.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }.sortedBy { it.title.lowercase() }
     Column(modifier) {
@@ -102,6 +104,7 @@ private fun Choose(model: FolioViewModel, notes: List<com.folio.notes.model.Note
         }
         HorizontalDivider()
         Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (ai.accounts.isNotEmpty()) com.folio.notes.chatgpt.ChatGptProviderPicker(ai, model.chatGpt, onManageAi)
             if (available) Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Ask ${model.chatGpt.name} when unsure", style = MaterialTheme.typography.titleSmall)
@@ -110,8 +113,7 @@ private fun Choose(model: FolioViewModel, notes: List<com.folio.notes.model.Note
                 Switch(useAi, { useAi = it })
             }
             if (available && useAi) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.fillMaxWidth())
-            if (!available) Text("Connect ChatGPT or add an API key in Account & updates to double-check uncertain notebooks.", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!available) TextButton(onManageAi, shapes = ButtonDefaults.shapes()) { Text("Set up AI to double-check uncertain notebooks") }
             Button({ model.reclassifier.start(selected, useAi && available) }, modifier = Modifier.align(Alignment.End), enabled = selected.isNotEmpty(), shapes = ButtonDefaults.shapes()) {
                 Icon(FolioIcons.Sparkle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                 Text("Check ${selected.size} notebook${if (selected.size == 1) "" else "s"}")

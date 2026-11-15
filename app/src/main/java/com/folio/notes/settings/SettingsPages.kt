@@ -82,7 +82,7 @@ internal class BackupSettings(
     val progress: String? = null,
 )
 
-internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit, val onChatGpt: () -> Unit)
+internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit)
 
 private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
 
@@ -597,8 +597,6 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     }
     SettingsGroup("Accounts") {
         SettingsLinkRow("Focal account", "One account for study sessions and mistake sync.", onClick = a.onFocal)
-        SettingsDivider()
-        SettingsLinkRow("AI review", "ChatGPT or your own API key: review your working and keep feedback as sticky notes.", onClick = a.onChatGpt)
     }
     SettingsGroup("Updates") {
         SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version when Folio opens.")

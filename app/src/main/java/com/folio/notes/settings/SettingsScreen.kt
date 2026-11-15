@@ -43,12 +43,15 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
  * drills into a page; a tablet keeps the list beside the page. Search finds a setting by name and
  * scrolls to it. Every control saves as it changes.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, onChatGpt: () -> Unit = {}, onReclassify: () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, aiContent: @Composable () -> Unit = {}, aiRequest: Int = 0, onReclassify: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
     val focus = LocalFocusManager.current
     var page by rememberSaveable { mutableStateOf(if (startWithBackup) SettingsPage.BACKUP else if (startWithWritingFollow) SettingsPage.FOLLOW else null) }
     var query by rememberSaveable { mutableStateOf("") }
+    // Each new request (from Page review or Reclassify) opens the AI page once, even while Settings is already open.
+    var aiHandled by rememberSaveable { mutableIntStateOf(0) }
+    if (aiRequest != aiHandled) { aiHandled = aiRequest; if (aiRequest > 0) { page = SettingsPage.AI; query = "" } }
     val searching = query.isNotBlank()
     val target = remember { mutableStateOf("") }
 
@@ -69,7 +72,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
         backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy || backupProgress != null, backupExcludedCount,
         onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onBackupExclusions, backupProgress,
     )
-    val account = AccountSettings(onFocal, onCheckForUpdates, onCheckGitHub, updateChecking, updateBusy, updateContent, onChatGpt)
+    val account = AccountSettings(onFocal, onCheckForUpdates, onCheckGitHub, updateChecking, updateBusy, updateContent)
 
     val open: (SettingsPage) -> Unit = { focus.clearFocus(); page = it; query = "" }
     val summary: (SettingsPage) -> String = {
@@ -106,6 +109,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
                         SettingsPage.LIBRARY -> LibraryPage(folders, onReclassify)
                         SettingsPage.BACKUP -> BackupPage(backup)
                         SettingsPage.STUDY -> StudyPage()
+                        SettingsPage.AI -> aiContent()
                         SettingsPage.ACCOUNT -> AccountPage(account)
                     }
                 }
@@ -209,7 +213,8 @@ private enum class SettingsPage(val title: String, val summary: String, val icon
     LIBRARY("Library", "Reclassify, new notebooks, covers, quick notes and swipes", FolioIcons.Book),
     BACKUP("Backup & restore", "Automatic backup and library files", FolioIcons.CloudUpload),
     STUDY("Study", "Exam timer and mistake practice", FolioIcons.Timer),
-    ACCOUNT("Account & updates", "Focal, AI review and app updates", FolioIcons.Account),
+    AI("AI", "Providers, API keys and models for Page review and Reclassify", FolioIcons.Sparkle),
+    ACCOUNT("Account & updates", "Focal account and app updates", FolioIcons.Account),
 }
 
 /**
@@ -255,8 +260,12 @@ private object SettingsIndex {
             "Custom timer" to "exam minutes duration", "Reading time" to "exam minutes", "Resume on pen down" to "timer pause", "Stop after inactivity" to "timer idle",
             "Paper guide" to "mistake practice", "Starting zoom" to "mistake practice handwriting size", "Confirm answer reveal and skip" to "mistake review single tap",
         ),
+        SettingsPage.AI to listOf(
+            "Saved providers and accounts" to "ai review feedback sign in chatgpt switch provider openrouter nvidia nim amd token factory vercel cloudflare",
+            "Use an API key" to "ai key openrouter nvidia nim amd token factory vercel cloudflare", "Classification model" to "ai reclassify import check model reasoning",
+        ),
         SettingsPage.ACCOUNT to listOf(
-            "Focal account" to "sign in sync", "AI review" to "ai feedback sign in chatgpt openrouter nvidia nim amd token factory api key", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
+            "Focal account" to "sign in sync", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
         ),
     ).flatMap { (page, rows) -> rows.map { (title, keywords) -> Hit(page, title, keywords) } }
 

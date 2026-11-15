@@ -23,11 +23,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** A review workspace: page sharing and the eventual notebook edit are separate actions. */
-@Composable internal fun ChatGptPanel(manager: ChatGptManager, model: FolioViewModel, onDismiss: () -> Unit, startWithAccount: Boolean = false) {
+@Composable internal fun ChatGptPanel(manager: ChatGptManager, model: FolioViewModel, onDismiss: () -> Unit, onManage: () -> Unit) {
     val state by manager.state.collectAsStateWithLifecycle()
     val folio by model.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
-    var accountTab by rememberSaveable { mutableStateOf(startWithAccount) }
     var intentName by rememberSaveable { mutableStateOf(ChatGptReviewIntent.CHECK.name) }
     var details by rememberSaveable { mutableStateOf("") }
     var custom by rememberSaveable { mutableStateOf("") }
@@ -89,95 +88,83 @@ import kotlinx.coroutines.launch
         }
     }
 
-    FolioPanel(if (accountTab) "Accounts and keys" else "Review with ${account?.provider?.label ?: "AI"}", onDismiss) {
+    FolioPanel("Review with ${account?.provider?.label ?: "AI"}", onDismiss) {
         Column(Modifier.fillMaxWidth()) {
-            SecondaryTabRow(if (accountTab) 1 else 0, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                Tab(!accountTab, { focus.clearFocus(); accountTab = false }, text = { Text("Page review") }, icon = { Icon(FolioIcons.Sparkle, null, Modifier.size(20.dp)) })
-                Tab(accountTab, { focus.clearFocus(); accountTab = true }, text = { Text("Account") }, icon = { Icon(FolioIcons.Account, null, Modifier.size(20.dp)) })
-            }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                if (accountTab) {
-                    ChatGptAccountContent(state, manager, Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24))
-                } else {
-                    val wide = maxWidth >= 700.dp && maxHeight >= 320.dp
-                    val preview: @Composable (Modifier) -> Unit = { modifier ->
-                        ChatGptPageCard(note, page, folio.pageIndex, image, previewError, wide, modifier,
-                            onRetry = { previewRetry++ }, enabled = !state.busy)
-                    }
-                    val content: @Composable (Modifier) -> Unit = { modifier ->
-                        val scroll = rememberScrollState()
-                        LaunchedEffect(feedback?.request) { if (feedback != null) scroll.animateScrollTo(0) }
-                        Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                            if (!wide) preview(Modifier.fillMaxWidth())
-                            if (state.error != null) ChatGptErrorCard(state, manager::clearError, ::retry,
-                                canRetry = !state.busy && when (state.operation) {
-                                    ChatGptOperation.REVIEW -> account?.connected == true && account.plan && state.model != null
-                                    ChatGptOperation.TEST -> account?.connected == true && account.plan && state.model != null
-                                    ChatGptOperation.OPEN, ChatGptOperation.KEY -> false
-                                    else -> true
-                                })
-                            ChatGptProviderPicker(state, manager, onManage = { accountTab = true })
-                            if (account?.connected == true && account.plan) {
-                                ChatGptModelPicker(state, manager)
-                                ChatGptReasoningPicker(state, manager)
-                            }
-                            if (feedback != null) {
-                                ChatGptFeedbackContent(feedback, samePage, !state.busy, manager)
-                                OutlinedTextField(followUp, { followUp = it.take(2000) }, Modifier.fillMaxWidth(),
-                                    label = { Text("Ask a follow-up") }, placeholder = { Text("Explain note 2, challenge the marking, or make harder practice…") },
-                                    enabled = !state.busy, minLines = 2, maxLines = 4)
-                                Text("A follow-up shares the reviewed pages again, your edited feedback and this question. The new response replaces this review; notes already added stay in your notebook.",
-                                    style = MaterialTheme.typography.bodySmall)
-                                OutlinedButton({ focus.clearFocus(); manager.followUp(followUp) },
-                                    enabled = !state.busy && followUp.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Continue review") }
-                                if (!feedback.applied && samePage && !layerEditable) ChatGptNotice(FolioIcons.Lock, "Choose an unlocked, visible layer in the notebook before adding feedback.")
-                                applyError?.let { ChatGptNotice(FolioIcons.Alert, it, error = true) }
-                            } else {
-                                if (account?.connected != true || !account.plan) ChatGptConnectCard(account, !state.busy, ::connect, onKey = { accountTab = true })
-                                if (note != null && page != null) {
-                                    Text("Pages to review", style = MaterialTheme.typography.titleMedium)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        OutlinedTextField(firstPage, { firstPage = it }, Modifier.weight(1f),
-                                            label = { Text("From page") }, singleLine = true, enabled = !state.busy,
-                                            isError = !validRange)
-                                        OutlinedTextField(lastPage, { lastPage = it }, Modifier.weight(1f),
-                                            label = { Text("To page") }, singleLine = true, enabled = !state.busy,
-                                            isError = !validRange)
-                                    }
-                                    Text("Choose up to 10 pages, including the current page (${folio.pageIndex + 1}). Feedback notes are added to the current page.",
-                                        style = MaterialTheme.typography.bodySmall)
-                                    ChatGptRequestForm(intent, details, custom, enabled = !state.busy,
-                                        onIntent = { intentName = it.name }, onDetails = { details = it }, onCustom = { custom = it })
-                                    Text("Feedback depth", style = MaterialTheme.typography.titleSmall)
-                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(4 to "Quick · 4 notes", 8 to "Thorough · 8 notes", 12 to "Deep · 12 notes").forEach { (count, label) ->
-                                            FilterChip(depth == count, { depth = count }, label = { Text(label) }, enabled = !state.busy)
-                                        }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Hints only · let me solve it", Modifier.weight(1f))
-                                        Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy)
-                                    }
-                                    ChatGptNotice(FolioIcons.Lock, "Only the selected pages and your request are shared with ${(account?.provider ?: AiProvider.CHATGPT).sharedWith} when you choose Review pages.")
-                                }
-                            }
-                            Spacer(Modifier.height(FolioSpacing.dp4))
-                        }
-                    }
-                    if (wide) Row(Modifier.fillMaxSize().padding(FolioSpacing.dp24), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
-                        preview(Modifier.weight(.42f).fillMaxHeight())
-                        content(Modifier.weight(.58f).fillMaxHeight())
-                    } else content(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp16))
+                val wide = maxWidth >= 700.dp && maxHeight >= 320.dp
+                val preview: @Composable (Modifier) -> Unit = { modifier ->
+                    ChatGptPageCard(note, page, folio.pageIndex, image, previewError, wide, modifier,
+                        onRetry = { previewRetry++ }, enabled = !state.busy)
                 }
+                val content: @Composable (Modifier) -> Unit = { modifier ->
+                    val scroll = rememberScrollState()
+                    LaunchedEffect(feedback?.request) { if (feedback != null) scroll.animateScrollTo(0) }
+                    Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                        if (!wide) preview(Modifier.fillMaxWidth())
+                        if (state.error != null) ChatGptErrorCard(state, manager::clearError, ::retry,
+                            canRetry = !state.busy && when (state.operation) {
+                                ChatGptOperation.REVIEW -> account?.connected == true && account.plan && state.model != null
+                                ChatGptOperation.TEST -> account?.connected == true && account.plan && state.model != null
+                                ChatGptOperation.OPEN, ChatGptOperation.KEY -> false
+                                else -> true
+                            })
+                        ChatGptProviderPicker(state, manager, onManage)
+                        if (account?.connected == true && account.plan) {
+                            ChatGptModelPicker(state, manager)
+                            ChatGptReasoningPicker(state, manager)
+                        }
+                        if (feedback != null) {
+                            ChatGptFeedbackContent(feedback, samePage, !state.busy, manager)
+                            OutlinedTextField(followUp, { followUp = it.take(2000) }, Modifier.fillMaxWidth(),
+                                label = { Text("Ask a follow-up") }, placeholder = { Text("Explain note 2, challenge the marking, or make harder practice…") },
+                                enabled = !state.busy, minLines = 2, maxLines = 4)
+                            Text("A follow-up shares the reviewed pages again, your edited feedback and this question. The new response replaces this review; notes already added stay in your notebook.",
+                                style = MaterialTheme.typography.bodySmall)
+                            OutlinedButton({ focus.clearFocus(); manager.followUp(followUp) },
+                                enabled = !state.busy && followUp.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Continue review") }
+                            if (!feedback.applied && samePage && !layerEditable) ChatGptNotice(FolioIcons.Lock, "Choose an unlocked, visible layer in the notebook before adding feedback.")
+                            applyError?.let { ChatGptNotice(FolioIcons.Alert, it, error = true) }
+                        } else {
+                            if (account?.connected != true || !account.plan) ChatGptConnectCard(account, !state.busy, ::connect, onKey = onManage)
+                            if (note != null && page != null) {
+                                Text("Pages to review", style = MaterialTheme.typography.titleMedium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    OutlinedTextField(firstPage, { firstPage = it }, Modifier.weight(1f),
+                                        label = { Text("From page") }, singleLine = true, enabled = !state.busy,
+                                        isError = !validRange)
+                                    OutlinedTextField(lastPage, { lastPage = it }, Modifier.weight(1f),
+                                        label = { Text("To page") }, singleLine = true, enabled = !state.busy,
+                                        isError = !validRange)
+                                }
+                                Text("Choose up to 10 pages, including the current page (${folio.pageIndex + 1}). Feedback notes are added to the current page.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                ChatGptRequestForm(intent, details, custom, enabled = !state.busy,
+                                    onIntent = { intentName = it.name }, onDetails = { details = it }, onCustom = { custom = it })
+                                Text("Feedback depth", style = MaterialTheme.typography.titleSmall)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(4 to "Quick · 4 notes", 8 to "Thorough · 8 notes", 12 to "Deep · 12 notes").forEach { (count, label) ->
+                                        FilterChip(depth == count, { depth = count }, label = { Text(label) }, enabled = !state.busy)
+                                    }
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Hints only · let me solve it", Modifier.weight(1f))
+                                    Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy)
+                                }
+                                ChatGptNotice(FolioIcons.Lock, "Only the selected pages and your request are shared with ${(account?.provider ?: AiProvider.CHATGPT).sharedWith} when you choose Review pages.")
+                            }
+                        }
+                        Spacer(Modifier.height(FolioSpacing.dp4))
+                    }
+                }
+                if (wide) Row(Modifier.fillMaxSize().padding(FolioSpacing.dp24), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp24)) {
+                    preview(Modifier.weight(.42f).fillMaxHeight())
+                    content(Modifier.weight(.58f).fillMaxHeight())
+                } else content(Modifier.fillMaxSize().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp16))
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 if (state.busy) {
                     ChatGptProgress(state, manager)
-                } else if (accountTab) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton({ accountTab = false }) { Text("Back to review") }
-                    }
                 } else {
                     val label: String
                     val enabled: Boolean
