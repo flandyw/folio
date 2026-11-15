@@ -23,8 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -40,32 +38,43 @@ import com.folio.notes.model.Notebook
 import com.folio.notes.model.countOf
 import com.folio.notes.progress.ChoiceField
 import com.folio.notes.progress.MetricBars
+import com.folio.notes.progress.EmptyState
+import com.folio.notes.progress.ProgressBanner
 import com.folio.notes.progress.ProgressCard
+import com.folio.notes.progress.ProgressHero
+import com.folio.notes.progress.ScoreRing
+import com.folio.notes.progress.SectionHeader
+import com.folio.notes.progress.StatTileData
+import com.folio.notes.progress.StatTiles
+import com.folio.notes.progress.StatusPill
+import com.folio.notes.progress.syncStatus
 import com.folio.notes.progress.ScoreTrend
 import com.folio.notes.progress.countsAsExam
-import com.folio.notes.progress.friendlyDate
 import com.folio.notes.progress.notebookExams
 import com.folio.notes.progress.objects
 import com.folio.notes.progress.strings
-import com.folio.notes.study.FocalAccountButton
+import com.folio.notes.study.FocalScreenHeading
 import com.folio.notes.study.FocalAccountPanel
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioPanel
-import com.folio.notes.ui.FolioScreenHeading
+import com.folio.notes.ui.FolioSectionTabs
+import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val TABS = listOf("Calendar", "SACs", "Stoplight", "Goals", "Score", "Grades")
+private val TABS = listOf("Calendar" to FolioIcons.Calendar, "SACs" to FolioIcons.Clipboard, "Stoplight" to FolioIcons.Stoplight,
+    "Goals" to FolioIcons.Flag, "Score" to FolioIcons.Sigma, "Grades" to FolioIcons.BarChart)
 private val RATING_COLOUR = mapOf("red" to Color(0xFFC62828), "amber" to Color(0xFFF9A825), "green" to Color(0xFF2E7D32))
+
+private val CONFLICT_NAMES = mapOf("user_state:sacRecords" to "Your SACs", "user_state:learning" to "Your checklist, goals or tasks",
+    "user_state:atarEstimates" to "Your ATAR estimates", "timetable_config:timetable_config" to "Your timetable")
 
 private fun pct(value: Double?, digits: Int = 1) = value?.let { "%.${digits}f".format(it) + "%" } ?: "—"
 private fun mark(value: Double) = value.toString().removeSuffix(".0")
@@ -77,11 +86,11 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val state by manager.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    var tab by rememberSaveable { mutableStateOf(TABS[0]) }
+    var tab by rememberSaveable { mutableStateOf(TABS[0].first) }
     var showAccount by rememberSaveable { mutableStateOf(false) }
     val enabled = !state.loading && state.readable
     LaunchedEffect(lifecycle, state.userId) {
-        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { while (isActive) { manager.sync(); delay(30_000) } }
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { manager.keepFresh() }
     }
     val sacs = remember(state.cache.rows) { (state.cache.value("sacRecords") as? JSONArray)?.objects().orEmpty() }
     val learning = remember(state.cache.rows) { Planner.learning(state.cache.value("learning")) }
@@ -101,32 +110,23 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     suspend fun saveLearning(next: JSONObject) = manager.saveValue("learning", next, state.userId)
 
     Column(modifier.fillMaxSize()) {
-        FolioScreenHeading("Planner", subtitle = {
-            Text(when {
-                state.loading -> "Loading…"; state.syncing -> "Syncing with Focal…"
-                state.userId == null -> "Saved on this device · connect Focal to sync"
-                state.cache.outbox.isNotEmpty() -> "${countOf(state.cache.outbox.size, "change")} waiting to sync"
-                else -> "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
-            }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }) {
-            IconButton(manager::sync, enabled = state.userId != null && !state.syncing && !state.loading, shapes = IconButtonDefaults.shapes()) {
-                if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(FolioIcons.Sync, "Sync with Focal")
-            }
-            FocalAccountButton({ showAccount = true }, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty()))
+        val (statusIcon, status) = state.syncStatus()
+        FocalScreenHeading("Planner", statusIcon, status, state.syncing, canSync = state.userId != null && !state.loading, onSync = manager::sync,
+            onAccount = { showAccount = true }, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty())) {
             IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Tune, "Settings") }
         }
-        PrimaryScrollableTabRow(TABS.indexOf(tab), Modifier.padding(horizontal = FolioDestinationInset), containerColor = Color.Transparent, edgePadding = 0.dp) {
-            TABS.forEach { Tab(tab == it, { tab = it }, text = { Text(it) }) }
-        }
-        state.error?.let { Text(it, Modifier.padding(FolioDestinationInset, FolioSpacing.dp8), color = MaterialTheme.colorScheme.error) }
-        if (state.cache.conflicts.keys.any { it == "user_state:sacRecords" || it == "user_state:learning" }) {
-            Row(Modifier.padding(horizontal = FolioDestinationInset), verticalAlignment = Alignment.CenterVertically) {
-                Text("Changed on another device. Your edit is still saved here.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                for (key in listOf("user_state:sacRecords", "user_state:learning").filter { it in state.cache.conflicts }) {
+        FolioSectionTabs(TABS, tab, { tab = it })
+        Column(Modifier.padding(horizontal = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            state.error?.let { ProgressBanner(FolioIcons.Alert, it, error = true) }
+            // Every planner row can collide, not only SACs and the checklist: an event or the timetable changed elsewhere must be answerable here too.
+            state.cache.conflicts.forEach { (key, remote) ->
+                ProgressBanner(FolioIcons.Alert, "${CONFLICT_NAMES[key] ?: remote.payload?.optString("title")?.ifBlank { null } ?: "A record"} changed on another device. Your edit is still saved here.") {
                     TextButton({ scope.launch { manager.resolve(key, false, state.userId) } }) { Text("Use Focal's") }
-                    TextButton({ scope.launch { manager.resolve(key, true, state.userId) } }) { Text("Keep mine") }
+                    Button({ scope.launch { manager.resolve(key, true, state.userId) } }, enabled = remote.operation != "delete",
+                        shapes = ButtonDefaults.shapes()) { Text("Keep mine") }
                 }
             }
+            if (state.error != null || state.cache.conflicts.isNotEmpty()) Spacer(Modifier.height(FolioSpacing.dp4))
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
@@ -192,19 +192,28 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     })
 }
 
-/** A figure tile: the number first, its name under it. */
-@Composable private fun Stat(label: String, value: String, modifier: Modifier = Modifier) =
-    Surface(modifier, shape = com.folio.notes.ui.FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.padding(FolioSpacing.dp16)) {
-            Text(value, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+/** The tonal card every planner record sits on: the same surface as Progress cards. */
+@Composable private fun PlannerCard(onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val body: @Composable () -> Unit = { Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), content = content) }
+    if (onClick != null) Surface(onClick, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) { body() }
+    else Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) { body() }
+}
+
+/** One record as a row: what it is, a line of detail, and its headline figure or action at the end. */
+@Composable private fun PlannerRow(title: String, detail: String, onClick: (() -> Unit)? = null, trailing: @Composable () -> Unit) {
+    val body: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            trailing()
         }
     }
-
-@Composable private fun StatRow(vararg stats: Pair<String, String>) =
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        stats.forEach { (label, value) -> Stat(label, value, Modifier.weight(1f).fillMaxHeight()) }
-    }
+    if (onClick != null) Surface(onClick, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) { body() }
+    else Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) { body() }
+}
 
 /** Red / amber / green / unrated as one stacked track, so a checklist reads at a glance. */
 @Composable private fun RagBar(items: List<JSONObject>, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 10.dp) {
@@ -232,32 +241,35 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val next = remember(sacs) { Planner.upcoming(sacs).take(6) }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        item { Button({ adding = true }, enabled = enabled) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan or log SAC") } }
-        if (sacs.isEmpty()) item { EmptyHint("Plan an upcoming assessment or log a completed result to start building subject statistics.") }
+        if (sacs.isEmpty()) item { EmptyState(FolioIcons.Clipboard, "No SACs yet", "Plan an upcoming assessment or log a completed result to start building subject statistics.") {
+            Button({ adding = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan or log SAC") }
+        } }
         else {
             item {
-                StatRow("Completed" to "${stats.completed}",
-                    "Weighted avg" to pct(stats.average) + (stats.trend?.takeIf { kotlin.math.abs(it) >= 0.5 }?.let { " ${if (it > 0) "▲" else "▼"}${"%.1f".format(kotlin.math.abs(it))}" } ?: ""),
-                    "Best" to pct(stats.best), "Upcoming" to "${stats.upcoming}")
+                StatTiles(listOf(
+                    StatTileData(FolioIcons.Chart, pct(stats.average), "Weighted average" + (stats.trend?.takeIf { kotlin.math.abs(it) >= 0.5 }?.let { " · ${if (it > 0) "up" else "down"} ${"%.1f".format(kotlin.math.abs(it))} pts" } ?: "")),
+                    StatTileData(FolioIcons.Trophy, pct(stats.best), "Best result"),
+                    StatTileData(FolioIcons.Check, "${stats.completed}", "Completed"),
+                    StatTileData(FolioIcons.Calendar, "${stats.upcoming}", "Upcoming")))
             }
+            item { Button({ adding = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan or log SAC") } }
             if (results.isNotEmpty()) item(key = "trend") { ScoreTrend("Results over time", results, "Every completed SAC, as a percentage of its marks", icon = FolioIcons.Chart) }
             bySubject.filter { it.average != null }.takeIf { it.isNotEmpty() }?.let { list ->
                 item(key = "averages") { MetricBars("Average by subject", list.map { it.subject to it.average!! }.sortedByDescending { it.second },
                     subtitle = "Weighted by each SAC's weighting", maximum = 100.0, icon = FolioIcons.BarChart) }
             }
             if (next.isNotEmpty()) {
-                item { Text("Upcoming", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
+                item { SectionHeader("Upcoming") }
                 items(next, key = { "up:" + it.optString("id") }) { sac ->
                     val days = ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(sac.optString("scheduledAt").take(10)))
                     SacRow(sac, if (days == 0L) "Today" else if (days == 1L) "Tomorrow" else "$days days") { editing = sac }
                 }
             }
-            item { Text("Subjects", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
+            item { SectionHeader("Subjects") }
             items(bySubject, key = { "sub:" + it.subject }) { s ->
-                ListItem(headlineContent = { Text(s.subject) }, supportingContent = { Text("${s.completed} completed · ${s.upcoming} upcoming") },
-                    trailingContent = { Text(pct(s.average), style = MaterialTheme.typography.titleMedium) })
+                PlannerRow(s.subject, "${s.completed} completed · ${s.upcoming} upcoming") { Text(pct(s.average), style = MaterialTheme.typography.titleMedium) }
             }
-            item { Text("All SACs", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
+            item { SectionHeader("All SACs", "Newest first") }
             items(sacs.sortedByDescending { it.optString("scheduledAt") }, key = { it.optString("id") }) { sac ->
                 SacRow(sac, Planner.percentage(sac)?.let { pct(it) } ?: if (sac.optString("scheduledAt") >= LocalDate.now().toString()) "Upcoming" else "No mark yet") { editing = sac }
             }
@@ -282,10 +294,8 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 
 @Composable private fun SacRow(sac: JSONObject, trailing: String, onClick: () -> Unit) {
     val score = if (Planner.isCompleted(sac)) "${mark(sac.getDouble("score"))}/${mark(sac.getDouble("maxScore"))}" else "${sac.optInt("durationMinutes")} min"
-    Surface(onClick, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        ListItem(headlineContent = { Text(sac.optString("title"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            supportingContent = { Text("${sac.optString("subject")} · ${sac.optString("provider")} · Unit ${sac.optInt("unit")} · ${sac.optString("scheduledAt").take(10)} · $score") },
-            trailingContent = { Text(trailing, style = MaterialTheme.typography.titleSmall) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+    PlannerRow(sac.optString("title"), "${sac.optString("subject")} · ${sac.optString("provider")} · Unit ${sac.optInt("unit")} · ${sac.optString("scheduledAt").take(10)} · $score", onClick) {
+        Planner.percentage(sac)?.takeIf { trailing.endsWith("%") }?.let { ScoreRing(it) } ?: StatusPill(trailing)
     }
 }
 
@@ -355,24 +365,24 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Button({ importing = true }, enabled = enabled) { Icon(FolioIcons.Braces, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import checklist") }
+                Button({ importing = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Braces, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import checklist") }
                 if (subject.isNotEmpty()) OutlinedButton({
                     scope.launch {
                         val (next, count) = Planner.planWeek(learning, subject)
                         notice = if (count == 0) "Nothing to plan: every red, amber or re-check item already has a task."
                         else if (save(next)) "Added ${countOf(count, "revision task")} (shown in Focal's calendar)." else "Could not save the tasks. Try again."
                     }
-                }, enabled = enabled) { Icon(FolioIcons.CalendarCheck, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan this week") }
+                }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.CalendarCheck, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Plan this week") }
             }
         }
-        notice?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
-        if (subject.isEmpty()) item { EmptyHint("Import a checklist from your study design with any chatbot. Each key knowledge and skill becomes an item you can rate red, amber or green.") }
+        notice?.let { item { ProgressBanner(FolioIcons.Check, it) { TextButton({ notice = null }) { Text("Dismiss") } } } }
+        if (subject.isEmpty()) item { EmptyState(FolioIcons.Stoplight, "No checklist yet", "Import a checklist from your study design with any chatbot. Each key knowledge and skill becomes an item you can rate red, amber or green.") }
         else {
             item {
                 ProgressCard("Checklist health", "Tap a subject to open its checklist", FolioIcons.Stoplight) {
                     itemSubjects.forEach { s ->
                         val list = bySubject[s].orEmpty()
-                        Column(Modifier.fillMaxWidth().clip(com.folio.notes.ui.FolioShapes.medium).clickable { chosen = s }
+                        Column(Modifier.fillMaxWidth().clip(FolioShapes.medium).clickable { chosen = s }
                             .background(if (s == subject) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else Color.Transparent).padding(FolioSpacing.dp8),
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                             Row { Text(s, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (s == subject) FontWeight.SemiBold else null, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -386,7 +396,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     }
                 }
             }
-            item { Text("$greens of ${mine.size} green · ${mine.count { it.optString("rating") == "red" }} red · ${mine.count(Planner::recheckDue)} to re-check", style = MaterialTheme.typography.titleSmall) }
+            item { SectionHeader(subject, "$greens of ${mine.size} green · ${mine.count { it.optString("rating") == "red" }} red · ${mine.count(Planner::recheckDue)} to re-check") }
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     listOf("All", "Red", "Amber", "Green", "Re-check", "Unrated").forEach { FilterChip(filter == it, { filter = it }, { Text(it) }) }
@@ -400,17 +410,21 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     }
                 }
                 items(list, key = { it.optString("id") }) { item ->
-                    ListItem(headlineContent = { Text(item.optString("name")) },
-                        supportingContent = { Text(listOfNotNull(item.optString("type").ifEmpty { null }, if (Planner.recheckDue(item)) "re-check" else null,
-                            item.optString("check").ifEmpty { null }).joinToString(" · ")) },
-                        trailingContent = { Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                    PlannerCard {
+                        Text(item.optString("name"), style = MaterialTheme.typography.titleSmall)
+                        listOfNotNull(item.optString("type").ifEmpty { null }, if (Planner.recheckDue(item)) "re-check" else null,
+                            item.optString("check").ifEmpty { null }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        // Under the name, not beside it: three chips next to a long skill squeezed the text to a sliver on a phone.
+                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Planner.RATINGS.forEach { r ->
                                 val on = item.optString("rating") == r
                                 // Tapping the rating in place takes it off again, back to Unrated.
                                 FilterChip(on, { scope.launch { save(if (on) Planner.clearRating(learning, item.optString("id")) else Planner.setRating(learning, item.optString("id"), r)) } }, { Text(r.replaceFirstChar(Char::uppercase)) },
                                     enabled = enabled, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = RATING_COLOUR.getValue(r), selectedLabelColor = Color.White))
                             }
-                        } })
+                        }
+                    }
                 }
             }
         }
@@ -453,47 +467,48 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val progressOf = remember(active, exams, atar) { active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar) } }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        item { Button({ adding = true }, enabled = enabled) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
         if (active.isNotEmpty()) item {
             val stats = active.map { progressOf.getValue(it.optString("id")) }
-            StatRow("Active" to "${active.size}", "Reached" to "${active.zip(stats).count { (g, p) -> p.current != null && p.current >= g.getDouble("target") }}",
-                "Average progress" to "${stats.map { it.progress }.average().toInt()}%")
+            StatTiles(listOf(StatTileData(FolioIcons.Flag, "${active.size}", "Active goals"),
+                StatTileData(FolioIcons.Trophy, "${active.zip(stats).count { (g, p) -> p.current != null && p.current >= g.getDouble("target") }}", "Reached"),
+                StatTileData(FolioIcons.Chart, "${stats.map { it.progress }.average().toInt()}%", "Average progress")))
         }
-        if (active.isEmpty()) item { EmptyHint("Add a target to see your current baseline and the gap to close. Goals show direction, not guaranteed outcomes.") }
+        if (active.isEmpty()) item { EmptyState(FolioIcons.Flag, "No goals yet", "Add a target to see your current baseline and the gap to close. Goals show direction, not guaranteed outcomes.") {
+            Button({ adding = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") }
+        } }
+        else item { Button({ adding = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
         items(active, key = { it.optString("id") }) { goal ->
             val progress = progressOf[goal.optString("id")] ?: Planner.goalProgress(goal, exams, atar)
             val reached = progress.current != null && progress.current >= goal.getDouble("target")
             val expired = !reached && goal.optString("deadline") < today
-            OutlinedCard {
-                Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Text("${goal.optString("subject").let { if (it.isEmpty()) "" else "$it · " }}${Planner.kindLabel(goal.optString("kind"))}", style = MaterialTheme.typography.titleMedium)
-                    Text("Target ${mark(goal.getDouble("target"))} by ${goal.optString("deadline")} · " +
-                        if (expired) "Expired" else if (reached) "Reached" else progress.gap?.let { "${"%.1f".format(it)} to go" } ?: "Needs baseline",
-                        style = MaterialTheme.typography.bodySmall, color = if (expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-                        Box(contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator({ (progress.progress / 100).toFloat().coerceIn(0f, 1f) }, Modifier.size(72.dp), strokeWidth = 8.dp,
-                                color = if (reached) RATING_COLOUR.getValue("green") else MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest)
-                            Text("${progress.progress.toInt()}%", style = MaterialTheme.typography.labelLarge)
-                        }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                            Text("${progress.label}: ${progress.current?.let { "%.1f".format(it) } ?: "—"} / ${mark(goal.getDouble("target"))}", style = MaterialTheme.typography.bodyMedium)
-                            Text(progress.evidence, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+            PlannerCard {
+                Text("${goal.optString("subject").let { if (it.isEmpty()) "" else "$it · " }}${Planner.kindLabel(goal.optString("kind"))}", style = MaterialTheme.typography.titleMedium)
+                Text("Target ${mark(goal.getDouble("target"))} by ${goal.optString("deadline")} · " +
+                    if (expired) "Expired" else if (reached) "Reached" else progress.gap?.let { "${"%.1f".format(it)} to go" } ?: "Needs baseline",
+                    style = MaterialTheme.typography.bodySmall, color = if (expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator({ (progress.progress / 100).toFloat().coerceIn(0f, 1f) }, Modifier.size(72.dp), strokeWidth = 8.dp,
+                            color = if (reached) RATING_COLOUR.getValue("green") else MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest)
+                        Text("${progress.progress.toInt()}%", style = MaterialTheme.typography.labelLarge)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton({ editing = goal }, enabled = enabled) { Text("Edit") }
-                        TextButton({ scope.launch { save(Planner.edit(learning, "goals", goal.optString("id")) { it.put("archivedAt", com.folio.notes.mistakes.isoTime()) }) } }, enabled = enabled) { Text("Archive") }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        Text("${progress.label}: ${progress.current?.let { "%.1f".format(it) } ?: "—"} / ${mark(goal.getDouble("target"))}", style = MaterialTheme.typography.bodyMedium)
+                        Text(progress.evidence, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton({ editing = goal }, enabled = enabled) { Text("Edit") }
+                    TextButton({ scope.launch { save(Planner.edit(learning, "goals", goal.optString("id")) { it.put("archivedAt", com.folio.notes.mistakes.isoTime()) }) } }, enabled = enabled) { Text("Archive") }
                 }
             }
         }
         if (archived.isNotEmpty()) {
-            item { Text("Archived", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
+            item { SectionHeader("Archived") }
             items(archived, key = { "a:" + it.optString("id") }) { goal ->
-                ListItem(headlineContent = { Text("${goal.optString("subject").let { if (it.isEmpty()) "" else "$it · " }}${Planner.kindLabel(goal.optString("kind"))}") },
-                    supportingContent = { Text("Target ${mark(goal.getDouble("target"))}") },
-                    trailingContent = { TextButton({ scope.launch { save(Planner.edit(learning, "goals", goal.optString("id")) { it.remove("archivedAt") }) } }, enabled = enabled) { Text("Restore") } })
+                PlannerRow("${goal.optString("subject").let { if (it.isEmpty()) "" else "$it · " }}${Planner.kindLabel(goal.optString("kind"))}", "Target ${mark(goal.getDouble("target"))}") {
+                    TextButton({ scope.launch { save(Planner.edit(learning, "goals", goal.optString("id")) { it.remove("archivedAt") }) } }, enabled = enabled) { Text("Restore") }
+                }
             }
         }
     }
@@ -552,9 +567,9 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val scaled = remember(prediction, vtac) { prediction?.let { p -> vtac?.let { StudyScore.scaled(p.studyScore.toDouble(), subject, it) } } }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        if (subjects.isEmpty()) item { EmptyHint("Log an exam in Progress to estimate a study score. Predictions use the VCAA grade distribution for each paper.") }
+        if (subjects.isEmpty()) item { EmptyState(FolioIcons.Sigma, "No study score yet", "Log an exam in Progress to estimate a study score. Predictions use the VCAA grade distribution for each paper.") }
         else {
-            item { Text("Study score", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
+            item { SectionHeader("Study score", "From your logged papers and each paper's VCAA grade distribution") }
             item { ChoiceField("Subject", subject, subjects, { picked = it }) }
             item { Row2 {
                 Field("SAC percentile (optional)", sacText, Modifier.weight(1f), true) { sacText = it }
@@ -566,12 +581,16 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             }
             if (prediction == null) item { EmptyHint("None of your $subject papers match a VCAA grade distribution yet.") }
             else item {
-                ElevatedCard { Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                        Text("${prediction.studyScore}", style = MaterialTheme.typography.displaySmall)
-                        Text("raw study score · likely ${prediction.low}–${prediction.high} · ${prediction.confidence} confidence", style = MaterialTheme.typography.bodyMedium)
+                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                ProgressHero {
+                    Text("Predicted raw study score", style = MaterialTheme.typography.labelLarge)
+                    Text("${prediction.studyScore}", style = MaterialTheme.typography.displayMedium)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        StatusPill("Likely ${prediction.low}–${prediction.high}"); StatusPill("${prediction.confidence.replaceFirstChar(Char::uppercase)} confidence")
                     }
                     scaled?.let { Text("Scaled ≈ ${"%.1f".format(it.scaled)} (${"%.1f".format(it.min)}–${"%.1f".format(it.max)} across ${it.years.size} year${if (it.years.size == 1) "" else "s"} of VTAC reports)") }
+                }
+                PlannerCard {
                     Text("Combined percentile ${"%.1f".format(prediction.combinedPercentile)} · exams ${"%.1f".format(prediction.examPercentile)} (${prediction.examWeightPercent.toInt()}%) · school work ${"%.1f".format(prediction.sacPercentile)}",
                         style = MaterialTheme.typography.bodySmall)
                     prediction.components.forEach {
@@ -614,13 +633,12 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
     }
     val estimate = remember(results, year) { StudyScore.estimateAtar(results, year, data) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        Text("ATAR estimate", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-        Text("Add at least four Unit 3/4 studies including an English-group study. Predicted raw scores are used when you have them; otherwise enter one.", style = MaterialTheme.typography.bodySmall)
+        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Predicted raw scores are used when you have them; otherwise enter one.")
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
             val ref = studies.find { it.code == row.optString("code") }
             val predicted = ref?.let { predictions[StudyScore.studyKey(it.studyName)] }
-            OutlinedCard { Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            PlannerCard {
                 ChoiceField("Study", ref?.studyName.orEmpty(), studies.map { it.studyName }, { name ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
                 if (predicted != null) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -630,30 +648,33 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
                 if (predicted == null || !row.optBoolean("usePrediction")) Field("Raw study score", row.optString("raw"), number = true) { v ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("raw", v) else r }) }
                 TextButton({ update(rows.filterIndexed { i, _ -> i != index }) }) { Text("Remove") }
-            } }
+            }
         }
         OutlinedButton({ update(rows + JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("code", studies.firstOrNull()?.code.orEmpty())
-            .put("raw", "").put("usePrediction", true)) }, enabled = studies.isNotEmpty()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add study") }
+            .put("raw", "").put("usePrediction", true)) }, enabled = studies.isNotEmpty(), shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Add study") }
         estimate?.let { e ->
-            ElevatedCard { Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                Text(e.label, style = MaterialTheme.typography.displaySmall)
-                Text("Aggregate ${"%.2f".format(e.aggregate)}", style = MaterialTheme.typography.bodyMedium)
+            ProgressHero {
+                Text("Estimated ATAR", style = MaterialTheme.typography.labelLarge)
+                Text(e.label, style = MaterialTheme.typography.displayMedium)
+                Row { StatusPill("Aggregate ${"%.2f".format(e.aggregate)}") }
+            }
+            PlannerCard {
                 val top = maxOf(1.0, e.primary.maxOfOrNull { it.contribution } ?: 1.0)
                 e.primary.forEach { com.folio.notes.progress.MeterRow(it.result.studyName, "%.1f".format(it.contribution), (it.contribution / top).toFloat(),
                     supporting = "${it.role} · raw ${"%.0f".format(it.result.raw)}") }
                 e.increments.forEach { com.folio.notes.progress.MeterRow(it.result.studyName, "+%.2f".format(it.contribution), (it.contribution / top).toFloat(),
                     MaterialTheme.colorScheme.tertiary, "Increment (10%)") }
                 Button({ scope.launch { save(listOf(JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("year", year).put("rows", JSONArray(rows))
-                    .put("atarLabel", e.label).put("aggregate", e.aggregate).put("savedAt", com.folio.notes.mistakes.isoTime())) + saved) } }, enabled = enabled) { Text("Save estimate") }
-            } }
+                    .put("atarLabel", e.label).put("aggregate", e.aggregate).put("savedAt", com.folio.notes.mistakes.isoTime())) + saved) } }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Text("Save estimate") }
+            }
         } ?: if (rows.isNotEmpty()) Text("Not enough valid studies yet: need four, including English.", style = MaterialTheme.typography.bodySmall) else Unit
         if (saved.isNotEmpty()) {
             val history = saved.reversed().mapNotNull { s -> s.optString("atarLabel").toDoubleOrNull()?.let { "${s.optString("savedAt").take(10)} · ${s.optInt("year")} scaling" to it } }
             if (history.size >= 2) ScoreTrend("ATAR over time", history, "Your saved estimates, oldest first", icon = FolioIcons.Chart)
-            Text("Saved estimates", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-            saved.forEach { s -> ListItem(headlineContent = { Text("ATAR ${s.optString("atarLabel")} · ${s.optInt("year")}") },
-                supportingContent = { Text(s.optString("savedAt").take(10)) },
-                trailingContent = { TextButton({ scope.launch { save(saved.filter { it.optString("id") != s.optString("id") }) } }, enabled = enabled) { Text("Delete") } }) }
+            SectionHeader("Saved estimates")
+            saved.forEach { s -> PlannerRow("ATAR ${s.optString("atarLabel")}", "${s.optInt("year")} scaling · saved ${s.optString("savedAt").take(10)}") {
+                TextButton({ scope.launch { save(saved.filter { it.optString("id") != s.optString("id") }) } }, enabled = enabled) { Text("Delete") }
+            } }
         }
     }
 }

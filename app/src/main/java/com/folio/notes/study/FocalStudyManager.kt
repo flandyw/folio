@@ -11,30 +11,21 @@ import com.folio.notes.model.Notebook
 import com.folio.notes.sync.FocalSupabaseConnection
 import com.folio.notes.sync.SupabaseSyncRemote
 import com.folio.notes.sync.focalSyncDeviceId
+import com.folio.notes.sync.watchFocalFeed
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.postgrest.query.filter.FilterOperator
-import io.github.jan.supabase.realtime.PostgresAction
-import io.github.jan.supabase.realtime.RealtimeChannel
-import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -140,7 +131,7 @@ class FocalStudyManager(context: Context) {
         scope.launch {
             combine(_state.map { it.userId }.distinctUntilChanged(), foreground) { user, visible -> user to visible }
                 .collectLatest { (user, visible) ->
-                    if (visible && user != null) { requestSync(); watchRemoteSessions(user) }
+                    if (visible && user != null) { requestSync(); watchFocalFeed(client, "folio-study-$user", listOf("study_sessions", "custom_subjects"), ::requestSync) }
                 }
         }
         scope.launch {
@@ -157,31 +148,6 @@ class FocalStudyManager(context: Context) {
                 if (_state.value.userId != null && (foreground.value ||
                     _state.value.entries.any { !it.synced && (it.userId == null || it.userId == _state.value.userId) })) requestSync()
             }
-        }
-    }
-
-    private suspend fun watchRemoteSessions(user: String) {
-        while (foreground.value && _state.value.userId == user) {
-            val channel = client.realtime.channel("folio-study-$user")
-            try {
-                coroutineScope {
-                    for (entity in listOf("study_sessions", "custom_subjects")) {
-                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                            table = "sync_log"
-                            filter("entity", FilterOperator.EQ, entity)
-                        }.onEach { requestSync() }.launchIn(this)
-                    }
-                    // A reconnect can miss messages while the socket is down. Joining also
-                    // closes the gap between the initial pull and this subscription.
-                    channel.status.onEach { status ->
-                        if (status == RealtimeChannel.Status.SUBSCRIBED) requestSync()
-                    }.launchIn(this)
-                    channel.subscribe(blockUntilSubscribed = true)
-                    awaitCancellation()
-                }
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { delay(7_000) }
-            finally { withContext(NonCancellable) { runCatching { client.realtime.removeChannel(channel) } } }
         }
     }
 

@@ -8,10 +8,14 @@ import com.folio.notes.mistakes.sync.ExamTrackAuthRepository
 import com.folio.notes.mistakes.sync.ExamTrackMistakeCodec
 import com.folio.notes.mistakes.sync.FocalAccountStatus
 import com.folio.notes.mistakes.sync.mistakeSyncError
+import com.folio.notes.sync.ApplyResult
 import com.folio.notes.sync.FocalSupabaseConnection
+import com.folio.notes.sync.ReadResult
 import com.folio.notes.sync.SupabaseSyncRemote
 import com.folio.notes.sync.SyncProtocol
+import com.folio.notes.sync.focalChangeRefused
 import com.folio.notes.sync.focalSyncDeviceId
+import com.folio.notes.sync.watchFocalFeed
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +27,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
-private val SYNCED_ENTITIES = listOf("attempts", "mistakes", "user_state", "events", "timetable_config")
+internal val SYNCED_ENTITIES = listOf("attempts", "mistakes", "user_state", "events", "timetable_config")
 /** Bumped when [SYNCED_ENTITIES] grows: an older cache re-reads the feed once so rows it skipped arrive. */
 private const val FEED_VERSION = 2
 
@@ -179,73 +183,113 @@ class ExamProgressManager(context: Context) {
         return true
     }
 
-    fun sync() {
-        if (_state.value.userId == null || _state.value.loading || syncJob?.isActive == true) return
-        syncJob = scope.launch {
-            lock.withLock {
-                val user = _state.value.userId ?: return@withLock
-                if (!_state.value.readable) return@withLock
-                _state.update { it.copy(syncing = true, error = null) }
-                var c = _state.value.cache
-                var saved = c
-                // A poll that changed nothing only moves lastSynced: show it, but don't rewrite the whole cache file every 30 s.
-                fun commit(next: ProgressCache) {
-                    if (next.copy(lastSynced = saved.lastSynced) != saved) { publishCache(user, next); saved = next }
-                    else _state.update { if (it.userId == user) it.copy(cache = next) else it }
-                    c = next
-                }
-                fun relevant(entity: String) = entity in SYNCED_ENTITIES
-                fun apply(row: SyncProtocol.RowState, changeId: String? = null) {
-                    if (!relevant(row.entity)) return
-                    val queued = c.outbox[row.key]
-                    val acknowledged = queued != null && queued.changeId == changeId
-                    val collision = queued != null && !acknowledged && row.seq > (queued.expectedSeq ?: 0)
-                    c = c.copy(lamport = maxOf(c.lamport, row.lamport),
-                        rows = if (collision) c.rows else c.rows + (row.key to row),
-                        outbox = if (acknowledged) c.outbox - row.key else c.outbox,
-                        conflicts = when { acknowledged -> c.conflicts - row.key; collision -> c.conflicts + (row.key to row); else -> c.conflicts })
-                }
-                try {
-                    var pages = 0
-                    while (pages++ < 100) {
-                        val page = remote.read(user, c.cursor, 500)
-                        if (page.mode == "snapshot") {
-                            val pendingRows = c.rows.filterKeys { it in c.outbox }
-                            c = c.copy(rows = pendingRows)
-                            page.rows.forEach { apply(it) }
-                            // A compacted-away pending row is a deletion, never an invitation to recreate it.
-                            for (key in c.outbox.keys) if (page.rows.none { it.key == key } && (c.outbox[key]?.expectedSeq ?: 0) > 0) {
-                                val queued = c.outbox.getValue(key)
-                                c = c.copy(conflicts = c.conflicts + (key to SyncProtocol.RowState(queued.entity, queued.rowId,
-                                    "delete", null, 0, "", 0)))
-                            }
-                            commit(c.copy(cursor = page.head)); break
-                        }
-                        page.changes.sortedBy { it.seq }.forEach { change -> apply(SyncProtocol.RowState(
-                            change.entity, change.rowId, change.operation, change.payload, change.lamport, change.clientId, change.seq), change.changeId) }
-                        val cursor = page.changes.maxOfOrNull { it.seq } ?: c.cursor
-                        commit(c.copy(cursor = maxOf(c.cursor, cursor)))
-                        if (cursor >= page.head || page.changes.size < 500) break
-                    }
-                    for (queued in c.outbox.values.toList()) {
-                        if (queued.key in c.conflicts) continue
-                        val result = remote.apply(user, listOf(queued), device)
-                        val receipt = result.receipts.firstOrNull { it.changeId == queued.changeId }
-                        if (receipt != null) {
-                            val row = c.rows.getValue(queued.key).copy(seq = receipt.seq)
-                            commit(c.copy(rows = c.rows + (queued.key to row), outbox = c.outbox - queued.key))
-                        } else {
-                            val stale = result.stale.firstOrNull { it.changeId == queued.changeId }
-                                ?: error("Focal did not acknowledge the saved change")
-                            val current = stale.current ?: SyncProtocol.RowState(queued.entity, queued.rowId, "delete", null, 0, "", 0)
-                            commit(c.copy(conflicts = c.conflicts + (queued.key to current)))
-                        }
-                    }
-                    commit(c.copy(lastSynced = isoTime()))
-                } catch (e: CancellationException) { throw e }
-                catch (e: Exception) { _state.update { if (it.userId == user) it.copy(error = mistakeSyncError(e)) else it } }
-                finally { _state.update { if (it.userId == user) it.copy(syncing = false) else it } }
+    @Volatile private var rerun = false
+
+    /** Pulls Focal's changes, then publishes local ones. A request made while a pass is running is not dropped: it runs another pass after it. */
+    @Synchronized fun sync() {
+        if (_state.value.userId == null || _state.value.loading) return
+        if (syncJob?.isActive == true) { rerun = true; return }
+        rerun = false
+        syncJob = scope.launch { runSync() }.also { job -> job.invokeOnCompletion { if (it == null && rerun) sync() } }
+    }
+
+    /** For a visible screen: Focal's changes arrive as they are made, with a slow poll in case a socket event is missed. */
+    suspend fun keepFresh(): Unit = coroutineScope {
+        _state.value.userId?.let { user -> launch { watchFocalFeed(client, "folio-progress-$user", SYNCED_ENTITIES, ::sync) } }
+        while (isActive) { sync(); delay(30_000) }
+    }
+
+    private suspend fun runSync() {
+        val user = _state.value.userId ?: return
+        if (!_state.value.readable) return
+        _state.update { if (it.userId == user) it.copy(syncing = true, error = null) else it }
+        // The lock is held only while the cache changes, never across a request, so saving a form does not wait for the network.
+        suspend fun edit(change: (ProgressCache) -> ProgressCache) = lock.withLock {
+            val s = _state.value
+            if (s.userId != user || s.loading || !s.readable) throw CancellationException("The account changed")
+            val next = change(s.cache)
+            // A poll that changed nothing only moves lastSynced: show it, but don't rewrite the whole cache file every 30 s.
+            if (next.copy(lastSynced = s.cache.lastSynced) != s.cache) publishCache(user, next)
+            else _state.update { if (it.userId == user) it.copy(cache = next) else it }
+        }
+        try {
+            var cursor = 0L
+            edit { cursor = it.cursor; it }
+            var pages = 0
+            while (pages++ < 100) {
+                val page = remote.read(user, cursor, 500)
+                edit { cache -> cache.absorb(page).also { cursor = it.cursor } }
+                if (page.mode == "snapshot" || cursor >= page.head || page.changes.size < 500) break
             }
+            var refused: Exception? = null
+            suspend fun publish(batch: List<SyncProtocol.QueuedChange>) {
+                val result = try { remote.apply(user, batch, device) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    // Offline, signed out or server trouble: stop and retry later. A change Focal refuses must not hold back the rest.
+                    if (!focalChangeRefused(e)) throw e
+                    if (batch.size > 1) batch.forEach { publish(listOf(it)) } else refused = refused ?: e
+                    return
+                }
+                edit { it.settle(batch, result) }
+                if (batch.any { sent -> result.receipts.none { it.changeId == sent.changeId } && result.stale.none { it.changeId == sent.changeId } })
+                    error("Focal did not acknowledge the saved change")
+            }
+            var outbox = emptyList<SyncProtocol.QueuedChange>()
+            edit { cache -> outbox = cache.outbox.values.filter { it.key !in cache.conflicts }; cache }
+            // One request for the whole outbox instead of one per change.
+            outbox.chunked(50).forEach { publish(it) }
+            refused?.let { throw it }
+            edit { it.copy(lastSynced = isoTime()) }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { _state.update { if (it.userId == user) it.copy(error = mistakeSyncError(e)) else it } }
+        finally { _state.update { if (it.userId == user) it.copy(syncing = false) else it } }
+    }
+}
+
+/** Folds a page of Focal's log (or a whole snapshot, when the cursor was too old to tail) into the cache. */
+internal fun ProgressCache.absorb(page: ReadResult): ProgressCache {
+    var c = this
+    fun apply(row: SyncProtocol.RowState, changeId: String? = null) {
+        if (row.entity !in SYNCED_ENTITIES) return
+        val queued = c.outbox[row.key]
+        val acknowledged = queued != null && queued.changeId == changeId
+        val collision = queued != null && !acknowledged && row.seq > (queued.expectedSeq ?: 0)
+        c = c.copy(lamport = maxOf(c.lamport, row.lamport),
+            // A row with an unsent edit keeps it: the log's copy is either a collision or a version this edit was made over.
+            rows = if (queued != null && !acknowledged) c.rows else c.rows + (row.key to row),
+            outbox = if (acknowledged) c.outbox - row.key else c.outbox,
+            conflicts = when { acknowledged -> c.conflicts - row.key; collision -> c.conflicts + (row.key to row); else -> c.conflicts })
+    }
+    if (page.mode == "snapshot") {
+        c = c.copy(rows = c.rows.filterKeys { it in c.outbox })
+        page.rows.forEach { apply(it) }
+        // A compacted-away pending row is a deletion, never an invitation to recreate it.
+        val present = page.rows.mapTo(HashSet()) { it.key }
+        for ((key, queued) in c.outbox) if (key !in present && (queued.expectedSeq ?: 0) > 0)
+            c = c.copy(conflicts = c.conflicts + (key to SyncProtocol.RowState(queued.entity, queued.rowId, "delete", null, 0, "", 0)))
+        return c.copy(cursor = page.head)
+    }
+    page.changes.sortedBy { it.seq }.forEach { change -> apply(SyncProtocol.RowState(
+        change.entity, change.rowId, change.operation, change.payload, change.lamport, change.clientId, change.seq), change.changeId) }
+    return c.copy(cursor = maxOf(c.cursor, page.changes.maxOfOrNull { it.seq } ?: c.cursor))
+}
+
+/** Folds Focal's answer to a published batch into the cache: a receipt settles its row, a stale answer becomes a conflict. */
+internal fun ProgressCache.settle(batch: List<SyncProtocol.QueuedChange>, result: ApplyResult): ProgressCache {
+    var c = this
+    for (sent in batch) {
+        val key = sent.key
+        val receipt = result.receipts.firstOrNull { it.changeId == sent.changeId }
+        if (receipt != null) {
+            // An edit saved while this one was on the wire now follows it instead of colliding with it.
+            val newer = c.outbox[key]?.takeIf { it.changeId != sent.changeId }
+            c = c.copy(rows = c.rows[key]?.let { c.rows + (key to it.copy(seq = receipt.seq)) } ?: c.rows,
+                outbox = if (newer != null) c.outbox + (key to newer.copy(expectedSeq = receipt.seq)) else c.outbox - key)
+        } else result.stale.firstOrNull { it.changeId == sent.changeId }?.let { stale ->
+            c = c.copy(conflicts = c.conflicts + (key to (stale.current
+                ?: SyncProtocol.RowState(sent.entity, sent.rowId, "delete", null, 0, "", 0))))
         }
     }
+    return c
 }

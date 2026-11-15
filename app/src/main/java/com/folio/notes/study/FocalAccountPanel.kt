@@ -18,6 +18,7 @@ import com.folio.notes.mistakes.FocalAccountContent
 import com.folio.notes.mistakes.FocalAccountSyncAction
 import com.folio.notes.sync.FocalSupabaseConnection
 import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioScreenHeading
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 
@@ -31,6 +32,30 @@ fun FocalAccountButton(onClick: () -> Unit, trouble: Boolean = false) {
         BadgedBox(badge = { if (attention) Badge() }) {
             Icon(FolioIcons.Account, if (account.needsSignIn) "Focal account, sign in again" else if (attention) "Focal account, sync needs attention" else "Focal account")
         }
+    }
+}
+
+/**
+ * The heading Study, Progress and Planner share: where the data stands with Focal under the title,
+ * then Sync, the screen's own [actions] and the account, always in that order.
+ */
+@Composable
+fun FocalScreenHeading(
+    title: String, statusIcon: ImageVector, status: String, syncing: Boolean, canSync: Boolean, onSync: () -> Unit,
+    onAccount: () -> Unit, trouble: Boolean = false, actions: @Composable RowScope.() -> Unit = {},
+) {
+    FolioScreenHeading(title, subtitle = {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+            Icon(statusIcon, null, Modifier.size(16.dp), tint = if (trouble) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }) {
+        IconButton(onSync, enabled = canSync && !syncing, shapes = IconButtonDefaults.shapes()) {
+            if (syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(FolioIcons.Sync, "Sync with Focal")
+        }
+        actions()
+        FocalAccountButton(onAccount, trouble)
     }
 }
 

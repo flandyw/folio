@@ -19,20 +19,13 @@ import com.folio.notes.mistakes.sync.MistakeCache
 import com.folio.notes.mistakes.sync.MistakeRepository
 import com.folio.notes.mistakes.sync.mistakeSyncError
 import com.folio.notes.sync.focalSyncDeviceId
+import com.folio.notes.sync.watchFocalFeed
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.postgrest.query.filter.FilterOperator
-import io.github.jan.supabase.realtime.PostgresAction
-import io.github.jan.supabase.realtime.RealtimeChannel
-import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.postgresChangeFlow
-import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 
 data class MistakesState(val userId: String? = null, val email: String? = null,
@@ -117,7 +110,9 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
             combine(auth.account, foreground) { account, visible -> account to visible }
                 .collectLatest { (account, visible) ->
                     val user = account.user?.id?.takeUnless { account.needsSignIn }
-                    if (visible && user != null) watchRemoteChanges(user)
+                    // Listen while the app is visible; the 30-second pull also covers missed socket events.
+                    if (visible && user != null) watchFocalFeed(auth.client, "folio-mistakes-$user",
+                        listOf("mistakes", "attempts", "user_state")) { requestSync(force = true) }
                 }
         }
         viewModelScope.launch {
@@ -135,30 +130,6 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
                     else if (account.status == FocalAccountStatus.CONNECTED) requestSync(force = true)
                 }
             }
-        }
-    }
-    /** Listen while the app is visible; the 30-second pull also covers missed socket events. */
-    private suspend fun watchRemoteChanges(user: String) {
-        while (foreground.value && auth.client.auth.currentUserOrNull()?.id == user) {
-            val channel = auth.client.realtime.channel("folio-mistakes-$user")
-            try {
-                coroutineScope {
-                    // ExamTrack publishes the append-only sync log. Base tables are not
-                    // guaranteed to be in the Realtime publication.
-                    for (entity in listOf("mistakes", "attempts", "user_state")) {
-                        channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
-                            table = "sync_log"; filter("entity", FilterOperator.EQ, entity)
-                        }.onEach { requestSync(force = true) }.launchIn(this)
-                    }
-                    channel.status.onEach { status ->
-                        if (status == RealtimeChannel.Status.SUBSCRIBED) requestSync(force = true)
-                    }.launchIn(this)
-                    channel.subscribe(blockUntilSubscribed = true)
-                    awaitCancellation()
-                }
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { delay(7_000) }
-            finally { withContext(NonCancellable) { runCatching { auth.client.realtime.removeChannel(channel) } } }
         }
     }
     private suspend fun acceptUser(id: String, email: String?) {

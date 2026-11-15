@@ -9,8 +9,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,7 +21,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -38,14 +35,14 @@ import com.folio.notes.input.guardUiTouches
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
 import com.folio.notes.model.Notebook
-import com.folio.notes.study.FocalAccountButton
+import com.folio.notes.study.FocalScreenHeading
 import com.folio.notes.study.FocalAccountPanel
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioButtonGroup
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem
 import com.folio.notes.ui.FolioMenuPopover
-import com.folio.notes.ui.FolioScreenHeading
+import com.folio.notes.ui.FolioSectionTabs
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.*
@@ -122,7 +119,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     val mistakes = remember(state.cache.rows) { state.cache.mistakes }
     val enabled = !state.loading && state.readable && !busy
     LaunchedEffect(lifecycle, state.userId) {
-        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { while (isActive) { manager.sync(); delay(30_000) } }
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { manager.keepFresh() }
     }
     var previousUser by remember { mutableStateOf(state.userId) }
     LaunchedEffect(state.userId) {
@@ -170,13 +167,14 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     Column(modifier.fillMaxSize()) {
         ProgressHeader(state, enabled = enabled && exams.isNotEmpty(), onSync = manager::sync, onShare = ::shareReport,
             onAccount = { showAccount = true }, onSettings = onSettings)
+        FolioSectionTabs(PROGRESS_TABS, destination, { destination = it })
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val gridState = rememberLazyGridState()
             LaunchedEffect(destination, listSection) { gridState.scrollToItem(0) }
             val focusManager = LocalFocusManager.current
             LaunchedEffect(gridState) { snapshotFlow { gridState.isScrollInProgress }.collect { if (it) focusManager.clearFocus() } }
             LazyVerticalGrid(GridCells.Adaptive(340.dp), Modifier.fillMaxSize().guardUiTouches(), state = gridState,
-                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = 0.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = 0.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 (state.error ?: actionError ?: state.catalogError)?.let { message -> wide("banner:error") {
                     ProgressBanner(FolioIcons.Alert, message, error = state.error != null || !state.readable) {
@@ -275,13 +273,10 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
                     }
                 }
             }
-            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(FolioSpacing.dp16), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12, Alignment.CenterHorizontally)) {
-                ProgressToolbar(destination, { destination = it }, Modifier.weight(1f, fill = false).widthIn(max = 400.dp))
-                FloatingActionButton({ if (enabled) draft = "{}" }, shape = FolioShapes.large,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
-                    Icon(FolioIcons.Plus, "Log exam")
-                }
+            ExtendedFloatingActionButton({ if (enabled) draft = "{}" }, Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp16),
+                shape = FolioShapes.large, containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+                Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Log exam")
             }
         }
     }
@@ -317,53 +312,16 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
 
 @Composable private fun ProgressHeader(state: ProgressState, enabled: Boolean, onSync: () -> Unit, onShare: () -> Unit,
     onAccount: () -> Unit, onSettings: () -> Unit) {
-    val (statusIcon, status) = when {
-        state.loading -> FolioIcons.Hourglass to "Loading saved exams…"
-        state.syncing -> FolioIcons.Sync to "Syncing with Focal…"
-        state.userId == null -> FolioIcons.Phone to "Saved on this device · connect Focal to sync"
-        state.cache.outbox.isNotEmpty() -> FolioIcons.CloudUpload to "${com.folio.notes.model.countOf(state.cache.outbox.size, "change")} waiting to sync"
-        else -> FolioIcons.CloudDone to "Synced${state.cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
-    }
-    FolioScreenHeading(
-        title = "Progress",
-        subtitle = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(statusIcon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        },
-    ) {
-        IconButton(onSync, enabled = state.userId != null && !state.syncing && !state.loading, shapes = IconButtonDefaults.shapes()) {
-            if (state.syncing) LoadingIndicator(Modifier.size(24.dp)) else Icon(FolioIcons.Sync, "Sync exam results")
-        }
+    val (statusIcon, status) = state.syncStatus()
+    FocalScreenHeading("Progress", statusIcon, status, state.syncing, canSync = state.userId != null && !state.loading, onSync = onSync,
+        onAccount = onAccount, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty())) {
         IconButton(onShare, enabled = enabled, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Share, "Export progress report") }
-        FocalAccountButton(onAccount, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty()))
         IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Tune, "Settings") }
     }
 }
 
-@Composable private fun ProgressToolbar(selected: String, onSelect: (String) -> Unit, modifier: Modifier) {
-    val standard = FloatingToolbarDefaults.standardFloatingToolbarColors()
-    val vibrant = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
-    Surface(modifier, shape = CircleShape, color = standard.toolbarContainerColor,
-        contentColor = standard.toolbarContentColor, tonalElevation = 6.dp, shadowElevation = 6.dp) {
-        Row(Modifier.padding(FolioSpacing.dp6).selectableGroup()) {
-            listOf("Overview" to FolioIcons.Dashboard, "Exams" to FolioIcons.Clipboard,
-                "Lists" to FolioIcons.List, "Insights" to FolioIcons.Insights).forEach { (label, icon) ->
-                val active = selected == label
-                Surface(Modifier.weight(1f).clip(CircleShape).selectable(active, onClick = { onSelect(label) }, role = Role.Tab),
-                    shape = CircleShape, color = if (active) vibrant.toolbarContainerColor else Color.Transparent,
-                    contentColor = if (active) vibrant.toolbarContentColor else standard.toolbarContentColor) {
-                    Column(Modifier.heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp4, vertical = FolioSpacing.dp6),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2, Alignment.CenterVertically)) {
-                        Icon(icon, null, Modifier.size(22.dp)); Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                    }
-                }
-            }
-        }
-    }
-}
+private val PROGRESS_TABS = listOf("Overview" to FolioIcons.Dashboard, "Exams" to FolioIcons.Clipboard,
+    "Lists" to FolioIcons.List, "Insights" to FolioIcons.Insights)
 
 @Composable private fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current

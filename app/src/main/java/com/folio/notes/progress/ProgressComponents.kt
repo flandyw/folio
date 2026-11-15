@@ -30,6 +30,16 @@ import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import kotlin.math.roundToInt
 
+/** Where the exam log and planner data stand with Focal, for the shared heading. */
+internal fun ProgressState.syncStatus(): Pair<ImageVector, String> = when {
+    loading -> FolioIcons.Hourglass to "Loading…"
+    syncing -> FolioIcons.Sync to "Syncing with Focal…"
+    userId == null -> FolioIcons.Phone to "Saved on this device · connect Focal to sync"
+    error != null -> FolioIcons.Alert to "Focal sync needs attention"
+    cache.outbox.isNotEmpty() -> FolioIcons.CloudUpload to "${com.folio.notes.model.countOf(cache.outbox.size, "change")} waiting to sync"
+    else -> FolioIcons.CloudDone to "Synced${cache.lastSynced?.let { " · ${friendlyDate(it)}" } ?: ""}"
+}
+
 /** The gradient surface behind the Overview headline; the halo is decoration only. */
 @Composable internal fun ProgressHero(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val scheme = MaterialTheme.colorScheme
@@ -44,13 +54,13 @@ import kotlin.math.roundToInt
 internal data class StatTileData(val icon: ImageVector, val value: String, val label: String, val onClick: (() -> Unit)? = null)
 
 /** Two tiles a row on phones, four on wider panes. */
-@Composable internal fun StatTiles(tiles: List<StatTileData>) {
+@Composable internal fun StatTiles(tiles: List<StatTileData>, color: Color = MaterialTheme.colorScheme.surfaceContainerLow) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val columns = if (maxWidth >= 600.dp) tiles.size.coerceAtMost(4) else 2
         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             tiles.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    row.forEach { StatTile(it, Modifier.weight(1f).fillMaxHeight()) }
+                    row.forEach { StatTile(it, color, Modifier.weight(1f).fillMaxHeight()) }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
@@ -58,7 +68,7 @@ internal data class StatTileData(val icon: ImageVector, val value: String, val l
     }
 }
 
-@Composable private fun StatTile(tile: StatTileData, modifier: Modifier) {
+@Composable private fun StatTile(tile: StatTileData, color: Color, modifier: Modifier) {
     val body: @Composable () -> Unit = {
         Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Icon(tile.icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
@@ -66,7 +76,6 @@ internal data class StatTileData(val icon: ImageVector, val value: String, val l
             Text(tile.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
         }
     }
-    val color = MaterialTheme.colorScheme.surfaceContainerLow
     if (tile.onClick != null) Surface(tile.onClick, modifier, shape = FolioShapes.extraLarge, color = color) { body() }
     else Surface(modifier, shape = FolioShapes.extraLarge, color = color) { body() }
 }

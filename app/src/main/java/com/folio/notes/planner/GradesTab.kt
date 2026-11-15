@@ -78,7 +78,8 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
                 com.folio.notes.progress.ScoreTrend("A+ cutoff", cut, "The official A+ boundary as a percentage of the paper")
             } }
             items(insights.reversed(), key = { it.reference.id }) { y ->
-                OutlinedCard(onClick = { uri.openUri(y.reference.sourceUrl) }) {
+                Surface({ uri.openUri(y.reference.sourceUrl) }, Modifier.fillMaxWidth(), shape = com.folio.notes.ui.FolioShapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Text("${y.reference.year} · ${y.grade ?: "ungraded"}${y.percentile?.let { " · ${ordinal(it)} percentile" } ?: ""}", style = MaterialTheme.typography.titleMedium)
                         Text("Cohort ${y.cohort?.toString() ?: "—"} · A+ from ${pct(y.aPlus)} · mean ${pct(y.mean)} · median ${pct(y.median)}", style = MaterialTheme.typography.bodySmall)

@@ -10,8 +10,22 @@ import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.storage.Storage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -57,5 +71,30 @@ class FocalSupabaseConnection(context: Context) {
         fun of(context: Context): FocalSupabaseConnection = shared ?: synchronized(this) {
             shared ?: FocalSupabaseConnection(context).also { shared = it }
         }
+    }
+}
+
+/**
+ * Calls [onChange] when the account's change log gains one of [entities], and on every (re)join, so
+ * nothing written while the socket was down is missed. Focal publishes the append-only `sync_log`;
+ * base tables are not guaranteed to be in the Realtime publication. Runs until cancelled: a failed
+ * socket is retried, and the channel is always removed so a later watch never doubles its events.
+ */
+internal suspend fun watchFocalFeed(client: SupabaseClient, name: String, entities: List<String>, onChange: () -> Unit): Nothing {
+    while (true) {
+        val channel = client.realtime.channel(name)
+        try {
+            coroutineScope {
+                for (entity in entities) channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+                    table = "sync_log"
+                    filter("entity", FilterOperator.EQ, entity)
+                }.onEach { onChange() }.launchIn(this)
+                channel.status.onEach { if (it == RealtimeChannel.Status.SUBSCRIBED) onChange() }.launchIn(this)
+                channel.subscribe(blockUntilSubscribed = true)
+                awaitCancellation()
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { delay(7_000) }
+        finally { withContext(NonCancellable) { runCatching { client.realtime.removeChannel(channel) } } }
     }
 }

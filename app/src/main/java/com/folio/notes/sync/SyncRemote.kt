@@ -149,6 +149,11 @@ internal fun focalReadCanRetry(error: Throwable): Boolean {
     return causes.any { it is IOException || it is HttpRequestException || it is HttpRequestTimeoutException }
 }
 
+/** Focal answered and turned the request down for what it carries, so sending it again unchanged cannot help. */
+internal fun focalChangeRefused(error: Throwable): Boolean =
+    generateSequence(error) { it.cause }.take(12).filterIsInstance<RestException>().firstOrNull()
+        ?.statusCode?.let { it in 400..499 && it !in listOf(401, 403, 408, 429) } == true
+
 /**
  * The SDK encodes `rpc` arguments with kotlinx.serialization, choosing the serializer from
  * the argument's *static* type. A map built inline from a json array and a string infers

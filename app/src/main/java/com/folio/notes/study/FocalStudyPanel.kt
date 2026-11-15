@@ -36,6 +36,9 @@ import com.folio.notes.exam.ExamTimerPhase
 import com.folio.notes.exam.ExamTimerState
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.model.Notebook
+import com.folio.notes.progress.ProgressBanner
+import com.folio.notes.progress.StatTileData
+import com.folio.notes.progress.StatTiles
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioExpand
@@ -389,43 +392,35 @@ internal fun FocalStudyContent(
     }
     // ── Context column: the day's timeline (when it isn't spanning the page), today's total + sync, other apps' sessions, history. ──
     val contextItems: LazyListScope.(Boolean) -> Unit = { withTimeline ->
-        if (dedicated && withTimeline) item(key = "timeline") { timeline(false) }
         item(key = "today") {
-            Surface(shape = FolioShapes.extraLarge, color = cardColor) {
-                Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                        Icon(FolioIcons.School, null, tint = MaterialTheme.colorScheme.primary)
-                        Column(Modifier.weight(1f)) {
-                            Text("Studied today", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(formatStudyMinutes(today), style = MaterialTheme.typography.headlineMedium)
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("This week", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(formatStudyMinutes(week), style = MaterialTheme.typography.titleMedium)
-                            if (streak > 1) Text("$streak-day streak", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    Text("Active study only — pauses, exams and calendar blocks are excluded.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    HorizontalDivider()
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        SyncIcon(state, 20.dp)
-                        Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        if (state.needsSignIn) {
-                            TextButton(onAccount) { Text("Sign in again") }
-                        } else if ((state.userId != null && (state.pendingCount > 0 || state.error != null || state.syncing)) ||
-                            state.localSaveFailed) {
-                            TextButton({ manager.retry() }, enabled = !state.syncing) {
-                                Text(if (state.syncing) "Retrying…" else "Retry")
-                            }
-                        } else if (state.userId == null) {
-                            TextButton(onAccount) { Text("Connect Focal") }
-                        }
-                    }
-                    if (state.error != null && !state.syncing) Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                StatTiles(listOf(
+                    StatTileData(FolioIcons.Clock, formatStudyMinutes(today), "Studied today"),
+                    StatTileData(FolioIcons.Calendar, formatStudyMinutes(week), "This week"),
+                    StatTileData(FolioIcons.Flame, if (streak == 1) "1 day" else "$streak days", "Streak"),
+                    StatTileData(FolioIcons.CalendarCheck, "${scopeCounts[PlanScope.TODAY] ?: 0}", "Planned for today"),
+                ), cardColor)
+                Text("Active study only — pauses, exams and calendar blocks are excluded.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val problem = state.error?.takeIf { !state.syncing }
+                val action: @Composable RowScope.() -> Unit = {
+                    if (state.needsSignIn) TextButton(onAccount) { Text("Sign in again") }
+                    else if ((state.userId != null && (state.pendingCount > 0 || state.error != null || state.syncing)) || state.localSaveFailed)
+                        TextButton({ manager.retry() }, enabled = !state.syncing) { Text(if (state.syncing) "Retrying…" else "Retry") }
+                    else if (state.userId == null) TextButton(onAccount) { Text("Connect Focal") }
+                }
+                // Trouble, or no account yet, is worth a banner. Otherwise the destination's heading already carries
+                // the sync line; the editor's panel has no heading, so there it stays as a quiet row.
+                if (problem != null || state.needsSignIn || state.localSaveFailed || state.userId == null)
+                    ProgressBanner(studySyncIcon(state), problem ?: state.syncStatus, error = state.userId != null || state.localSaveFailed, actions = action)
+                else if (!dedicated) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    SyncIcon(state, 20.dp)
+                    Text(state.syncStatus, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    action()
                 }
             }
         }
+        if (dedicated && withTimeline) item(key = "timeline") { timeline(false) }
         val sharedActive = entries.filter { entry ->
             entry.active && entry.id != focus?.sessionId && entry.id != remoteMain?.id &&
                 !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
@@ -559,7 +554,7 @@ internal fun FocalStudyContent(
             // Landscape tablet: a time strip wants width, so the timeline spans both columns. It is
             // capped at under half the height (scrolling inside) so the clock and history keep theirs.
             val spanning = dedicated && constraints.hasBoundedHeight
-            SideEffect { timelineIndex = if (spanning || !dedicated) -1 else 0 }
+            SideEffect { timelineIndex = if (spanning || !dedicated) -1 else 1 }
             val timelineMax = maxHeight * 0.45f
             val columnsTop = if (spanning) FolioSpacing.dp12 else top
             Column(Modifier.fillMaxWidth().then(if (dedicated) Modifier.fillMaxHeight() else Modifier).imePadding()) {
@@ -576,7 +571,7 @@ internal fun FocalStudyContent(
                 }
             }
         } else {
-            SideEffect { timelineIndex = if (dedicated) 1 else -1 }
+            SideEffect { timelineIndex = if (dedicated) 2 else -1 }
             LazyColumn((if (dedicated) Modifier.fillMaxWidth() else Modifier.widthIn(max = 680.dp).fillMaxWidth().align(Alignment.TopCenter)).imePadding(),
                 state = listState,
                 contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, top = top, bottom = FolioSpacing.dp16),
@@ -662,12 +657,14 @@ private fun KeepScreenOn(on: Boolean) {
 
 @Composable
 internal fun SyncIcon(state: FocalStudyState, size: androidx.compose.ui.unit.Dp) {
-    Icon(when {
-        state.syncing -> FolioIcons.Sync
-        state.error != null -> FolioIcons.Alert
-        state.userId == null || !state.configured || state.pendingCount > 0 -> FolioIcons.CloudOff
-        else -> FolioIcons.CloudDone
-    }, null, Modifier.size(size), tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
+    Icon(studySyncIcon(state), null, Modifier.size(size), tint = if (state.error != null) MaterialTheme.colorScheme.error else LocalContentColor.current)
+}
+
+internal fun studySyncIcon(state: FocalStudyState) = when {
+    state.syncing -> FolioIcons.Sync
+    state.error != null -> FolioIcons.Alert
+    state.userId == null || !state.configured || state.pendingCount > 0 -> FolioIcons.CloudOff
+    else -> FolioIcons.CloudDone
 }
 
 /** A short-lived confirmation ("Saved 25 min of Maths") that can also be dismissed. */

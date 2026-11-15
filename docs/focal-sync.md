@@ -1,5 +1,30 @@
 # Focal session-check reliability
 
+## Progress and Planner sync (15 November 2026)
+
+`ExamProgressManager` (exam log, mistakes, SACs, checklist, goals, events, timetable) was the slow engine:
+poll-only, one RPC per queued change, and its lock was held across every request.
+
+- **One request for the outbox.** Queued changes go to `sync_apply_changes` in batches of 50; the reply's
+  receipts and stale answers are folded in by pure `ProgressCache.settle`. If Focal refuses a batch for its
+  content (HTTP 4xx other than 401/403/408/429, `focalChangeRefused`), its changes are retried singly so one
+  bad record cannot hold back the rest; transport, auth and server failures stop the pass for a later retry.
+- **Saving never waits for the network.** The lock is taken only while the cache changes. A form saved
+  during a pass is written at once; if its row was on the wire, the newer edit takes the receipt's sequence
+  as its `expectedSeq` and is published by the follow-up pass instead of colliding with its own predecessor.
+- **No dropped requests.** `sync()` during a running pass queues exactly one more pass.
+- **Live updates.** While Progress or Planner is visible, `keepFresh()` subscribes to `sync_log` inserts
+  (`watchFocalFeed`, now the one Realtime watcher for Study, Mistakes and Progress) and keeps the 30 s poll
+  as a fallback for a missed socket event.
+- **A pending edit is never overwritten by the log.** `ProgressCache.absorb` keeps the local row while its
+  change is queued (previously a snapshot or an echo could replace it until the next read).
+- Planner now lists every conflict with *Use Focal's* / *Keep mine*; before, an event or timetable conflict
+  could only be resolved from Progress and blocked further edits of that row.
+
+`ProgressSyncTest` covers batch replies, an edit made mid-flight, collisions, own echoes and snapshots.
+Not device-verified: check a burst of edits offline then online, an edit made in Focal while Planner is
+open (should appear within a second or two), and editing the same SAC list twice in quick succession.
+
 ## Account recovery hardening (16 October 2026)
 
 Focal's ordinary sign-out used Supabase's default **global** scope, revoking other
