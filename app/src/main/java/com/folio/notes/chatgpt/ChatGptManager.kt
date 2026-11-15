@@ -11,6 +11,7 @@ import android.util.Base64
 import androidx.compose.ui.geometry.Rect
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.exam.ExamAiClassification
+import com.folio.notes.exam.ExamDecisionClassification
 import com.folio.notes.exam.ExamDocumentEvidence
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.model.NotePage
@@ -77,6 +78,10 @@ internal class ChatGptManager(private val context: Context) {
     private val foreground = MutableStateFlow(false)
     private val prefs = context.getSharedPreferences("preferences", 0)
     private val timings = ChatGptTimings()
+    private val meter = ChatGptMeter()
+    private val streaming = MutableStateFlow(ChatGptStream())
+    /** Live tokens per second and latest text of whatever the model is streaming (reviews and classification). */
+    val stream = streaming.asStateFlow()
     private data class ReviewContext(val note: Notebook, val page: NotePage, val pages: List<NotePage>,
         val repository: NoteRepository, val prompt: String)
     private var reviewContext: ReviewContext? = null
@@ -152,6 +157,7 @@ internal class ChatGptManager(private val context: Context) {
     }
     private fun start(status: String, operation: ChatGptOperation = ChatGptOperation.ACCOUNT, action: suspend () -> Unit) {
         if (mutable.value.busy || stored == null) return
+        meter.reset(); streaming.value = ChatGptStream()
         mutable.update { it.copy(busy = true, status = status, error = null, result = null, operation = operation, startedAt = SystemClock.elapsedRealtime(),
             stage = ChatGptStage.PREPARING, estimatedMillis = if (operation == ChatGptOperation.REVIEW) it.model?.let { model -> timings.estimate(model, it.effort) } else null) }
         job = scope.launch {
@@ -200,7 +206,7 @@ internal class ChatGptManager(private val context: Context) {
         if (mutable.value.models.none { it.slug == slug }) {
             prefs.edit().putStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id,
                 prefs.getStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id, null).orEmpty() + slug).apply()
-            mutable.update { it.copy(models = it.models + ChatCompletions.custom(slug)) }
+            mutable.update { it.copy(models = it.models + ChatCompletions.custom(slug, provider.decisions)) }
         }
         return true
     }
@@ -225,7 +231,7 @@ internal class ChatGptManager(private val context: Context) {
     }
 
     private suspend fun <T> request(request: Request, read: (Response) -> T): T = suspendCancellableCoroutine { continuation ->
-        val inference = request.url.encodedPath.let { it.endsWith("/responses") || it.endsWith("/chat/completions") }
+        val inference = request.url.encodedPath.let { it.endsWith("/responses") || it.endsWith("/chat/completions") || it.endsWith("/systemone") }
         val call = (if (inference) inferenceHttp else http).newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
@@ -339,17 +345,19 @@ internal class ChatGptManager(private val context: Context) {
         else mutable.update { it.copy(result = "Signed in. Enable ChatGPT plan usage to run a response test.") }
     }
     /** Saves a pasted API key as a connection once the provider accepts it (where it offers a way to ask). */
-    fun addKey(provider: AiProvider, pasted: String) = start("Checking your ${provider.label} key…", ChatGptOperation.KEY) {
+    fun addKey(provider: AiProvider, pasted: String, pastedAccountId: String) = start("Checking your ${provider.label} key…", ChatGptOperation.KEY) {
         val key = pasted.trim()
         require(provider.key)
         AiProvider.keyProblem(provider, key)?.let { throw ChatGptFailure(it) }
+        val accountId = if (provider.needsAccountId) pastedAccountId.trim() else ""
+        provider.accountProblem(accountId)?.let { throw ChatGptFailure(it) }
         provider.keyCheck?.let { path -> step("Checking the key with ${provider.label}") {
             json(Request.Builder().url(provider.base + path).header("Authorization", "Bearer $key").build(), provider)
         } }
-        val existing = records().firstOrNull { AiProvider.of(it) == provider && it.optString("api_key") == key }
+        val existing = records().firstOrNull { AiProvider.of(it) == provider && it.optString("api_key") == key && it.optString("account_id") == accountId }
         val id = existing?.getString("client_id") ?: "${provider.id}:${UUID.randomUUID()}"
         if (existing == null) checkNotNull(stored).getJSONArray("connections").put(JSONObject().put("client_id", id)
-            .put("provider", provider.id).put("api_key", key).put("email", "${provider.label} key …${key.takeLast(4)}"))
+            .put("provider", provider.id).put("account_id", accountId).put("api_key", key).put("email", "${provider.label} key …${key.takeLast(4)}"))
         checkNotNull(stored).put("active", id); save()
         mutable.update { it.copy(models = emptyList(), model = null, effort = null) }
         step("Loading available models") { models() }
@@ -382,7 +390,7 @@ internal class ChatGptManager(private val context: Context) {
         if (Build.VERSION.SDK_INT >= 28) details.add("Private DNS: ${if (properties?.isPrivateDnsActive == true) "active" else "inactive"}")
         details.add("VPN: ${if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) "active" else "inactive"}")
         val provider = provider()
-        for (url in if (provider.key) listOf("${provider.base}/models") else listOf("${ChatGptProtocol.ISSUER}/.well-known/openid-configuration", "${ChatGptProtocol.RESOURCE}/models")) {
+        for (url in if (provider.key) listOf(provider.modelsUrl(active())) else listOf("${ChatGptProtocol.ISSUER}/.well-known/openid-configuration", "${ChatGptProtocol.RESOURCE}/models")) {
             val request = Request.Builder().url(url).build()
             mutable.update { it.copy(status = "Checking ${request.url.host}…") }
             try {
@@ -464,14 +472,23 @@ internal class ChatGptManager(private val context: Context) {
     }
     private suspend fun models() {
         val provider = provider()
-        val listing = json(Request.Builder().url("${provider.base}/models").header("Authorization", "Bearer ${access()}").build(), provider)
-        val models = if (provider.key) ChatCompletions.models(listing).let { listed ->
-            listed + (prefs.getStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id, null).orEmpty() - listed.map { it.slug }.toSet()).sorted().map(ChatCompletions::custom)
+        val token = access()
+        suspend fun listing(page: Int) = json(Request.Builder().url(provider.modelsUrl(active(), page)).header("Authorization", "Bearer $token").build(), provider)
+        val listing = listing(1)
+        val models = if (provider.key) buildList {
+            addAll(provider.catalogModels(listing))
+            if (provider.needsAccountId) {
+                val pages = listing.optJSONObject("result_info")?.optInt("total_pages", 1) ?: 1
+                require(pages in 1..100) { "Model catalog too large" }
+                for (page in 2..pages) addAll(provider.catalogModels(listing(page)))
+            }
+        }.let { listed ->
+            listed + (prefs.getStringSet(AppPrefs.AI_CUSTOM_MODELS + provider.id, null).orEmpty() - listed.map { it.slug }.toSet()).sorted().map { ChatCompletions.custom(it, provider.decisions) }
         } else listing.getJSONArray("models").let { catalog ->
             (0 until catalog.length()).map { catalog.getJSONObject(it) }.filter { it.optString("visibility") == "list" }.map(ChatGptInference::model) }
         val selected = mutable.value.model?.takeIf { slug -> models.any { it.slug == slug } }
             ?: prefs.getString(AppPrefs.AI_REVIEW_MODEL + provider.id, null)?.takeIf { slug -> models.any { it.slug == slug } }
-            ?: models.firstOrNull { it.slug == "gpt-6.1-sol" }?.slug ?: models.firstOrNull { it.images }?.slug // Catalogs arrive short list first. ?: models.firstOrNull()?.slug
+            ?: models.firstOrNull { it.slug == "gpt-6.1-sol" }?.slug ?: models.firstOrNull { it.images && !it.decision }?.slug ?: models.firstOrNull { !it.decision }?.slug // Catalogs arrive short list first.
         mutable.update { it.copy(models = models, model = selected, effort = efforts[selected]?.takeIf { effort -> effort in models.firstOrNull { model -> model.slug == selected }?.efforts.orEmpty() }) }
         if (models.isEmpty()) throw ChatGptFailure("No models are available to this ${provider.label} connection.")
     }
@@ -532,7 +549,7 @@ internal class ChatGptManager(private val context: Context) {
                     effort?.let { body.put("reasoning", JSONObject().put("effort", it)) }
                     format?.let { body.put("text", JSONObject().put("format", it)) }
                 }
-            return request(Request.Builder().url(provider.base + if (provider.key) "/chat/completions" else "/responses").header("Authorization", "Bearer $token")
+            return request(Request.Builder().url(provider.baseUrl(active()) + if (provider.key) "/chat/completions" else "/responses").header("Authorization", "Bearer $token")
                 .header("Accept", "text/event-stream").post(ChatGptTransport.once(body.toString().toRequestBody("application/json".toMediaType()))).build()) {
                 // A model that rejects the schema field outright is asked again without it; the instructions still carry the schema.
                 if (it.code in listOf(400, 422) && structured && body.has("response_format")) return@request null
@@ -540,17 +557,25 @@ internal class ChatGptManager(private val context: Context) {
                 val type = it.header("Content-Type")?.substringBefore(';')?.trim()
                 require(type == null || type == "text/event-stream")
                 val reader = checkNotNull(it.body).charStream().buffered()
-                if (provider.key) ChatCompletions.response(reader, progress) else ChatGptProtocol.response(reader, progress)
+                val delta = { text: String ->
+                    val next = meter.add(text, SystemClock.elapsedRealtime())
+                    // Throttled so a fast stream does not recompose the panel per token.
+                    if (next.at - streaming.value.at >= 150) streaming.value = next
+                }
+                if (provider.key) ChatCompletions.response(reader, progress, delta) else ChatGptProtocol.response(reader, progress, delta)
             }
         }
         val response = send(structured = true) ?: checkNotNull(send(structured = false))
         mutable.update { it.copy(usage = it.usage + (client to (it.usage[client] ?: ChatGptUsageSummary()).add(response.usage))) }
         return if (provider.key && format != null) ChatCompletions.json(response.text) else response.text
     }
+    private fun decisionOnly(model: ChatGptModel) = ChatGptFailure("${model.name} only picks answers to set questions, so it cannot write a reply. " +
+        "Choose another model here; ${model.name} can still check imports and reclassify notebooks.")
     private suspend fun respond(content: JSONArray, instructions: String, format: JSONObject? = null): String {
         mutable.update { it.copy(stage = ChatGptStage.SENDING, status = "Connecting and sending your request…") }
         val startedAt = mutable.value.startedAt
         val model = mutable.value.models.firstOrNull { it.slug == mutable.value.model } ?: throw ChatGptFailure("Load and choose an available model first.")
+        if (model.decision) throw decisionOnly(model)
         val effort = mutable.value.effort
         require(effort == null || effort in model.efforts)
         return infer(model, effort, content, instructions, format) { stage ->
@@ -562,21 +587,40 @@ internal class ChatGptManager(private val context: Context) {
      * Uses the classification model and reasoning level from [AppPrefs] (lightest level by default).
      * Up to [CLASSIFY_PARALLEL] requests run at once; each mostly waits on the network and the model.
      */
-    suspend fun classifyExam(filename: String, document: ExamDocumentEvidence): ExamTags =
-        ExamAiClassification.parse(classify(ExamAiClassification.prompt(filename, document), ExamAiClassification.format()))
+    suspend fun classifyExam(filename: String, document: ExamDocumentEvidence): ExamTags {
+        val model = classifier()
+        return if (model.decision) classifySlots.withPermit {
+            ExamDecisionClassification.parse(decide(ExamDecisionClassification.body(model.slug, filename, document, java.time.Year.now().value)))
+        } else ExamAiClassification.parse(classify(model, ExamAiClassification.prompt(filename, document), ExamAiClassification.format()))
+    }
 
-    /** Several documents in one request, keyed by the caller's ids; ids missing from the reply are absent. */
-    suspend fun classifyExams(items: List<Triple<String, String, ExamDocumentEvidence>>): Map<String, ExamTags> =
-        ExamAiClassification.parseBatch(classify(ExamAiClassification.batchPrompt(items), ExamAiClassification.batchFormat()),
+    /** Several documents in one request, keyed by the caller's ids; ids missing from the reply are absent. A decision model takes them one at a time. */
+    suspend fun classifyExams(items: List<Triple<String, String, ExamDocumentEvidence>>): Map<String, ExamTags> {
+        val model = classifier()
+        return if (model.decision) items.associate { (id, filename, document) -> id to classifyExam(filename, document) }
+        else ExamAiClassification.parseBatch(classify(model, ExamAiClassification.batchPrompt(items), ExamAiClassification.batchFormat()),
             items.map { it.first }.toSet())
+    }
 
-    private suspend fun classify(prompt: String, format: JSONObject): String = classifySlots.withPermit {
+    private suspend fun classifier(): ChatGptModel {
         if (!canClassify) throw ChatGptFailure("Connect ChatGPT or add an API key first.")
         if (mutable.value.models.isEmpty()) modelsLock.withLock { if (mutable.value.models.isEmpty()) models() }
-        val model = ChatGptInference.classifyModel(prefs.getString(AppPrefs.AI_CLASSIFY_MODEL, null), mutable.value.model, mutable.value.models)
+        return ChatGptInference.classifyModel(prefs.getString(AppPrefs.AI_CLASSIFY_MODEL, null), mutable.value.model, mutable.value.models)
             ?: throw ChatGptFailure("No models are available to this ${provider().label} connection.")
+    }
+    private suspend fun classify(model: ChatGptModel, prompt: String, format: JSONObject): String = classifySlots.withPermit {
         infer(model, ChatGptInference.classifyEffort(prefs.getString(AppPrefs.AI_CLASSIFY_EFFORT, null), model.efforts),
             JSONArray().put(JSONObject().put("type", "input_text").put("text", prompt)), ExamAiClassification.instructions, format)
+    }
+    /** One decision-model request: not streamed, it returns every answer's probabilities at once. */
+    private suspend fun decide(body: JSONObject): JSONObject {
+        val provider = provider()
+        val client = active().getString("client_id")
+        val result = json(Request.Builder().url(provider.baseUrl(active()) + "/systemone").header("Authorization", "Bearer ${access()}")
+            .post(ChatGptTransport.once(body.toString().toRequestBody("application/json".toMediaType()))).build(), provider)
+        val usage = ChatGptInference.usage(result.optJSONObject("usage"))
+        mutable.update { it.copy(usage = it.usage + (client to (it.usage[client] ?: ChatGptUsageSummary()).add(usage))) }
+        return result
     }
     fun test() = start("Testing your connection…", ChatGptOperation.TEST) {
         val text = respond(JSONArray().put(JSONObject().put("type", "input_text").put("text", "Reply with exactly: Folio connection works.")), "Complete the user's connection test.")
@@ -585,6 +629,7 @@ internal class ChatGptManager(private val context: Context) {
     fun review(note: Notebook, page: NotePage, pages: List<NotePage>, repository: NoteRepository, prompt: String, originalPrompt: String = prompt) = start("Preparing pages for review…", ChatGptOperation.REVIEW) {
         require(page.loaded && !note.hiddenFromLibrary && pages.size in 1..10 && pages.any { it.id == page.id })
         require(pages.all { candidate -> note.pages.any { it.id == candidate.id } })
+        mutable.value.models.firstOrNull { it.slug == mutable.value.model }?.takeIf { it.decision }?.let { throw decisionOnly(it) }
         mutable.value.models.firstOrNull { it.slug == mutable.value.model }?.takeIf { !it.images }?.let {
             throw ChatGptFailure("${it.name} reads text only, so it cannot see your pages. Choose a model that accepts images.")
         }

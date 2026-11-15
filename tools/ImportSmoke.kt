@@ -2,6 +2,7 @@ package com.folio.notes
 
 import com.folio.notes.exam.ExamAiClassification
 import com.folio.notes.exam.ExamClassifier
+import com.folio.notes.exam.ExamDecisionClassification
 import com.folio.notes.exam.ExamEvidenceCodec
 import com.folio.notes.exam.ExamDetectionResult
 import com.folio.notes.exam.ExamDocumentEvidence
@@ -157,6 +158,24 @@ fun main() {
         check(wild.subject == null && wild.subjectText == "Dance" && wild.year == null && wild.company == "" && wild.type == null && wild.marksTotal == null) { wild }
         check(ExamAiClassification.format().getJSONObject("schema").getJSONArray("required").length() == 6)
         check(ExamAiClassification.prompt("x.pdf", ExamDocumentEvidence(listOf(PdfPageText(0, "a".repeat(9000))))).length < 4_100)
+    }
+    scenario("Decision-model answers need confidence and stay in range") {
+        val body = ExamDecisionClassification.body("Clef", "methods.pdf", ExamDocumentEvidence(listOf(PdfPageText(0, "Total 40 marks. Question 1 (3 marks)"))), 2026)
+        val questions = body.getJSONObject("questions")
+        check(body.getString("model") == "Clef" && body.getString("state").contains("methods.pdf"))
+        check(questions.getJSONObject("year").getJSONObject("criteria").has("2027") && questions.getJSONObject("year").getJSONObject("criteria").has("unknown"))
+        check(questions.getJSONObject("marks_total").getJSONObject("criteria").keySet() == setOf("40", "3", "unknown"))
+        check(!ExamDecisionClassification.body("Clef", "x.pdf", ExamDocumentEvidence(), 2026).getJSONObject("questions").has("marks_total"))
+        check(questions.getJSONObject("subject").getJSONObject("criteria").length() <= 255)
+        fun answer(choice: String, confidence: Double) = org.json.JSONObject().put("choice", choice).put("confidence", confidence)
+        val tags = ExamDecisionClassification.parse(org.json.JSONObject().put("answers", org.json.JSONObject()
+            .put("subject", answer("MATHS_METHODS", 0.9)).put("type", answer("EXAM_1", 0.8)).put("year", answer("2024", 0.6))
+            .put("company", answer("other", 0.95)).put("marks_total", answer("40", 0.9))))
+        check(tags.subject == VceSubject.MATHS_METHODS && tags.type == ExamType.EXAM_1 && tags.year == null && tags.company == "" && tags.marksTotal == 40) { tags }
+        val unsure = ExamDecisionClassification.parse(org.json.JSONObject().put("answers", org.json.JSONObject()
+            .put("subject", answer("unknown", 0.99)).put("type", answer("EXAM", 0.3)).put("year", org.json.JSONObject().put("choice", "2023")
+                .put("probabilities", org.json.JSONObject().put("2023", 0.8)))))
+        check(unsure.subject == null && unsure.type == null && unsure.year == 2023) { unsure }
     }
     scenario("ChatGPT never overrides confident on-device fields") {
         val detection = detect("paper.pdf", "CHEMISTRY\n2024\nEXAM\nReading time\nTotal marks: 120")

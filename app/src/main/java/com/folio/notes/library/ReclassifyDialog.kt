@@ -60,6 +60,7 @@ internal fun ReclassifyDialog(model: FolioViewModel, onDismiss: () -> Unit) {
                             ContainedLoadingIndicator(Modifier.size(64.dp))
                             Text("Checked ${run.done} of ${run.total}…", style = MaterialTheme.typography.titleMedium)
                             Text("${run.proposals.size} with suggested changes so far", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            com.folio.notes.chatgpt.ChatGptStreamText(model.chatGpt, Modifier.widthIn(max = 480.dp))
                             OutlinedButton(reclassifier::cancel, shapes = ButtonDefaults.shapes()) { Text("Stop and review what's found") }
                         }
                         run.ready -> Review(run, reclassifier, Modifier.weight(1f))

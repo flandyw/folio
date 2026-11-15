@@ -21,6 +21,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.ui.FolioMenuPopover
+import com.folio.notes.ui.FolioMenuItem
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 
@@ -33,14 +35,28 @@ private fun accountStatus(account: ChatGptAccount): String = when {
     else -> "Signed in · plan usage not enabled"
 }
 
-@Composable internal fun ChatGptAccountSummary(account: ChatGptAccount, onManage: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        Icon(FolioIcons.CheckCircle, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-        Column(Modifier.weight(1f)) {
-            Text(account.email, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (account.provider.key) "Using your ${account.provider.label} API key" else "Using your ChatGPT plan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+@Composable internal fun ChatGptProviderPicker(state: ChatGptState, manager: ChatGptManager, onManage: () -> Unit) {
+    val account = state.accounts.firstOrNull { it.client == state.active }
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton({ menu = true }, Modifier.fillMaxWidth(), enabled = !state.busy, shape = FolioShapes.large) {
+            Icon(FolioIcons.Account, null, Modifier.size(20.dp))
+            Column(Modifier.weight(1f).padding(horizontal = FolioSpacing.dp12), horizontalAlignment = Alignment.Start) {
+                Text("AI provider", style = MaterialTheme.typography.labelSmall)
+                Text(account?.provider?.label ?: "Connect a provider", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(FolioIcons.ChevronDown, null, Modifier.size(20.dp))
         }
-        TextButton(onManage) { Text("Manage") }
+        FolioMenuPopover(menu, { menu = false }, title = "Switch AI provider") {
+            state.accounts.forEach { saved ->
+                FolioMenuItem({ Text("${saved.provider.label} · ${saved.email}") }, {
+                    menu = false
+                    if (saved.client != state.active) manager.selectAccount(saved.client)
+                }, selected = saved.client == state.active)
+            }
+            FolioMenuItem({ Text("Add or manage providers") }, { menu = false; onManage() },
+                leadingIcon = { Icon(FolioIcons.Plus, null) })
+        }
     }
 }
 
@@ -96,7 +112,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
             }
         }
         if (state.accounts.isNotEmpty()) {
-            Text("Your accounts", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+            Text("Saved providers and accounts", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
             Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.padding(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                     state.accounts.forEachIndexed { index, saved ->
@@ -110,7 +126,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                     Text(if (saved.email == "ChatGPT account" && !saved.registered) "Saved sign-in ${index + 1}" else saved.email,
                                         style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text(accountStatus(saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${saved.provider.label} · ${accountStatus(saved)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 if (selected) Icon(FolioIcons.Check, "Selected account", Modifier.size(20.dp))
                                 if (!saved.connected || saved.provider.key) IconButton({ manager.removeAccount(saved.client) }, enabled = !state.busy) {
@@ -157,10 +173,11 @@ private fun accountStatus(account: ChatGptAccount): String = when {
 }
 
 /** Paste a key for a provider that has no sign-in. The field is cleared once the key has been saved as a connection. */
-@Composable private fun ApiKeyCard(enabled: Boolean, failed: Boolean, onAdd: (AiProvider, String) -> Unit) {
+@Composable private fun ApiKeyCard(enabled: Boolean, failed: Boolean, onAdd: (AiProvider, String, String) -> Unit) {
     val context = LocalContext.current
     var providerName by rememberSaveable { mutableStateOf(AiProvider.OPENROUTER.name) }
     var key by remember { mutableStateOf("") } // Not saveable: a key must not reach the saved instance state.
+    var accountId by rememberSaveable { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
     val provider = AiProvider.valueOf(providerName)
     // Busy again → idle after a submit: clear on success; a failure keeps the text for correction (its error card is above).
@@ -168,12 +185,17 @@ private fun accountStatus(account: ChatGptAccount): String = when {
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             Text("Use an API key", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-            Text("${AiProvider.entries.filter { it.key }.joinToString { it.label }}: many models, some free, used with your own key instead of a ChatGPT plan.",
+            Text("Choose a provider and save its key once. Switch between saved providers directly from Page review.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 AiProvider.entries.filter { it.key }.forEach { option ->
-                    FilterChip(provider == option, { providerName = option.name }, label = { Text(option.label) }, enabled = enabled)
+                    FilterChip(provider == option, { providerName = option.name; key = ""; accountId = "" }, label = { Text(option.label) }, enabled = enabled)
                 }
+            }
+            if (provider.needsAccountId) {
+                OutlinedTextField(accountId, { accountId = it.trim().take(64) }, Modifier.fillMaxWidth(), enabled = enabled,
+                    singleLine = true, shape = FolioShapes.large, label = { Text("Cloudflare account ID") },
+                    supportingText = { Text("From the Workers AI dashboard. Use an API token with Workers AI Read and Edit permissions.") })
             }
             OutlinedTextField(key, { key = it.trim().take(512) }, Modifier.fillMaxWidth(), enabled = enabled, singleLine = true, shape = FolioShapes.large,
                 label = { Text("${provider.label} API key") }, placeholder = { Text("${provider.keyPrefix}…") },
@@ -184,7 +206,7 @@ private fun accountStatus(account: ChatGptAccount): String = when {
                     Icon(FolioIcons.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Get a key")
                 }
                 Spacer(Modifier.weight(1f))
-                FilledTonalButton({ sent = true; onAdd(provider, key) }, enabled = enabled && key.isNotBlank()) { Text("Add key") }
+                FilledTonalButton({ sent = true; onAdd(provider, key, accountId) }, enabled = enabled && key.isNotBlank() && provider.accountProblem(accountId) == null) { Text("Add key") }
             }
         }
     }

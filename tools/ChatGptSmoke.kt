@@ -238,6 +238,26 @@ fun main() {
     check(ChatGptTransport.failure(UnknownHostException("x"), "integrate.api.nvidia.com").message?.contains("integrate.api.nvidia.com") == true)
     check(AiProvider.keyProblem(AiProvider.AMD, "a".repeat(32)) == null && AiProvider.of(JSONObject().put("provider", "amd")) == AiProvider.AMD)
     check(ChatGptTransport.failure(UnknownHostException("x"), "developer.amd.com.cn").message?.contains("developer.amd.com.cn") == true)
+    val cloudRecord = JSONObject().put("provider", "cloudflare").put("account_id", "a".repeat(32))
+    check(AiProvider.of(cloudRecord) == AiProvider.CLOUDFLARE)
+    check(AiProvider.CLOUDFLARE.accountProblem("../bad") != null && AiProvider.CLOUDFLARE.accountProblem("A0".repeat(16)) == null)
+    check(runCatching { AiProvider.CLOUDFLARE.baseUrl(JSONObject()) }.isFailure)
+    check(AiProvider.CLOUDFLARE.baseUrl(cloudRecord) == "https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/ai/v1")
+    check(AiProvider.CLOUDFLARE.modelsUrl(cloudRecord, 2).endsWith("/ai/models/search?per_page=100&page=2"))
+    check(AiProvider.VERCEL.baseUrl(JSONObject()) == "https://ai-gateway.vercel.sh/v1")
+    check(AiProvider.VERCEL.accountProblem("") == null && AiProvider.keyProblem(AiProvider.VERCEL, "a".repeat(32)) == null)
+    val workers = AiProvider.CLOUDFLARE.catalogModels(JSONObject("""{"success":true,"result":[
+        {"id":"uuid","name":"@cf/meta/chat","task":{"name":"Text Generation"}},
+        {"name":"@cf/image","task":{"name":"Text-to-Image"}},{"name":"@cf/embed","task":{"name":"Text Embeddings"}}]}"""))
+    check(workers.map { it.slug } == listOf("@cf/meta/chat"))
+    check(runCatching { AiProvider.CLOUDFLARE.catalogModels(JSONObject("""{"success":false}""")) }.isFailure)
+    val gateway = AiProvider.VERCEL.catalogModels(JSONObject("""{"data":[
+        {"id":"vendor/text","type":"language","modalities":{"input":["text"],"output":["text"]}},
+        {"id":"vendor/vision","type":"language","modalities":{"input":["text","image"],"output":["text"]}},
+        {"id":"vendor/image","type":"image"},{"id":"vendor/embedding","type":"embedding"}]}"""))
+    check(gateway.map { it.slug } == listOf("vendor/text", "vendor/vision") && !gateway[0].images && gateway[1].images)
+    check(ChatGptTransport.failure(UnknownHostException("x"), "ai-gateway.vercel.sh").message?.contains("ai-gateway.vercel.sh") == true)
+    check(ChatGptTransport.failure(UnknownHostException("x"), "api.cloudflare.com").message?.contains("api.cloudflare.com") == true)
     // Every provider must be usable from its table entry alone.
     check(AiProvider.entries.all { it.base.startsWith("https://") && !it.base.endsWith("/") && it.usageUrl.startsWith("https://") && (!it.key || it.keysUrl.startsWith("https://")) })
     check(AiProvider.entries.map { it.id }.distinct().size == AiProvider.entries.size)
@@ -275,7 +295,8 @@ fun main() {
     check(!ChatCompletions.body(listed[0], "x", words, null, null).has("response_format"))
 
     fun chunk(delta: JSONObject, finish: Any? = null) = "data: " + JSONObject().put("choices", JSONArray().put(JSONObject().put("delta", delta).put("finish_reason", finish ?: JSONObject.NULL)))
-    fun chatRead(vararg lines: String, progress: (ChatGptStage) -> Unit = {}) = ChatCompletions.response(StringReader(lines.joinToString("\n\n")).buffered(), progress)
+    val pieces = mutableListOf<String>()
+    fun chatRead(vararg lines: String, progress: (ChatGptStage) -> Unit = {}) = ChatCompletions.response(StringReader(lines.joinToString("\n\n")).buffered(), progress, pieces::add)
     val seen = mutableListOf<ChatGptStage>()
     val streamed = chatRead(": OPENROUTER PROCESSING", chunk(JSONObject().put("reasoning", "hm")), chunk(JSONObject().put("content", "<think>{no}</think>Hel")),
         chunk(JSONObject().put("content", "lo"), "stop"),
@@ -283,6 +304,15 @@ fun main() {
             .put("completion_tokens_details", JSONObject().put("reasoning_tokens", 30))), "data: [DONE]") { seen += it }
     check(streamed.text == "Hello" && streamed.usage == ChatGptUsage(100, 40, 30, null))
     check(seen == listOf(ChatGptStage.WAITING, ChatGptStage.REASONING, ChatGptStage.WRITING))
+    check(ChatCompletions.models(JSONObject().put("data", JSONArray().put(JSONObject().put("id", "Clef")).put(JSONObject().put("id", "x").put("endpoints", JSONArray().put("/v1/systemone")))), decisions = true).all { it.decision })
+    check(ChatCompletions.models(JSONObject().put("data", JSONArray().put(JSONObject().put("id", "cloudflare/clef")))).none { it.decision })
+    check(ChatCompletions.custom("cloudflare/clef-flash", true).decision && !ChatCompletions.custom("clefable", true).decision && !ChatCompletions.custom("Clef").decision)
+    check(pieces == listOf("hm", "<think>{no}</think>Hel", "lo"))
+    val meter = ChatGptMeter()
+    check(meter.add("abcd", 0).tokensPerSecond == null) // one chunk has no rate yet
+    check(meter.add("x".repeat(36), 1000).let { it.tokensPerSecond == 10 && it.tail.endsWith("xxx") && it.at == 1000L })
+    check(meter.add("y".repeat(8), 10_000).tokensPerSecond == null) // stale chunks fall out of the window
+    meter.reset(); check(meter.add("a\n\n b", 0).tail == "a b")
     check(chatRead(chunk(JSONObject().put("content", "Done")), "data: [DONE]").let { it.text == "Done" && it.usage == null })
     rejects { chatRead(chunk(JSONObject().put("content", "Cut off"))) } // no finish, no [DONE]
     rejects { chatRead(chunk(JSONObject().put("content", "Too long"), "length"), "data: [DONE]") }

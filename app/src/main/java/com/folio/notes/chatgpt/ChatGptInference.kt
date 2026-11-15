@@ -3,9 +3,12 @@ package com.folio.notes.chatgpt
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** [suggested]: on the picker's short list (the rest are found by searching). [images]: accepts page pictures. [json]: how it can be held to a schema (`schema`, `object` or `none`); see [ChatCompletions.body]. */
+/**
+ * [suggested]: on the picker's short list (the rest are found by searching). [images]: accepts page pictures. [json]: how it can be held to a schema (`schema`, `object` or `none`); see [ChatCompletions.body].
+ * [decision]: answers multiple-choice questions on `/systemone` instead of writing text (Clef), so it classifies but cannot review.
+ */
 internal data class ChatGptModel(val slug: String, val name: String, val efforts: List<String> = emptyList(),
-    val images: Boolean = true, val json: String = "schema", val suggested: Boolean = false)
+    val images: Boolean = true, val json: String = "schema", val suggested: Boolean = false, val decision: Boolean = false)
 internal data class ChatGptUsage(val input: Long, val output: Long, val reasoning: Long?, val cached: Long?) {
     val total get() = input + output // Reasoning is already included in output.
 }
@@ -103,5 +106,27 @@ internal class ChatGptTimings {
             elapsed >= estimate * 3 / 2 -> "Taking longer than earlier reviews · still waiting for completion"
             else -> "Estimated ${duration((estimate * 7 / 10 - elapsed).coerceAtLeast(0))}–${duration(estimate * 3 / 2 - elapsed)} remaining · based on earlier reviews"
         }
+    }
+}
+
+/** What the model is streaming right now: [tail] is the latest text (answer or reasoning), [at] when it last arrived. */
+internal data class ChatGptStream(val tokensPerSecond: Int? = null, val tail: String = "", val at: Long = 0)
+
+/**
+ * Live throughput across every in-flight request (background classification runs several at once).
+ * shortcut: tokens are estimated as 4 characters each, since streams report real counts only at the end.
+ */
+internal class ChatGptMeter(private val windowMillis: Long = 3_000) {
+    private val chunks = ArrayDeque<Pair<Long, Int>>()
+    private val tail = StringBuilder()
+    @Synchronized fun reset() { chunks.clear(); tail.setLength(0) }
+    @Synchronized fun add(text: String, now: Long): ChatGptStream {
+        chunks.addLast(now to text.length)
+        while (chunks.first().first < now - windowMillis) chunks.removeFirst()
+        tail.append(text)
+        if (tail.length > 400) tail.delete(0, tail.length - 240)
+        val span = (now - chunks.first().first).coerceAtLeast(250)
+        val tokens = chunks.sumOf { it.second } / 4f
+        return ChatGptStream(if (chunks.size < 2) null else (tokens * 1000 / span).toInt(), tail.toString().replace(Regex("\\s+"), " ").takeLast(160), now)
     }
 }

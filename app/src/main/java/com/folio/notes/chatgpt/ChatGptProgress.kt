@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
@@ -42,12 +44,28 @@ import java.text.NumberFormat
             }
             Text("Step $step of 5 · ${ChatGptTimings.duration(elapsed)} elapsed · ${ChatGptInference.effortLabel(state.effort)} reasoning",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ChatGptStreamText(manager)
             if (state.operation == ChatGptOperation.REVIEW) Text(ChatGptTimings.remaining(state.estimatedMillis, elapsed),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (elapsed >= 30_000 && state.stage.ordinal < ChatGptStage.WRITING.ordinal)
                 Text("Complex pages and higher reasoning can take several minutes. You can close this panel and return while Folio stays open.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+/** Tokens per second and the latest streamed words, so a long request visibly keeps working. Nothing shows before the first text arrives. */
+@Composable internal fun ChatGptStreamText(manager: ChatGptManager, modifier: Modifier = Modifier) {
+    val stream by manager.stream.collectAsState()
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(Unit) { while (true) { now = SystemClock.elapsedRealtime(); delay(500) } }
+    if (stream.tail.isEmpty()) return
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+        val live = now - stream.at < 2_000
+        Text(if (live && stream.tokensPerSecond != null) "≈ ${stream.tokensPerSecond} tokens/s" else "Waiting for more from the model…",
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Text(stream.tail, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

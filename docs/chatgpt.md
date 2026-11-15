@@ -240,13 +240,22 @@ edit/deselect and add them, then undo; request hints-only practice; ask a follow
 cancel/retry it and confirm previous feedback remains until completion; change
 the current page and confirm the old review cannot write into the changed page.
 
-## OpenRouter, NVIDIA NIM and AMD Token Factory (API keys)
+## API-key providers
 
-Page review, import checks and Reclassify notebooks also run on **OpenRouter**, **NVIDIA NIM** or **AMD Token Factory**. The Account tab's
+Page review, import checks and Reclassify notebooks also run on **OpenRouter**, **NVIDIA NIM**, **AMD Token Factory**, **Vercel AI Gateway** or **Cloudflare Workers AI**. The Account tab's
 **Use an API key** card takes a pasted key; it becomes one more saved connection beside any
 ChatGPT accounts, the selected connection decides where every request goes, and nothing else in the flows changes.
 Keys live in the same encrypted store as ChatGPT sign-ins and are never logged, shown again or backed up. Removing a
 key only deletes it here; it has to be revoked at the provider to stop working elsewhere.
+
+The **AI provider** picker on Page review switches saved connections without opening the Account tab,
+including during follow-ups. Each provider keeps its chosen review model. **Add or manage providers** opens setup.
+Cloudflare setup also needs the 32-character account ID and a token with Workers AI Read and Edit permissions.
+The account ID is stored with that encrypted connection; the token is sent only to Cloudflare's fixed API host.
+Vercel uses `https://ai-gateway.vercel.sh/v1`; Cloudflare uses the account's `/ai/v1` endpoint for chat and
+`/ai/models/search` for its paginated catalog, offering only Text Generation models. Vercel's modality metadata
+marks text-only models and excludes image/audio/embedding generators. Cloudflare's catalog does not establish
+image support, so a model that cannot read pages reports the usual request error; text classification still works.
 
 `AiProvider` (pure) is the one table of providers: base URL, key prefix, links and wording. `ChatGptManager.infer`
 is the single request path: ChatGPT keeps the Responses API, key providers get OpenAI-compatible Chat Completions
@@ -255,12 +264,14 @@ instructions and schema.
 
 **Adding a provider:** add one `AiProvider` entry (id, label, base URL, key prefix, key-check path, two links,
 who receives the data). The key card, account list, catalog, requests, error wording, network diagnostics and the
-smoke test's table checks all read the enum; no other code changes. It must serve OpenAI-style `GET /models`
+smoke test's table checks all read the enum. Account-scoped endpoints and nonstandard catalogs also need
+`baseUrl`, `modelsUrl` and `catalogModels` handling in that same pure type. A standard provider serves OpenAI-style `GET /models`
 (`{"data":[{"id":…}]}`) and streaming `POST /chat/completions` with a Bearer key.
 
 - **Key check:** the key's shape is checked locally, then confirmed by the provider's `keyCheck` request, which spends
-  nothing (OpenRouter `GET /key`; AMD `GET /models`, which needs a valid key). NVIDIA's model list is public, so its
-  key is first proven by **Test text response** or a review.
+  nothing (OpenRouter `GET /key`; AMD `GET /models`, which needs a valid key). NVIDIA and Vercel model lists are public,
+  so their keys are first proven by **Test text response** or a review. Cloudflare's catalog requires a token,
+  but successful inference also needs Workers AI Edit permission.
 - **Models:** OpenRouter's catalog says which models read images, reason and enforce a schema; text-only models are
   marked in the picker and refused for Page review before anything is sent (classification is text, so any model
   works). A plain catalog (NVIDIA, AMD) has no capability fields: embedding/safety/parsing ids are hidden, the rest are offered.
@@ -340,6 +351,16 @@ review keeps a stronger one. `AppPrefs.AI_CLASSIFY_MODEL` unset follows Page rev
 offered falls back the same way. `AppPrefs.AI_CLASSIFY_EFFORT` unset means the lightest level the model offers
 (none/minimal/low), `model` omits the field, and an unsupported level falls back to lightest
 (`ChatGptInference.classifyModel` / `classifyEffort`, checked by `node tools/chatgpt-smoke.cjs`).
+
+**Clef (decision model).** On an AMD Token Factory (Radeon Cloud) key, Cloudflare's `Clef` / `Clef-flash` are offered as
+classification models (`ChatGptModel.decision`, `AiProvider.decisions`; recognised by name or a catalog `endpoints` entry
+ending `/systemone`). They write no text: `ExamDecisionClassification` sends the same front-matter text as `state` to
+`POST /v1/systemone` with `choice` questions (subject, type, year, source, and marks only among totals printed before
+"marks"), each with an `unknown` option. A pick counts only at confidence ≥ 0.5 (≥ 0.7 for year and marks); a school's
+name or an unlisted study cannot be produced. Requests are not streamed (no tokens/s line) and go one notebook at a time
+(answers return in well under a second). Page review and Test refuse a decision model with a clear message. Clef accepts
+up to four PNG/JPEG/WebP images as data URLs but no PDFs; Folio sends text only, like every other classifier. Checked by
+`node tools/import-smoke.cjs` and `node tools/chatgpt-smoke.cjs`.
 
 ### Speed
 

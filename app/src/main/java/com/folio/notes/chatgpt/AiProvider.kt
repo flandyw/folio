@@ -9,7 +9,7 @@ import java.io.BufferedReader
  * take a pasted API key and speak OpenAI-compatible Chat Completions ([ChatCompletions]). A stored record names its
  * provider by [id]; records written before keys existed have none and are ChatGPT.
  *
- * **Adding an OpenAI-compatible provider is one entry here and nothing else**: the key card, account list, model
+ * **Adding an OpenAI-compatible provider normally needs only one entry here**: the key card, account list, model
  * catalog, requests, error wording and network diagnostics all read this table. Never change or reuse an [id].
  *
  * @param base HTTPS root that serves `/models` and `/chat/completions`.
@@ -27,10 +27,48 @@ internal enum class AiProvider(val id: String, val label: String, val base: Stri
     NVIDIA("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", "nvapi-", null,
         "https://build.nvidia.com/settings/api-keys", "https://build.nvidia.com/settings/api-keys", "NVIDIA"),
     AMD("amd", "AMD Token Factory", "https://developer.amd.com.cn/radeon/api/v1", "", "/models",
-        "https://developer.amd.com.cn/radeon/tokenfactory", "https://developer.amd.com.cn/radeon/tokenfactory", "AMD");
+        "https://developer.amd.com.cn/radeon/tokenfactory", "https://developer.amd.com.cn/radeon/tokenfactory", "AMD"),
+    VERCEL("vercel", "Vercel AI Gateway", "https://ai-gateway.vercel.sh/v1", "", null,
+        "https://vercel.com/dashboard/ai-gateway", "https://vercel.com/dashboard/ai-gateway", "Vercel and the company that runs the chosen model"),
+    CLOUDFLARE("cloudflare", "Cloudflare Workers AI", "https://api.cloudflare.com/client/v4/accounts", "", null,
+        "https://developers.cloudflare.com/workers-ai/get-started/rest-api/", "https://dash.cloudflare.com/", "Cloudflare");
 
     /** Uses a pasted API key instead of a ChatGPT sign-in. */
     val key get() = this != CHATGPT
+
+    val needsAccountId get() = this == CLOUDFLARE
+
+    /** Serves Cloudflare's Clef decision models on `/systemone` (Radeon Cloud); elsewhere a model named Clef is an ordinary chat model. */
+    val decisions get() = this == AMD
+
+    fun accountProblem(accountId: String): String? = if (needsAccountId && !Regex("[a-fA-F0-9]{32}").matches(accountId))
+        "Paste your 32-character Cloudflare account ID from the Workers AI dashboard." else null
+
+    fun baseUrl(record: JSONObject): String {
+        if (!needsAccountId) return base
+        val accountId = record.optString("account_id")
+        accountProblem(accountId)?.let { throw ChatGptFailure(it) }
+        return "$base/$accountId/ai/v1"
+    }
+
+    fun modelsUrl(record: JSONObject, page: Int = 1): String = if (needsAccountId)
+        baseUrl(record).removeSuffix("/v1") + "/models/search?per_page=100&page=$page"
+        else baseUrl(record) + "/models"
+
+    fun catalogModels(catalog: JSONObject): List<ChatGptModel> {
+        if (!needsAccountId) return ChatCompletions.models(catalog, decisions)
+        if (!catalog.optBoolean("success")) throw ChatGptFailure("Cloudflare could not list models. Check the account ID and token's Workers AI permissions.")
+        val result = catalog.getJSONArray("result")
+        val data = JSONArray()
+        for (index in 0 until result.length()) {
+            val item = result.getJSONObject(index)
+            if (item.optJSONObject("task")?.optString("name") != "Text Generation") continue
+            val name = item.optString("name")
+            if (name.isBlank()) continue
+            data.put(JSONObject().put("id", name).put("architecture", JSONObject().put("output_modalities", JSONArray().put("text"))))
+        }
+        return ChatCompletions.models(JSONObject().put("data", data))
+    }
 
     companion object {
         fun of(record: JSONObject?): AiProvider = entries.firstOrNull { it.id == record?.optString("provider") } ?: CHATGPT
@@ -55,13 +93,18 @@ internal object ChatCompletions {
      * The models worth offering: chat models that stream text and are not being withdrawn (drops batch-only
      * variants, image/audio generators and anything with an expiry date), short list first.
      */
-    fun models(catalog: JSONObject): List<ChatGptModel> {
+    fun models(catalog: JSONObject, decisions: Boolean = false): List<ChatGptModel> {
         val data = catalog.getJSONArray("data")
         fun list(value: JSONObject?, key: String) = value?.optJSONArray(key)?.let { items -> (0 until items.length()).map { items.optString(it) } }
         return (0 until data.length()).mapNotNull { index ->
             val item = data.optJSONObject(index) ?: return@mapNotNull null
             val id = item.optString("id").takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val architecture = item.optJSONObject("architecture")
+            if (item.has("type") && item.optString("type") != "language") return@mapNotNull null
+            val modalities = item.optJSONObject("modalities")
+            val architecture = item.optJSONObject("architecture") ?: modalities?.let {
+                JSONObject().put("input_modalities", it.optJSONArray("input")).put("output_modalities", it.optJSONArray("output"))
+            }
+            if (decisions && decision(id, list(item, "endpoints"))) return@mapNotNull ChatGptModel(id, (item.opt("name") as? String)?.takeIf(String::isNotBlank) ?: id, json = "none", decision = true)
             val suggested = id.startsWith("~") || id in routers
             if (!suggested && list(architecture, "output_modalities")?.let { it != listOf("text") } == true) return@mapNotNull null
             if (list(item, "endpoints")?.none { it.endsWith("/chat/completions") } == true || item.opt("expiration_date") is String) return@mapNotNull null
@@ -81,7 +124,11 @@ internal object ChatCompletions {
     }
 
     /** A model named by the user rather than listed: assumed able, held to the schema by the instructions alone. */
-    fun custom(id: String) = ChatGptModel(id, id, json = "none")
+    fun custom(id: String, decisions: Boolean = false) = ChatGptModel(id, id, json = "none", decision = decisions && decision(id, null))
+
+    /** Cloudflare's Clef decision models (served by Radeon Cloud on `/systemone`), by name or by the endpoint the catalog lists. */
+    fun decision(id: String, endpoints: List<String>?) =
+        Regex("(^|/)clef(-flash)?$", RegexOption.IGNORE_CASE).containsMatchIn(id) || endpoints?.any { it.endsWith("/systemone") } == true
 
     /**
      * [content] and [format] arrive in the Responses shapes the rest of Folio builds. The schema is always spelled
@@ -111,7 +158,7 @@ internal object ChatCompletions {
     }
 
     /** Like [ChatGptProtocol.response]: a cut-off, filtered or failed stream never becomes usable text. */
-    fun response(reader: BufferedReader, progress: (ChatGptStage) -> Unit = {}): ChatGptResponse {
+    fun response(reader: BufferedReader, progress: (ChatGptStage) -> Unit = {}, delta: (String) -> Unit = {}): ChatGptResponse {
         val text = StringBuilder()
         var usage: ChatGptUsage? = null
         var stage: ChatGptStage? = null
@@ -137,10 +184,13 @@ internal object ChatCompletions {
                     .put("input_tokens_details", reported.opt("prompt_tokens_details"))) ?: usage
             }
             val choice = event.optJSONArray("choices")?.optJSONObject(0) ?: continue
-            val delta = choice.optJSONObject("delta")
-            if (listOf("reasoning", "reasoning_content").any { !(delta?.opt(it) as? String).isNullOrEmpty() }) advance(ChatGptStage.REASONING)
-            (delta?.opt("content") as? String)?.takeIf(String::isNotEmpty)?.let {
+            val change = choice.optJSONObject("delta")
+            listOf("reasoning", "reasoning_content").firstNotNullOfOrNull { (change?.opt(it) as? String)?.takeIf(String::isNotEmpty) }?.let {
+                advance(ChatGptStage.REASONING); delta(it)
+            }
+            (change?.opt("content") as? String)?.takeIf(String::isNotEmpty)?.let {
                 advance(ChatGptStage.WRITING)
+                delta(it)
                 text.append(it)
                 require(text.length <= ChatGptProtocol.MAX_TEXT) { "Response too large" }
             }

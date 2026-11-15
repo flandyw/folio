@@ -126,7 +126,7 @@ internal object ChatGptProtocol {
     /** A partial stream or a late failure must never become an applicable annotation. */
     fun readResponse(reader: BufferedReader): String = response(reader).text
 
-    fun response(reader: BufferedReader, progress: (ChatGptStage) -> Unit = {}): ChatGptResponse {
+    fun response(reader: BufferedReader, progress: (ChatGptStage) -> Unit = {}, delta: (String) -> Unit = {}): ChatGptResponse {
         val text = StringBuilder()
         val data = StringBuilder()
         var usage: ChatGptUsage? = null
@@ -142,10 +142,14 @@ internal object ChatGptProtocol {
             when (event.optString("type")) {
                 "response.created", "response.in_progress" -> advance(ChatGptStage.WAITING)
                 "response.output_item.added" -> if (event.optJSONObject("item")?.optString("type") == "reasoning") advance(ChatGptStage.REASONING)
-                "response.reasoning_summary_text.delta", "response.reasoning_text.delta" -> advance(ChatGptStage.REASONING)
+                "response.reasoning_summary_text.delta", "response.reasoning_text.delta" -> {
+                    advance(ChatGptStage.REASONING)
+                    event.optString("delta").takeIf(String::isNotEmpty)?.let(delta)
+                }
                 "response.output_text.delta" -> {
                     advance(ChatGptStage.WRITING)
                     text.append(event.getString("delta"))
+                    delta(event.getString("delta"))
                     require(text.length <= MAX_TEXT) { "Response too large" }
                 }
                 "response.failed", "error" -> throw apiFailure(event.optJSONObject("response") ?: event)

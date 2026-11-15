@@ -116,6 +116,11 @@ import kotlinx.coroutines.launch
                                     ChatGptOperation.OPEN, ChatGptOperation.KEY -> false
                                     else -> true
                                 })
+                            ChatGptProviderPicker(state, manager, onManage = { accountTab = true })
+                            if (account?.connected == true && account.plan) {
+                                ChatGptModelPicker(state, manager)
+                                ChatGptReasoningPicker(state, manager)
+                            }
                             if (feedback != null) {
                                 ChatGptFeedbackContent(feedback, samePage, !state.busy, manager)
                                 OutlinedTextField(followUp, { followUp = it.take(2000) }, Modifier.fillMaxWidth(),
@@ -128,11 +133,7 @@ import kotlinx.coroutines.launch
                                 if (!feedback.applied && samePage && !layerEditable) ChatGptNotice(FolioIcons.Lock, "Choose an unlocked, visible layer in the notebook before adding feedback.")
                                 applyError?.let { ChatGptNotice(FolioIcons.Alert, it, error = true) }
                             } else {
-                                if (account?.connected == true && account.plan) {
-                                    ChatGptAccountSummary(account, { accountTab = true })
-                                    ChatGptModelPicker(state, manager)
-                                    ChatGptReasoningPicker(state, manager)
-                                } else ChatGptConnectCard(account, !state.busy, ::connect, onKey = { accountTab = true })
+                                if (account?.connected != true || !account.plan) ChatGptConnectCard(account, !state.busy, ::connect, onKey = { accountTab = true })
                                 if (note != null && page != null) {
                                     Text("Pages to review", style = MaterialTheme.typography.titleMedium)
                                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
