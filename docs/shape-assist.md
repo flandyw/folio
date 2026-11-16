@@ -200,7 +200,9 @@ ML Kit device checks (the JVM checks exercise fitting and history, not Google's 
 - Draw and hold rotated boxes, ovals, triangles and arrows; check their style, adjustment and Undo.
 - Lift or move away while recognition is pending; switch page/tool/layer or Undo and verify no late snap.
 - Scribble over paper, a sticky note and across page boundaries. Undo restores both the ink and scribble;
-  another Undo removes the scribble. Repeat with hidden/locked layers and with a missing model.
+  another Undo removes the scribble. Repeat with hidden/locked layers and with a missing model (airplane mode
+  on a fresh install): a clear pen scrub of five or more tight lines still erases, a short or loose one and
+  any highlighter scrub stay as ink. Circle a word three times: it must stay.
 - Write maths (`≋`, equals signs, x, 0/O), hatch graphs, and write normal text/Chinese characters over
   existing ink. Check that these stay as ink. Calibrate score thresholds only from real device samples;
   model scores are not probabilities, and this implementation relies on label agreement plus geometry.

@@ -12,7 +12,7 @@ The laser is a presentation tool: its coloured trail fades and is not saved or a
 
 ## Erasing, shapes and graphs
 
-Use the eraser or scribble over ink. Scribble recognition uses a geometry check and an on-device ML Kit gesture model; the model must be downloaded before classifier-based recognition works offline. Hold to erase is a separate, default-on gesture: hold a qualifying scribble until it is highlighted, then lift to erase. If recognition cannot safely approve an ordinary scribble, the ink is preserved. See [document transactions](../document-transactions.md) for the ordinary and held gesture history rules.
+Use the eraser or scribble over ink. A clear pen scrub (several tight back-and-forth lines over ink) erases on geometry alone, even offline. Shorter or looser scrubs and highlighter scrubs are also checked by an on-device ML Kit gesture model, which must be downloaded before they erase. Hold to erase is a separate, default-on gesture: hold a qualifying scribble until it is highlighted, then lift to erase. If neither can safely approve an ordinary scribble, the ink is preserved. See [document transactions](../document-transactions.md) for the ordinary and held gesture history rules.
 
 Shape assist can turn a held stroke into a fitted shape. Selected ink can also be previewed and cleaned up as a diagram, leaving unrelated handwriting alone. Settings include controls and a practice area. See [shape assist](../shape-assist.md).
 

@@ -22,6 +22,23 @@ class AndroidxInkTest {
         assertEquals(-1, vectorTailStart(emptyList(), page))
     }
 
+    @Test fun anEditInsideRasteredInkNamesOnlyItsOwnStrokes() {
+        val page = List(6) { dash(it * 20f) }
+        val piece = dash(500f); val other = dash(600f)
+        assertEquals(listOf(page[2]), changedInk(page, page - page[2]))
+        assertEquals(listOf(page[1], page[4]), changedInk(page, page.filterIndexed { i, _ -> i != 1 && i != 4 }))
+        assertEquals(listOf(piece), changedInk(page, page.take(3) + piece + page.drop(3)))
+        // An erased stroke replaced by its pieces, with a second edit elsewhere on the page.
+        assertEquals(listOf(page[1], piece, other, page[5]),
+            changedInk(page, listOf(page[0], piece, other, page[2], page[3], page[4])))
+        assertEquals(emptyList<Stroke>(), changedInk(page, page.toList()))
+        assertEquals(page, changedInk(emptyList(), page))
+        assertEquals(listOf(page[0]), changedInk(listOf(page[0], page[0]), listOf(page[0])))
+        // Shared ink in a new order can change the picture anywhere.
+        assertEquals(null, changedInk(page, page.reversed()))
+        assertEquals(null, changedInk(page, listOf(page[1], page[0]) + page.drop(2)))
+    }
+
     @Test fun sharedGeometryIsOnePerStrokeInstance() {
         val stroke = dash(0f)
         val first = InkRenderer.shared(stroke)

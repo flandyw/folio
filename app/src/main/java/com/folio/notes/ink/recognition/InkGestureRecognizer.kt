@@ -114,7 +114,10 @@ internal object InkGestureRecognizer {
         }
     }
 
-    /** Geometry is a veto, never permission to delete without the scribble classifier. */
+    /**
+     * An unmistakable scrub erases on geometry alone, with or without the model; anything less
+     * certain needs the scribble classifier, and stays as ink while that is missing.
+     */
     fun scribble(stroke: Stroke, before: NotePage, paths: List<Stroke>, notes: Map<String, List<Stroke>>,
         sensitivity: Float, result: (PageContent?) -> Unit) {
         scribbleDocument(stroke, mapOf(before.id to before), mapOf(before.id to paths), mapOf(before.id to notes), sensitivity) {
@@ -125,12 +128,12 @@ internal object InkGestureRecognizer {
     fun scribbleDocument(stroke: Stroke, before: Map<String, NotePage>, paths: Map<String, List<Stroke>>,
         notes: Map<String, Map<String, List<Stroke>>>, sensitivity: Float, result: (Map<String, PageContent>) -> Unit) {
         prepare(Model.GESTURES)
-        if (gestures.availability.value != Availability.READY) { main.post { result(emptyMap()) }; return }
         worker.execute {
-            val candidate = ScribbleRecognition.prepare(before, paths, notes, sensitivity)
-            if (candidate == null) main.post { result(emptyMap()) }
-            else main.post {
-                classify(Model.GESTURES, stroke) { label -> result(candidate.confirmed(label)) }
+            val candidate = ScribbleRecognition.prepare(before, paths, notes, sensitivity, drawn = stroke)
+            main.post {
+                if (candidate == null) result(emptyMap())
+                else if (candidate.certain) result(candidate.contents)
+                else classify(Model.GESTURES, stroke) { label -> result(candidate.confirmed(label)) }
             }
         }
     }

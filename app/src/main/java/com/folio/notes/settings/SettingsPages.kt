@@ -598,7 +598,11 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     SettingsGroup("Accounts") {
         SettingsLinkRow("Focal account", "One account for study sessions and mistake sync.", onClick = a.onFocal)
     }
+    val context = LocalContext.current
+    val version = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown" }
     SettingsGroup("Updates") {
+        SettingsLinkRow("Version", "Folio $version")
+        SettingsDivider()
         SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version when Folio opens.")
         SettingsDivider()
         SettingsSwitchRow("Experimental builds", "Get earlier, less stable builds from folio.flandolf.me.",

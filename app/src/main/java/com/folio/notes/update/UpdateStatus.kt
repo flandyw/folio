@@ -5,12 +5,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.ui.FolioSpacing
+import androidx.compose.ui.unit.dp
 import java.util.Locale
 
-@Composable internal fun UpdateStatus(state: FolioUpdateState, onDownload: (FolioUpdate) -> Unit, onInstall: () -> Unit, onDelete: () -> Unit) {
+@Composable internal fun UpdateStatus(state: FolioUpdateState, onDownload: (FolioUpdate) -> Unit, onInstall: () -> Unit, onDelete: () -> Unit, onDismiss: (() -> Unit)? = null) {
     if (state.initializing || state.checking || state.downloading != null || state.ready != null || state.available != null || state.message != null) {
-        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+        val dismiss = onDismiss != null && state.dismissible()
+        Box(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16).padding(end = if (dismiss) 32.dp else 0.dp), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             when {
                 state.downloading != null -> {
                     Text(if (state.progress.verifying) "Verifying Folio ${state.downloading.versionName}…" else "Downloading Folio ${state.downloading.versionName}…")
@@ -41,6 +46,10 @@ import java.util.Locale
                 }
             }
             state.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+        if (dismiss) {
+            IconButton(onDismiss!!, Modifier.align(Alignment.TopEnd)) { Icon(FolioIcons.Close, "Dismiss update") }
+        }
         }
     }
 }

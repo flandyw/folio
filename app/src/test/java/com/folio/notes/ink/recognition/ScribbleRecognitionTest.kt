@@ -22,6 +22,16 @@ class ScribbleRecognitionTest {
         assertEquals(listOf(target), page.strokes)
     }
 
+    @Test fun onlyAnUnmistakablePenScrubSkipsTheModel() {
+        val page = NotePage(id = "page", strokes = listOf(target))
+        fun candidate(drawn: Stroke?) = ScribbleRecognition.prepare(mapOf(page.id to page), mapOf(page.id to listOf(scribble)),
+            emptyMap(), ScribbleSensitivity.DEFAULT, drawn = drawn)!!
+        assertTrue(candidate(scribble).confirmed(null).getValue(page.id).strokes.isEmpty())
+        // A highlighter colours in with the same motion, and four legs could be a letter.
+        for (unsure in listOf(null, scribble.copy(tool = Tool.HIGHLIGHTER), scribble.copy(points = scribble.points.take(5))))
+            assertTrue(candidate(unsure).confirmed(null).isEmpty())
+    }
+
     @Test fun emptySpaceIncidentalCrossingsAndLockedInkCannotBecomeCandidates() {
         for (page in listOf(NotePage(strokes = emptyList()), NotePage(strokes = listOf(target.copy(points = target.points.map { it.copy(x = 200f) }))),
             NotePage(strokes = listOf(target), layers = listOf(PageLayer.BASE.copy(locked = true))))) {

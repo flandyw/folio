@@ -498,9 +498,9 @@ import java.io.File
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
-                if (!settings && (updateState.downloading != null || updateState.ready != null || updateState.downloadCandidate != null)) {
+                if (!settings && updateState.showBanner) {
                     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.navigationBarsPadding()) {
-                        UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard)
+                        UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard, updates::dismiss)
                     }
                 }
             },

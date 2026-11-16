@@ -1,6 +1,7 @@
 package com.folio.notes.document
 
 import com.folio.notes.ink.InkGeometry
+import com.folio.notes.ink.recognition.Scribble
 import com.folio.notes.ink.recognition.ScribbleSensitivity
 import com.folio.notes.model.CanvasSelection
 import com.folio.notes.model.InkPoint
@@ -55,7 +56,7 @@ internal object DocumentToolEdits {
         if (!options.erasing) {
             if (options.scribble) {
                 var scrubbed = ink
-                paths.forEach { scrubbed = InkGeometry.scribbleErase(scrubbed, it, 14f, options.scribbleSensitivity, canErase = editable) }
+                paths.forEach { scrubbed = Scribble.erase(scrubbed, it, options.scribbleSensitivity, editable) }
                 if (scrubbed !== ink || !options.scribbleInk) return scrubbed
             }
             return ink + paths.map { it.copy(points = it.points.toList()) }

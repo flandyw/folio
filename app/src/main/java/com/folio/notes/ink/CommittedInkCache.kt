@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Handler
@@ -11,6 +12,7 @@ import android.os.Looper
 import com.folio.notes.model.Stroke
 import java.util.concurrent.Executors
 import kotlin.math.ceil
+import kotlin.math.floor
 
 /** First stroke needing paint; a changed prefix requires clearing and replaying the layer. */
 internal fun appendedInkStart(previous: List<Stroke>, current: List<Stroke>): Int {
@@ -32,6 +34,33 @@ internal const val INK_TAIL_MAX = 16
 internal fun vectorTailStart(previous: List<Stroke>, current: List<Stroke>, limit: Int = INK_TAIL_MAX): Int {
     val start = appendedInkStart(previous, current)
     return if (start == 0 || current.size - start > limit) -1 else start
+}
+
+/**
+ * The strokes that were removed from or added to [previous] to make [current], when every stroke the
+ * two share kept its order; null when shared ink was reordered, which can change the picture anywhere.
+ * Repainting just where these strokes sit is then the same picture as repainting everything, so an
+ * undo, an eraser lift or a lasso pick on a dense page costs its own area instead of the whole screen.
+ */
+internal fun changedInk(previous: List<Stroke>, current: List<Stroke>): List<Stroke>? {
+    var head = 0
+    val shared = minOf(previous.size, current.size)
+    while (head < shared && previous[head] === current[head]) head++
+    var tail = 0
+    while (tail < shared - head && previous[previous.size - 1 - tail] === current[current.size - 1 - tail]) tail++
+    val before = previous.subList(head, previous.size - tail)
+    val after = current.subList(head, current.size - tail)
+    fun identities(list: List<Stroke>) = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Stroke, Boolean>(list.size)).apply { addAll(list) }
+    val kept = identities(after); val held = identities(before)
+    val changed = ArrayList<Stroke>()
+    var i = 0; var j = 0
+    while (i < before.size || j < after.size) {
+        if (i < before.size && before[i] !in kept) changed += before[i++]
+        else if (j < after.size && after[j] !in held) changed += after[j++]
+        else if (i < before.size && j < after.size && before[i] === after[j]) { i++; j++ }
+        else return null
+    }
+    return changed
 }
 
 /**
@@ -60,6 +89,7 @@ internal class CommittedInkCache(
     private var strokes: List<Stroke> = emptyList()
     private val viewport = Rect()
     private val clip = Rect()
+    private val dirty = Rect()
     private val destination = RectF()
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
     private var scale = 0f
@@ -242,11 +272,22 @@ internal class CommittedInkCache(
         val tail = if (viewportChanged) -1 else vectorTailStart(strokes, current)
         val start = if (viewportChanged) 0 else appendedInkStart(strokes, current)
         if (tail < 0) {
-            if (start == 0) layer.eraseColor(Color.TRANSPARENT)
+            // An edit inside the rastered ink repaints only where its strokes sit, when that is known.
+            val repair = start == 0 && !viewportChanged && dirtyArea(changedInk(strokes, current), boundsOf)
             val recording = Canvas(layer)
+            if (repair) {
+                // Whole pixels, so the edge of the repainted area is not blended twice.
+                recording.clipRect(floor((dirty.left - clip.left) * pixelsPerUnit).toInt(), floor((dirty.top - clip.top) * pixelsPerUnit).toInt(),
+                    ceil((dirty.right - clip.left) * pixelsPerUnit).toInt(), ceil((dirty.bottom - clip.top) * pixelsPerUnit).toInt())
+                recording.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                // The pixel edge may reach just past the area, and ink there must be repainted too.
+                val edge = ceil(1f / pixelsPerUnit).toInt()
+                dirty.inset(-edge, -edge)
+            } else if (start == 0) layer.eraseColor(Color.TRANSPARENT)
             recording.scale(pixelsPerUnit, pixelsPerUnit)
             recording.translate(-clip.left.toFloat(), -clip.top.toFloat())
-            drawRange(recording, current, start, clip, boundsOf, renderOf, fastPreview)
+            // An empty area is a change wholly outside the raster: nothing to paint.
+            if (!repair || !dirty.isEmpty) drawRange(recording, current, start, if (repair) dirty else clip, boundsOf, renderOf, fastPreview)
             viewport.set(clip)
             scale = pixelsPerUnit
             strokes = current
@@ -255,6 +296,25 @@ internal class CommittedInkCache(
             clip.left + width / pixelsPerUnit, clip.top + height / pixelsPerUnit)
         canvas.drawBitmap(layer, null, destination, paint)
         if (tail >= 0) drawRange(canvas, current, tail, clip, boundsOf, renderOf, fastPreview)
+    }
+
+    /**
+     * Sets [dirty] to the part of the raster that [changed] strokes touch (empty when none do) and
+     * reports true; false when the change is unknown and the whole raster has to be repainted.
+     */
+    private fun dirtyArea(changed: List<Stroke>?, boundsOf: (Stroke) -> FloatArray): Boolean {
+        if (changed == null) return false
+        dirty.setEmpty()
+        for (stroke in changed) {
+            if (stroke.points.isEmpty()) continue
+            val bounds = boundsOf(stroke)
+            // The same reach [InkRenderer.boundsVisible] allows a stroke's ink beyond its samples.
+            val margin = stroke.width * 2f + 8f
+            dirty.union(floor(bounds[0] - margin).toInt(), floor(bounds[1] - margin).toInt(),
+                ceil(bounds[2] + margin).toInt(), ceil(bounds[3] + margin).toInt())
+        }
+        if (!dirty.intersect(clip)) dirty.setEmpty()
+        return true
     }
 
     private fun drawRange(

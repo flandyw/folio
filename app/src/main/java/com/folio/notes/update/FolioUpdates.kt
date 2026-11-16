@@ -15,9 +15,15 @@ data class FolioUpdateState(
     val downloading: FolioUpdate? = null,
     val progress: UpdateDownloadProgress = UpdateDownloadProgress(),
     val message: String? = null,
+    /** Newest version code whose banner the user dismissed; a newer update shows it again. */
+    val dismissed: Long = 0L,
 ) {
     val busy get() = initializing || checking || downloading != null
     val downloadCandidate get() = available?.takeIf { it.versionCode > (ready?.update?.versionCode ?: 0) }
+    private val offered get() = maxOf(downloadCandidate?.versionCode ?: 0L, ready?.update?.versionCode ?: 0L)
+    val showBanner get() = downloading != null || offered > dismissed
+    fun dismissible() = downloading == null && offered > 0L
+    internal fun dismissedNow() = maxOf(dismissed, offered)
 }
 
 /** Process-owned transfers survive Activity recreation; verified downloads also survive process death. */
@@ -25,7 +31,7 @@ class FolioUpdates(context: Context) {
     private val checker = FolioUpdateChecker(context.applicationContext)
     private val prefs = context.getSharedPreferences("preferences", 0)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val mutableState = MutableStateFlow(FolioUpdateState())
+    private val mutableState = MutableStateFlow(FolioUpdateState(dismissed = prefs.getLong(AppPrefs.UPDATE_DISMISSED, 0L)))
     val state = mutableState.asStateFlow()
     private var source: Boolean? = null
     private val initialized = scope.async {
@@ -44,6 +50,13 @@ class FolioUpdates(context: Context) {
             mutableState.update { it.copy(available = null, message = null) }
         }
         source = experimental
+    }
+
+    /** Hides the app-wide banner until a newer update turns up; Settings still lists it. */
+    fun dismiss() {
+        val code = state.value.dismissedNow()
+        prefs.edit().putLong(AppPrefs.UPDATE_DISMISSED, code).apply()
+        mutableState.update { it.copy(dismissed = code) }
     }
 
     fun message(value: String) { mutableState.update { it.copy(message = value) } }

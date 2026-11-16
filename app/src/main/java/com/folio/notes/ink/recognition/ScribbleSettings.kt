@@ -74,7 +74,7 @@ import kotlin.math.roundToInt
             Text("More deliberate", style = MaterialTheme.typography.labelSmall)
             Text("Easier to trigger", style = MaterialTheme.typography.labelSmall)
         }
-        Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. Every setting requires Google’s scribble recognition and repeated contact with existing ink. Until the model is ready, scribbles stay as ink.",
+        Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. A clear pen scrub (several tight back-and-forth lines over ink) erases straight away, even offline. Shorter or looser scrubs, and the highlighter, are checked by Google’s scribble recognition and stay as ink until that model is ready.",
             style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

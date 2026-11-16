@@ -64,6 +64,7 @@ import com.folio.notes.ink.pen.StrokePrediction
 import com.folio.notes.ink.pen.StrokeRefit
 import com.folio.notes.ink.recognition.InkGestureRecognizer
 import com.folio.notes.ink.recognition.InkRecognitionSnapshot
+import com.folio.notes.ink.recognition.Scribble
 import com.folio.notes.ink.recognition.ScribbleRecognition
 import com.folio.notes.ink.recognition.ScribbleSensitivity
 import com.folio.notes.ink.shapes.ShapeAdjustment
@@ -2875,7 +2876,7 @@ class InkView(context: Context) : View(context) {
     }
     /** Physical movement, rather than touch sample count, gates expensive recognition. */
     internal fun canClassifyScribble(stroke: Stroke): Boolean =
-        InkGeometry.isScribble(stroke.points, scribbleSensitivity) &&
+        Scribble.isScribble(stroke.points, scribbleSensitivity) &&
             ShapeMath.length(stroke.points) * scale >= 48f * resources.displayMetrics.density &&
             ShapeMath.span(stroke.points) * scale >= 16f * resources.displayMetrics.density
 
@@ -2910,7 +2911,7 @@ class InkView(context: Context) : View(context) {
         return true
     }
 
-    /** Commit visible ink immediately; a model-approved erasure is a separate, guarded undo step. */
+    /** Commit visible ink immediately; the approved erasure is a separate, guarded undo step. */
     private fun finishInkGesture() {
         val drawing = draft
         // Spanning document gestures are interpreted by DocumentInputCoordinator instead.

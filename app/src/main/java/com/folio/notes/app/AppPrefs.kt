@@ -91,6 +91,7 @@ object AppPrefs {
     const val UPDATE_RETRY_AT = "updates.retryAt"
     const val EXPERIMENTAL_LAST_UPDATE_CHECK = "updates.experimental.lastCheck"
     const val EXPERIMENTAL_UPDATE_RETRY_AT = "updates.experimental.retryAt"
+    const val UPDATE_DISMISSED = "updates.dismissed"
     const val LIB_SORT = "library.sort"
     const val LIB_KIND = "library.kind"
     const val LIB_LIST = "library.listView"
