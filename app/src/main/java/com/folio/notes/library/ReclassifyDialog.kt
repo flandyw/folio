@@ -1,16 +1,23 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.library
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,12 +46,12 @@ internal fun ReclassifyDialog(model: FolioViewModel, onManageAi: () -> Unit, onD
     val state by model.state.collectAsState()
     Dialog(onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), contentAlignment = Alignment.Center) {
-            Surface(Modifier.widthIn(max = 880.dp).fillMaxWidth().height(maxHeight.coerceAtMost(800.dp)).guardUiTouches(),
+            Surface(Modifier.semantics { paneTitle = "Reclassify notebooks" }.widthIn(max = 880.dp).fillMaxWidth().height(maxHeight.coerceAtMost(800.dp)).guardUiTouches(),
                 shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column {
                     Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Reclassify notebooks", style = MaterialTheme.typography.headlineSmall)
+                            Text("Reclassify notebooks", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
                             Text(when {
                                 run.running -> "Keeps going if you close this"
                                 run.ready -> "Review the suggestions. Nothing changes until you apply them."
@@ -77,6 +84,7 @@ private fun Choose(model: FolioViewModel, onManageAi: () -> Unit, notes: List<co
     var selected by rememberSaveable { mutableStateOf(notes.filter { note -> ExamReclassify.fields.any { !ExamReclassify.has(note.exam, it) } }.map { it.id }.toSet()) }
     var query by rememberSaveable { mutableStateOf("") }
     val ai by model.chatGpt.state.collectAsState()
+    val keyboard = LocalSoftwareKeyboardController.current
     // Read from state so switching provider here updates the switch and model list at once.
     val available = ai.accounts.any { it.client == ai.active && it.connected && it.plan }
     var useAi by rememberSaveable { mutableStateOf(available) }
@@ -85,8 +93,11 @@ private fun Choose(model: FolioViewModel, onManageAi: () -> Unit, notes: List<co
         Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             applied?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = MaterialTheme.shapes.large,
-                placeholder = { Text("Search notebooks") }, leadingIcon = { Icon(FolioIcons.Search, null) })
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                label = { Text("Search notebooks") }, leadingIcon = { Icon(FolioIcons.Search, null) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear notebook search") } },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(false, { selected = notes.map { it.id }.toSet() }, { Text("All") })
                 FilterChip(false, { selected = notes.filter { note -> ExamReclassify.fields.any { !ExamReclassify.has(note.exam, it) } }.map { it.id }.toSet() }, { Text("Missing details") })
                 FilterChip(false, { selected = notes.filter { note -> note.pages.any { it.pdfIndex != null } }.map { it.id }.toSet() }, { Text("PDFs") })
@@ -94,6 +105,14 @@ private fun Choose(model: FolioViewModel, onManageAi: () -> Unit, notes: List<co
             }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 12.dp)) {
+            if (notes.isEmpty()) item {
+                Text("Your library has no notebooks yet. Close this and create or import one in Library.", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (shown.isEmpty()) item {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("No notebooks match “${query.trim()}”.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton({ query = "" }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
+                }
+            }
             items(shown, key = { it.id }) { note ->
                 val on = note.id in selected
                 ListItem(headlineContent = { Text(note.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -105,12 +124,12 @@ private fun Choose(model: FolioViewModel, onManageAi: () -> Unit, notes: List<co
         HorizontalDivider()
         Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (ai.accounts.isNotEmpty()) com.folio.notes.chatgpt.ChatGptProviderPicker(ai, model.chatGpt, onManageAi)
-            if (available) Row(verticalAlignment = Alignment.CenterVertically) {
+            if (available) Row(Modifier.fillMaxWidth().toggleable(useAi, role = Role.Switch) { useAi = it }, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Ask ${model.chatGpt.name} when unsure", style = MaterialTheme.typography.titleSmall)
                     Text("Sends the cover text of uncertain notebooks. Uses your plan or key.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(useAi, { useAi = it })
+                Switch(useAi, null)
             }
             if (available && useAi) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.fillMaxWidth())
             if (!available) TextButton(onManageAi, shapes = ButtonDefaults.shapes()) { Text("Set up AI to double-check uncertain notebooks") }
@@ -131,7 +150,7 @@ private fun Review(run: ReclassifyState, reclassifier: LibraryReclassifier, modi
                 append("${run.proposals.size} of ${run.done} checked notebooks have suggestions.")
                 if (run.aiFailures > 0) append(" AI couldn't check ${run.aiFailures}; device results are shown for those.")
             }, style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(false, reclassifier::chooseGaps, { Text("Only fill empty fields") })
                 FilterChip(false, { reclassifier.chooseAll(null, true) }, { Text("Replace existing too") })
                 FilterChip(false, { reclassifier.chooseAll(null, false) }, { Text("Clear") })
@@ -156,10 +175,13 @@ private fun Review(run: ReclassifyState, reclassifier: LibraryReclassifier, modi
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Checkbox(on, null)
                                 Text(field.title(), Modifier.width(64.dp), style = MaterialTheme.typography.labelLarge)
-                                if (before.isNotBlank()) Text(before, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textDecoration = if (on) TextDecoration.LineThrough else null)
-                                Text(if (before.isBlank()) "add ${ExamReclassify.label(proposal.suggested, field)}" else "→ ${ExamReclassify.label(proposal.suggested, field)}",
-                                    style = MaterialTheme.typography.bodyMedium)
+                                // Short values sit side by side; a long subject or source wraps under the old one instead of squeezing it out.
+                                FlowRow(Modifier.weight(1f).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (before.isNotBlank()) Text(before, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textDecoration = if (on) TextDecoration.LineThrough else null)
+                                    Text(if (before.isBlank()) "add ${ExamReclassify.label(proposal.suggested, field)}" else "→ ${ExamReclassify.label(proposal.suggested, field)}",
+                                        style = MaterialTheme.typography.bodyMedium)
+                                }
                             }
                         }
                     }
@@ -167,7 +189,7 @@ private fun Review(run: ReclassifyState, reclassifier: LibraryReclassifier, modi
             }
         }
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
             TextButton(reclassifier::discard, shapes = ButtonDefaults.shapes()) { Text("Discard") }
             Button(reclassifier::apply, enabled = chosen > 0, shapes = ButtonDefaults.shapes()) {
                 Text("Apply to $chosen notebook${if (chosen == 1) "" else "s"}")
