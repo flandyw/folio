@@ -4,6 +4,8 @@ package com.folio.notes.music
 import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +18,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,6 +35,10 @@ import com.folio.notes.ui.FolioSpacing
         confirmButton = { TextButton(confirm, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), shapes = ButtonDefaults.shapes()) { Text(action) } })
 }
 
+/** Whether the Score details draft would save something different; Save trims, so whitespace alone is no edit. */
+internal fun MusicScore.detailsEdited(title: String, composer: String, part: String, notes: String) =
+    title.trim() != this.title.trim() || composer.trim() != this.composer.trim() || part.trim() != this.part.trim() || notes.trim() != this.notes.trim()
+
 @Composable internal fun ScoreDetailsPanel(score: MusicScore, dismiss: () -> Unit, save: (String, String, String, String) -> Unit) {
     var title by rememberSaveable(score.id) { mutableStateOf(score.title) }
     var composer by rememberSaveable(score.id) { mutableStateOf(score.composer) }
@@ -39,8 +46,14 @@ import com.folio.notes.ui.FolioSpacing
     var notes by rememberSaveable(score.id) { mutableStateOf(score.notes) }
     val composerFocus = remember { FocusRequester() }
     val partFocus = remember { FocusRequester() }
+    var discard by rememberSaveable(score.id) { mutableStateOf(false) }
     fun submit() { if (title.isNotBlank()) save(title.trim(), composer.trim(), part.trim(), notes.trim()) }
-    FolioPanel("Score details", dismiss) {
+    fun canDismiss(): Boolean {
+        val edited = score.detailsEdited(title, composer, part, notes)
+        if (edited) discard = true
+        return !edited
+    }
+    FolioPanel("Score details", dismiss, canDismiss = ::canDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("${score.pages} ${if (score.pages == 1) "page" else "pages"} · ${score.marks.size} rehearsal ${if (score.marks.size == 1) "mark" else "marks"}",
@@ -60,11 +73,17 @@ import com.folio.notes.ui.FolioSpacing
             OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Rehearsal notes") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
                 placeholder = { Text("Bowings, cuts, who to watch for the cue…") }, minLines = 4)
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
-                TextButton(dismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                TextButton({ if (canDismiss()) dismiss() }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button(::submit, enabled = title.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
             }
         }
     }
+    if (discard) AlertDialog(
+        onDismissRequest = { discard = false },
+        title = { Text("Discard changes to this score?") },
+        text = { Text("Your edits to its details have not been saved.") },
+        confirmButton = { TextButton(dismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
 /** Tick scores into a set list; new ones join at the end of the running order. */
@@ -132,11 +151,11 @@ import com.folio.notes.ui.FolioSpacing
         Text(score.title, Modifier.padding(horizontal = FolioSpacing.dp24), style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp12)) {
-            PickRow(score.folder == null, "No folder", "Keep it on the main shelf", {
+            PickRow(score.folder == null, "No folder", "Keep it on the main shelf", single = true, leading = {
                 Icon(FolioIcons.MusicLibrary, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }) { if (score.folder != null) model.moveToFolder(setOf(score.id), null); dismiss() }
             folders.forEach { folder ->
-                PickRow(score.folder == folder.id, folder.name, "Folder", {
+                PickRow(score.folder == folder.id, folder.name, "Folder", single = true, leading = {
                     Icon(FolioIcons.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }) { if (score.folder != folder.id) model.moveToFolder(setOf(score.id), folder.id); dismiss() }
             }
@@ -154,16 +173,19 @@ import com.folio.notes.ui.FolioSpacing
     }
 }
 
-@Composable private fun PickRow(checked: Boolean, title: String, subtitle: String, leading: @Composable () -> Unit, toggle: () -> Unit) {
-    Surface(onClick = toggle, shape = FolioShapes.large, color = if (checked) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else Color.Transparent) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp6),
+/** One labelled selection target: a checkbox row for multi-select lists, a radio row where only one can be [single]. */
+@Composable private fun PickRow(checked: Boolean, title: String, subtitle: String, leading: @Composable () -> Unit, single: Boolean = false, toggle: () -> Unit) {
+    Surface(shape = FolioShapes.large, color = if (checked) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else Color.Transparent) {
+        val select = if (single) Modifier.selectable(checked, role = Role.RadioButton, onClick = toggle)
+            else Modifier.toggleable(checked, role = Role.Checkbox) { toggle() }
+        Row(select.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp6),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
             leading()
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Checkbox(checked, null)
+            if (single) RadioButton(checked, null) else Checkbox(checked, null)
         }
     }
 }

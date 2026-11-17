@@ -126,6 +126,8 @@ import com.folio.notes.ui.FolioSpacing
         if (fromStart) model.score(score.id) { it.copy(page = 0) }
         activeId = score.id; playingSet = set; model.opened(score.id)
     }
+    // Only the filter chips; the search and the open folder or set stay put.
+    fun clearFilters() { favorites = false; annotatedOnly = false; unfinishedOnly = false; composer = null }
     fun clearScope() { query = ""; favorites = false; annotatedOnly = false; unfinishedOnly = false; composer = null; setId = null; folderId = null; focusManager.clearFocus() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); model.clearMessage() } }
     val active = library.scores.find { it.id == activeId }
@@ -240,7 +242,7 @@ import com.folio.notes.ui.FolioSpacing
                             }
                         }
                         if (ready) {
-                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(),
+                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().semanticsLabel("Search scores"),
                                 placeholder = { Text("Find scores, composers, notes or marks…") },
                                 leadingIcon = { Icon(FolioIcons.Search, null) },
                                 trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; focusManager.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } },
@@ -296,7 +298,7 @@ import com.folio.notes.ui.FolioSpacing
                                         { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                         leadingIcon = { Icon(FolioIcons.Person, null, Modifier.size(16.dp)) })
                                 }
-                                if (filter.active) AssistChip(::clearScope, { Text("Clear filters") },
+                                if (filter.active) AssistChip(::clearFilters, { Text("Clear filters") },
                                     leadingIcon = { Icon(FolioIcons.FilterOff, null, Modifier.size(16.dp)) })
                             }
                             if (selectedSet != null) SetHeader(selectedSet, library,
