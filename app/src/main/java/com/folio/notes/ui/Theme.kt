@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
@@ -313,6 +312,7 @@ fun ColorScheme.withAmoled(): ColorScheme = copy(
     accent: Color? = null,
     /** Extra multiplier on top of the system font size, for reading the app more comfortably. */
     textScale: Float = 1f,
+    interfaceFont: InterfaceFont = InterfaceFont.ALLO,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -329,13 +329,13 @@ fun ColorScheme.withAmoled(): ColorScheme = copy(
     val scale = textScale.takeIf { it.isFinite() && it > 0f } ?: 1f
     CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * scale)) {
         MaterialExpressiveTheme(colorScheme = colors, shapes = FolioMaterialShapes, motionScheme = MotionScheme.expressive(), typography = Typography(
-            displaySmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 38.sp, lineHeight = 44.sp),
-            headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontSize = 32.sp, lineHeight = 39.sp),
-            headlineMedium = TextStyle(fontFamily = FontFamily.Serif, fontSize = 28.sp, lineHeight = 34.sp),
-            headlineSmall = TextStyle(fontFamily = FontFamily.Serif, fontSize = 24.sp, lineHeight = 32.sp),
+            displaySmall = TextStyle(fontSize = 38.sp, lineHeight = 44.sp),
+            headlineLarge = TextStyle(fontSize = 32.sp, lineHeight = 39.sp),
+            headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 34.sp),
+            headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 32.sp),
             titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
             titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp),
             labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp)
-        ), content = content)
+        ).withFontFamily(interfaceFont.family), content = content)
     }
 }

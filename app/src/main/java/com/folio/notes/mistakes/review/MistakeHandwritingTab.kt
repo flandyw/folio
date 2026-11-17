@@ -10,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.app.FolioViewModel
@@ -134,7 +133,7 @@ private fun HandwritingStorageCard(
 
     ElevatedCard(shape = FolioShapes.extraLarge) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp10)) {
-            Text("Your working, kept.", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
+            Text("Your working, kept.", style = MaterialTheme.typography.headlineMedium)
             Text(
                 "Every practice response saved on this device, including unfinished reviews and pages from previous accounts. Untouched pages are never saved; empty ones are removed automatically.",
                 style = MaterialTheme.typography.bodyMedium,

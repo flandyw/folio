@@ -51,6 +51,7 @@ import com.folio.notes.ui.CoverPalette
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import com.folio.notes.ui.SuggestedCoverColors
+import com.folio.notes.ui.InterfaceFont
 import com.folio.notes.ui.ThemeMode
 import com.folio.notes.ui.ThemePalette
 import com.folio.notes.ui.rememberAccentState
@@ -100,6 +101,11 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
             s.themePalette, s.onThemePalette, subtitle = s.themePalette.description)
         SettingsDivider()
         AccentBlock(s.themePalette)
+    }
+    val interfaceFont by rememberPref(p, InterfaceFont.PREF_KEY) { InterfaceFont.of(it.getString(InterfaceFont.PREF_KEY, null)) }
+    SettingsGroup("Typography", footer = "Changes interface text. Notebook text and handwriting keep their own fonts.") {
+        SettingsChipRow("Interface font", InterfaceFont.entries.map { it to it.label }, interfaceFont,
+            { font -> p.write { putString(InterfaceFont.PREF_KEY, font.name) } })
     }
     val scale by rememberPref(p, AppPrefs.UI_TEXT_SCALE) { AppPrefs.uiTextScale(it.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { _ -> it.contains(AppPrefs.UI_TEXT_SCALE) }) }
     SettingsGroup("Size") {

@@ -206,7 +206,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
 }
 
 private enum class SettingsPage(val title: String, val summary: String, val icon: ImageVector) {
-    APPEARANCE("Appearance", "Theme, colours, text size and sidebar", FolioIcons.Palette),
+    APPEARANCE("Appearance", "Theme, colours, interface font, size and sidebar", FolioIcons.Palette),
     PEN("Pen & touch", "Finger drawing, palm rejection, pencil, shapes and scribble", FolioIcons.Handwriting),
     EDITOR("Editor", "Toolbar, starting tool, zoom, text and keyboard", FolioIcons.Pen),
     FOLLOW("Writing follow", "Move the page as you write", FolioIcons.Book),
@@ -227,7 +227,7 @@ private object SettingsIndex {
     private val all = listOf(
         SettingsPage.APPEARANCE to listOf(
             "Theme" to "light dark system mode night", "Pure black dark" to "amoled oled", "Colours" to "color palette sage ocean plum warm mono black white wallpaper dynamic",
-            "Accent colour" to "color tint highlight", "Text size" to "font bigger smaller scale", "Larger controls" to "accessibility touch targets buttons",
+            "Interface font" to "typography typeface allo system sans serif monospace", "Accent colour" to "color tint highlight", "Text size" to "font bigger smaller scale", "Larger controls" to "accessibility touch targets buttons",
             "Show tool names" to "labels icons", "Sidebar" to "navigation rail bottom bar hide mistakes study progress music vcaa", "Fullscreen" to "status bar immersive", "Keep screen on" to "sleep awake",
         ),
         SettingsPage.PEN to listOf(

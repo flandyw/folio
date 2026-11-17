@@ -73,6 +73,7 @@ import com.folio.notes.ui.AppTheme
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
+import com.folio.notes.ui.InterfaceFont
 import com.folio.notes.ui.FolioTheme
 import com.folio.notes.ui.LocalDestinationTopGap
 import com.folio.notes.ui.ThemeMode
@@ -142,9 +143,10 @@ import java.io.File
     }
     var amoled by rememberSaveable { mutableStateOf(prefs.getBoolean(AppTheme.AMOLED_PREF_KEY, false)) }
     var splashDone by rememberSaveable { mutableStateOf(false) }
-    // The accent and text scale live in preferences too, so they survive a restart and follow
+    // The accent, interface font and text scale live in preferences too, so they survive a restart and follow
     // edits made in Settings without the theme re-reading storage itself.
     val accentState = rememberAccentState()
+    var interfaceFont by remember { mutableStateOf(InterfaceFont.of(prefs.getString(InterfaceFont.PREF_KEY, null))) }
     var uiTextScale by remember { mutableFloatStateOf(AppPrefs.uiTextScale(prefs.getFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE).takeIf { prefs.contains(AppPrefs.UI_TEXT_SCALE) })) }
     var finger by remember { mutableStateOf(AppPrefs.fingerDrawing(prefs)) }
     var stylusShortcut by rememberSaveable { mutableStateOf(StylusShortcut.of(prefs.getString(StylusShortcut.PREF_KEY, null))) }
@@ -174,6 +176,7 @@ import java.io.File
                 AppPrefs.FULLSCREEN -> fullscreen = prefs.getBoolean(key, AppPrefs.DEFAULT_FULLSCREEN)
                 AppPrefs.KEEP_SCREEN_ON -> keepScreenOn = prefs.getBoolean(key, AppPrefs.DEFAULT_KEEP_SCREEN_ON)
                 AppPrefs.AUTO_UPDATE -> autoUpdate = prefs.getBoolean(key, AppPrefs.DEFAULT_AUTO_UPDATE)
+                InterfaceFont.PREF_KEY -> interfaceFont = InterfaceFont.of(prefs.getString(key, null))
                 AppPrefs.UI_TEXT_SCALE -> uiTextScale = AppPrefs.uiTextScale(prefs.getFloat(key, AppPrefs.DEFAULT_UI_TEXT_SCALE))
                 "shapeRecognition" -> shapeRecognition = prefs.getBoolean(key, false)
                 AppPrefs.FINGER, AppPrefs.STYLUS_SEEN -> finger = AppPrefs.fingerDrawing(prefs)
@@ -493,7 +496,7 @@ import java.io.File
     BackHandler(state.active != null && !showMusic && !exportBusy && !showMistakes && !showStudy && workspaceLibraryPurpose == null) { model.close() }
     BackHandler(showStudy && !exportBusy) { showStudy = false }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
-    FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale) {
+    FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale, interfaceFont = interfaceFont) {
         // The shared library/mistakes shell owns safe edges; nested app bars consume them.
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },

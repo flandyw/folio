@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,7 +59,7 @@ internal fun MistakeDetailCard(
             Text(listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · "),
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
-        Text(mistake.question, style = MaterialTheme.typography.headlineLarge, fontFamily = FontFamily.Serif)
+        Text(mistake.question, style = MaterialTheme.typography.headlineLarge)
         // Status and the key facts in one line, so the answer to "why is this here?" never hides behind a toggle.
         val dueText = if (mistake.suspended) "Suspended in Focal" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise"
         val facts = buildList {
@@ -209,7 +208,7 @@ private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule
             val crumb = listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · ")
             if (crumb.isNotBlank()) Text(crumb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
-        Text(m.question, style = MaterialTheme.typography.headlineSmall.scaledBy(textScale), fontFamily = FontFamily.Serif)
+        Text(m.question, style = MaterialTheme.typography.headlineSmall.scaledBy(textScale))
         if (!m.questionText.isNullOrBlank()) {
             RichText(m.questionText!!, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))
         }
