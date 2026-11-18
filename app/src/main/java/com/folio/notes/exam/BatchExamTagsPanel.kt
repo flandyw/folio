@@ -60,7 +60,15 @@ fun BatchExamTagsPanel(
         return patch::applyTo
     }
 
-    FolioPanel(title = "Assign exam details", onDismissRequest = onDismiss) {
+    var discard by rememberSaveable { mutableStateOf(false) }
+    fun canDismiss(): Boolean {
+        val edited = batchDraftEdited(changeSubject || changeYear || changeCompany || changeType || changeStatus,
+            newSubjectName, customSubject, newYear, newCompany, newTypeName, newStatusName)
+        if (edited) discard = true
+        return !edited
+    }
+
+    FolioPanel(title = "Assign exam details", onDismissRequest = onDismiss, canDismiss = ::canDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
@@ -159,11 +167,15 @@ fun BatchExamTagsPanel(
                 Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12),
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)
             ) {
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                TextButton({ if (canDismiss()) onDismiss() }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button({ if (canApply) onApply(buildTransform()) }, enabled = canApply, shapes = ButtonDefaults.shapes()) { Text("Apply to $count") }
             }
         }
     }
+    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard these changes?") },
+        text = { Text("Nothing has been applied to the selected notebooks yet.") },
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
 @Composable

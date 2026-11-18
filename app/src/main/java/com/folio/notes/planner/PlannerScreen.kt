@@ -172,23 +172,23 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 /** Typed dates still work; the calendar button saves remembering the format. */
 @Composable internal fun DateField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     val context = LocalContext.current
-    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, trailingIcon = {
+    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true, trailingIcon = {
         IconButton({
             val start = runCatching { LocalDate.parse(value.trim()) }.getOrDefault(LocalDate.now())
             android.app.DatePickerDialog(context, { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day).toString()) },
                 start.year, start.monthValue - 1, start.dayOfMonth).show()
-        }) { Icon(FolioIcons.Calendar, "Choose a date") }
+        }) { Icon(FolioIcons.Calendar, "$label: choose a date") }
     })
 }
 
 @Composable internal fun TimeField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     val context = LocalContext.current
-    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, trailingIcon = {
+    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, placeholder = { Text("HH:mm") }, singleLine = true, trailingIcon = {
         IconButton({
             val start = runCatching { java.time.LocalTime.parse(value.trim()) }.getOrDefault(java.time.LocalTime.now())
             android.app.TimePickerDialog(context, { _, hour, minute -> onChange(java.time.LocalTime.of(hour, minute).toString()) },
                 start.hour, start.minute, true).show()
-        }) { Icon(FolioIcons.Clock, "Choose a time") }
+        }) { Icon(FolioIcons.Clock, "$label time: choose a time") }
     })
 }
 

@@ -5,6 +5,9 @@ import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,6 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -48,7 +54,8 @@ fun ScoreDialog(
     var scoreEdited by rememberSaveable { mutableStateOf(false) }
     var totalText by rememberSaveable(total) { mutableStateOf(total?.toString() ?: "") }
     var totalEdited by rememberSaveable(total) { mutableStateOf(total != null) }
-    var minutes by rememberSaveable { mutableStateOf(defaultSeconds?.let { (it / 60).coerceAtLeast(1) }?.toString() ?: "") }
+    val measuredMinutes = defaultSeconds?.let { (it / 60).coerceAtLeast(1) }?.toString() ?: ""
+    var minutes by rememberSaveable { mutableStateOf(measuredMinutes) }
     var timed by rememberSaveable { mutableStateOf(defaultSeconds != null) }
     var minutesEdited by rememberSaveable { mutableStateOf(false) }
     val seconds = recordedSeconds(timed, minutes, defaultSeconds, minutesEdited)
@@ -77,10 +84,20 @@ fun ScoreDialog(
     LaunchedEffect(Unit) { scoreFocus.requestFocus() }
     val scoreTooHigh = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore > parsedTotal
     val canRecord = parsedScore != null && parsedTotal != null && parsedTotal > 0 && parsedScore in 0..parsedTotal && validTime
+    var discard by rememberSaveable { mutableStateOf(false) }
+    // Untyped fields are their own prefill; typed ones are compared with what the dialog would have filled in.
+    fun dismissRequest() {
+        val edited = markDraftEdited(
+            score, if (scoreEdited) stampedScore?.toString() ?: "" else score,
+            totalText, if (totalEdited) (total ?: printed)?.toString() ?: "" else totalText,
+            timed, defaultSeconds != null, minutes, measuredMinutes
+        )
+        if (edited) discard = true else onDismiss()
+    }
     AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         modifier = Modifier.guardUiTouches(),
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismissRequest,
         icon = { Icon(FolioIcons.Grading, null) },
         title = { Text("Record a mark") },
         text = {
@@ -88,7 +105,7 @@ fun ScoreDialog(
                 if (showDetection) {
                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.toggleable(markAssist, role = Role.Switch, onValueChange = onMarkAssist), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Printed mark detection", style = MaterialTheme.typography.titleSmall)
                                     Text(
@@ -105,17 +122,20 @@ fun ScoreDialog(
                                     )
                                 }
                                 if (markScanBusy) CircularProgressIndicator(Modifier.padding(end = FolioSpacing.dp4).size(20.dp), strokeWidth = 2.dp)
-                                Switch(markAssist, onMarkAssist)
+                                Switch(markAssist, null)
                             }
                             if (markAssist) {
                                 Text("Tick awards the full value, cross lets you adjust. Awards are totalled below.",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                    Text("Award colour", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                Text("Award colour", style = MaterialTheme.typography.bodySmall)
+                                FlowRow(Modifier.selectableGroup()) {
                                     Marking.COLORS.forEach { swatch ->
-                                        Surface(onClick = { onMarkColor(swatch) }, shape = CircleShape,
-                                            color = Color(swatch), modifier = Modifier.size(26.dp),
-                                            border = if (swatch == markColor) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {}
+                                        // A 48 dp target around the compact dot; the dot itself stays decoration.
+                                        Box(Modifier.size(48.dp).selectable(swatch == markColor, role = Role.RadioButton) { onMarkColor(swatch) }
+                                            .semantics { contentDescription = "Award colour: ${Marking.colorName(swatch)}" }, contentAlignment = Alignment.Center) {
+                                            Surface(shape = CircleShape, color = Color(swatch), modifier = Modifier.size(26.dp),
+                                                border = if (swatch == markColor) BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null) {}
+                                        }
                                     }
                                 }
                             }
@@ -166,7 +186,7 @@ fun ScoreDialog(
                         }
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.toggleable(timed, role = Role.Switch) { timed = it }, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Timed sitting", style = MaterialTheme.typography.titleSmall)
                         Text(
@@ -175,7 +195,7 @@ fun ScoreDialog(
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(timed, { timed = it })
+                    Switch(timed, null)
                 }
                 if (timed) {
                     OutlinedTextField(
@@ -202,7 +222,7 @@ fun ScoreDialog(
                 }
             }
         },
-        dismissButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
+        dismissButton = { TextButton(::dismissRequest, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
         confirmButton = {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 if (onRecordAndSave != null) OutlinedButton(
@@ -218,6 +238,10 @@ fun ScoreDialog(
             }
         }
     )
+    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Discard this mark?") },
+        text = { Text("The mark you entered hasn't been recorded.") },
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
 // ---- Progress ---------------------------------------------------------------------------------------
