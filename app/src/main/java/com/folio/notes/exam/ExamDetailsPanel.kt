@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -69,6 +71,7 @@ fun ExamDetailsPanel(
         unit = unit.toIntOrNull(), difficulty = difficulty,
         marksTotal = marksTotal.toIntOrNull(), status = statusValue, tags = tagsValue, examDate = examDate
     )
+    fun canDismiss(): Boolean = if (!canSave || currentTags() != exam) { discard = true; false } else true
     fun saveAndDismiss() {
         if (!canSave) return
         onSave(currentTags())
@@ -79,8 +82,7 @@ fun ExamDetailsPanel(
     val yearSuggestions = remember(thisYear) { listOf(thisYear, thisYear - 1, thisYear - 2).map { it.toString() } }
     val companySuggestions = remember { listOf("VCAA", "NEAP", "TSSM", "Insight", "Heffernan", "Edrolo") }
 
-    FolioPanel(title = "Exam details", onDismissRequest = onDismiss,
-        canDismiss = { if (!canSave || currentTags() != exam) { discard = true; false } else true }) {
+    FolioPanel(title = "Exam details", onDismissRequest = onDismiss, canDismiss = ::canDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
@@ -167,7 +169,7 @@ fun ExamDetailsPanel(
                         FilterChip(
                             selected = difficulty == stars,
                             onClick = { difficulty = if (difficulty == stars) null else stars },
-                            label = { Text("★".repeat(stars)) }
+                            label = { Text("★".repeat(stars), Modifier.clearAndSetSemantics { contentDescription = "Difficulty: $stars of 3" }) }
                         )
                     }
                 }
@@ -228,7 +230,7 @@ fun ExamDetailsPanel(
                                     Column(Modifier.weight(1f)) {
                                         Text(
                                             listOfNotNull(
-                                                attempt.score.toString() + (attempt.total?.let { "/$it" } ?: ""),
+                                                attemptScore(attempt),
                                                 share?.let { "${(it * 100).roundToInt()}%" },
                                                 attempt.takeIf { it.timed }?.let { durationLabel(it.secondsTaken) },
                                                 compactDate(attempt.date)
@@ -237,7 +239,7 @@ fun ExamDetailsPanel(
                                         )
                                     }
                                     IconButton({ deleteAttemptId = attempt.id }, shapes = IconButtonDefaults.shapes()) {
-                                        Icon(FolioIcons.Close, "Delete this attempt", Modifier.size(16.dp))
+                                        Icon(FolioIcons.Close, "Delete mark ${attemptScore(attempt)} from ${compactDate(attempt.date)}", Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -251,16 +253,19 @@ fun ExamDetailsPanel(
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+                TextButton({ if (canDismiss()) onDismiss() }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
                 Button(::saveAndDismiss, enabled = canSave, shapes = ButtonDefaults.shapes()) { Text("Save") }
             }
         }
     }
-    deleteAttemptId?.let { id ->
+    // An attempt that vanished (deleted elsewhere) simply closes the question.
+    val deleting = deleteAttemptId?.let { id -> note.attempts.find { it.id == id } }
+    if (deleteAttemptId != null && deleting == null) LaunchedEffect(Unit) { deleteAttemptId = null }
+    deleting?.let { attempt ->
         AlertDialog(onDismissRequest = { deleteAttemptId = null }, title = { Text("Delete recorded mark?") },
-            text = { Text("This removes the mark from your history. Notebook pages are kept.") },
+            text = { Text("This removes ${attemptScore(attempt)} from ${compactDate(attempt.date)} from your history. Notebook pages are kept.") },
             confirmButton = { TextButton({
-                note.attempts.find { it.id == id }?.let(onDeleteAttempt)
+                onDeleteAttempt(attempt)
                 deleteAttemptId = null
             }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton({ deleteAttemptId = null }) { Text("Keep") } })
@@ -306,3 +311,5 @@ fun ExamDetailsPanel(
         }
     }
 }
+
+private fun attemptScore(attempt: ExamAttempt): String = attempt.score.toString() + (attempt.total?.let { "/$it" } ?: "")
