@@ -72,6 +72,9 @@ import com.folio.notes.editor.toolbar.ToolbarSlot
 import androidx.compose.ui.graphics.compositeOver
 import com.folio.notes.FolioApplication
 import com.folio.notes.editor.rememberEditorPreferences
+import com.folio.notes.editor.applySurface
+import com.folio.notes.editor.bindMutations
+import com.folio.notes.editor.inkSurface
 import com.folio.notes.input.StylusShortcut
 import com.folio.notes.input.StylusShortcutEffect
 import com.folio.notes.input.StylusShortcutManager
@@ -429,33 +432,10 @@ private val paperInk = Color(0xFF1B1B1B)
                     view.onNavigating = { moving -> if (moving) motion[0]?.cancel() else settle(0f) }
                     view.onDocumentPanEnd = { velocity -> settle(velocity) }
                     val options = if (resizing) ToolOptions.load(inkPrefs, Tool.HAND) else options
-                    view.tool = active
-                    view.inkColor = options.color; view.inkWidth = options.width; view.inkOpacity = options.opacity
-                    view.inkStyle = options.style; view.pressureEnabled = options.pressure
-                    view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-                    view.pressureCurve = options.pressureCurve
-                    view.penStartOptionsFor = ::optionsFor
-                    view.penSmoothing = penSmoothing
-                    view.fingerDrawing = finger
-                    view.shapeRecognition = editorPrefs.shapeRecognition; view.shapeHoldMs = shapeHoldMs
-                    view.snapEnabled = editorPrefs.snapEnabled; view.graphStyle = editorPrefs.graphStyle
-                    view.shapeMeasurements = editorPrefs.shapeMeasurements
-                    view.eraserPressureEnabled = editorPrefs.eraserPressure; view.eraserWholeStroke = editorPrefs.eraserWholeStroke
-                    view.scribbleToErase = editorPrefs.scribbleToErase; view.scribbleSensitivity = editorPrefs.scribbleSensitivity
-                    view.scribbleHold = editorPrefs.scribbleHold
-                    view.multiTouchUndo = editorPrefs.multiTouchUndo
-                    view.palmRejectMs = editorPrefs.palmRejectMs; view.panMultiplier = editorPrefs.panMultiplier
+                    view.applySurface(editorPrefs.inkSurface(active, options, finger, ::optionsFor, inputBlocked = busy), penSmoothing, shapeHoldMs)
                     view.maxZoom = AppPrefs.maxZoom(prefs.getFloat(AppPrefs.MAX_ZOOM, AppPrefs.DEFAULT_MAX_ZOOM))
-                    view.inputBlocked = busy
                     view.onEraserFinished = { tools.finishEraser(editorPrefs.eraserSingleStroke) }
-                    val mutations = folio.pageMutations(page.id)
-                    view.onStrokesChanged = mutations::strokes
-                    view.onStrokeAppended = mutations::appendStroke
-                    view.onStrokeWithdrawn = mutations::withdrawStroke
-                    view.onPenInput = { begins -> motion[0]?.cancel(); mutations.penActivity(begins) }
-                    view.onContentChanged = mutations::content
-                    view.onTextsChanged = mutations::texts
-                    view.onImagesChanged = mutations::images
+                    view.bindMutations(folio.pageMutations(page.id)) { motion[0]?.cancel() }
                     view.onUndoRequest = folio::undo; view.onRedoRequest = folio::redo
                 },
             )

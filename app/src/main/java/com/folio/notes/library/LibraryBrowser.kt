@@ -209,14 +209,14 @@ internal val LibraryNavWidth = 280.dp
 
 /** A folder in the shelf: open on tap, hold and move to refile its subtree, drop notebooks on it. */
 @Composable internal fun FolderTile(
-    name: String, detail: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color? = null,
+    name: String, detail: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color? = null, icon: ImageVector = FolioIcons.Folder,
     menu: (@Composable ColumnScope.(close: () -> Unit) -> Unit)? = null,
 ) {
     Surface(onClick = onClick, modifier = modifier, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.padding(start = FolioSpacing.dp12, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8, end = FolioSpacing.dp4),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Surface(shape = FolioShapes.medium, color = tint?.copy(alpha = .22f) ?: MaterialTheme.colorScheme.secondaryContainer) {
-                Icon(FolioIcons.Folder, null, Modifier.padding(FolioSpacing.dp8).size(24.dp), tint = tint ?: MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(icon, null, Modifier.padding(FolioSpacing.dp8).size(24.dp), tint = tint ?: MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Column(Modifier.weight(1f)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

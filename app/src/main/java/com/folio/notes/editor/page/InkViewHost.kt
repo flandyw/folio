@@ -18,6 +18,8 @@ import com.folio.notes.editor.EditorSurfaceRole
 import com.folio.notes.editor.InkSurfaceConfig
 import com.folio.notes.editor.LocalEditorSurfaces
 import com.folio.notes.editor.PagePresentation
+import com.folio.notes.editor.applySurface
+import com.folio.notes.editor.bindMutations
 import com.folio.notes.editor.layout.LocalDocumentInput
 import com.folio.notes.ink.InkView
 import com.folio.notes.ink.shapes.ShapeAssistOptions
@@ -92,110 +94,44 @@ import kotlinx.coroutines.launch
             view.maxZoom = maxZoom
             view.pdfDetailSource = pdfDetailSource
             onBound(view)
-            val tool = surface.tool
-            val options = surface.options
-            val finger = surface.finger
-            val snapEnabled = surface.snapEnabled
-            val shapeRecognition = surface.shapeRecognition
-            val eraserPressureEnabled = surface.eraserPressureEnabled
-            val scribbleToErase = surface.scribbleToErase
-            val scribbleSensitivity = surface.scribbleSensitivity
-            val scribbleHold = surface.scribbleHold
-            val eraserWholeStroke = surface.eraserWholeStroke
-            val shapeMeasurements = surface.shapeMeasurements
-            val multiTouchUndo = surface.multiTouchUndo
-            val graphStyle = surface.graphStyle
-            val palmRejectMs = surface.palmRejectMs
-            val panMultiplier = surface.panMultiplier
-            val inkStyle = surface.inkStyle
-            val activeLayer = surface.activeLayer
-            val followEnabled = surface.followEnabled
-            val rulerEnabled = surface.rulerEnabled
-            val ruler = surface.ruler
-            val writingHand = surface.writingHand
-            val followZoom = surface.followZoom
-            val showAnswerAreas = surface.showAnswerAreas
-            val inputBlocked = surface.inputBlocked
-            val zoomWritingPane = surface.zoomWritingPane
-            val pageCamera = presentation.pageCamera
-            val canvasReset = presentation.canvasReset
-            val selectedImageId = presentation.selectedImageId
+            view.inputStylusActivity = inputStylusActivity
+            view.applySurface(surface, penSmoothing, shapeHoldMs)
             val readOnly = presentation.readOnly
             val hideFromAccessibility = presentation.hideFromAccessibility
-            val initialViewport = presentation.initialViewport
-            val peekRegion = presentation.peekRegion
-            val writingWindowTarget = presentation.writingWindowTarget
-            val onActive = actions.onActive
-            val onPan = actions.onPan
-            val onPanEnd = actions.onPanEnd
-            val onSelection = actions.onSelection
-            val onTextEdit = actions.onTextEdit
-            val onTextCreate = actions.onTextCreate
-            val onPageKey = actions.onPageKey
-            val onCanvasZoom = actions.onCanvasZoom
-            val onCanvasViewport = actions.onCanvasViewport
-            val onPageEdges = actions.onPageEdges
-            val onImageSelected = actions.onImageSelected
-            val onPdfLink = actions.onPdfLink
-            val onEraserFinished = actions.onEraserFinished
-            val onUndo = actions.onUndo
-            val onRedo = actions.onRedo
-            val onCameraChanged = actions.onCameraChanged
-            val onRulerChanged = actions.onRulerChanged
-            val onFollowPan = actions.onFollowPan
-            val onSelectionAnchor = actions.onSelectionAnchor
-            val onCropMode = actions.onCropMode
-            val onNavigating = actions.onNavigating
-            val onLongPress = actions.onLongPress
-            val background = assets.background
-            val pictures = assets.pictures
-            val writingGuides = assets.guides
-                view.inputStylusActivity = inputStylusActivity
-                view.penStartOptionsFor = surface.toolOptionsFor
-                view.zoomWritingPane = zoomWritingPane
-                view.inkWidth = options.width; view.inkOpacity = options.opacity; view.inkStyle = inkStyle; view.pressureEnabled = options.pressure; view.fingerDrawing = finger
-                view.pressureSensitivity = options.pressureSensitivity; view.pressureVariation = options.pressureVariation
-                view.pressureCurve = options.pressureCurve
-                view.penSmoothing = penSmoothing
-                view.snapEnabled = snapEnabled; view.graphStyle = graphStyle
-                view.shapeRecognition = shapeRecognition
-                view.shapeHoldMs = shapeHoldMs
-                view.shapeAssistOptions = shapeAssistOptions
-                view.stickyTextSize = stickyTextSize
-                view.onStrokesChanged = { if (!readOnly) actions.mutations.strokes(it) }
-                view.onStrokeAppended = { before, stroke, after ->
-                    if (!readOnly) actions.mutations.appendStroke(before, stroke, after)
-                }
-                view.onStrokeWithdrawn = { if (!readOnly) actions.mutations.withdrawStroke(it) }
-                view.onPenInput = { beginsStroke -> if (!readOnly) actions.mutations.penActivity(beginsStroke) }
-                view.onContentChanged = { strokes, texts, images -> if (!readOnly) actions.mutations.content(strokes, texts, images) }
-                view.onTextsChanged = { if (!readOnly) actions.mutations.texts(it) }
-                view.onImagesChanged = { if (!readOnly) actions.mutations.images(it) }
-                view.importantForAccessibility = if (hideFromAccessibility) android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-                    else android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-                view.isFocusable = !hideFromAccessibility
-                view.contentDescription = if (readOnly) "Reference page. Use the hand or two fingers to pan and zoom. Read only."
-                    else "${presentation.pageLabel}. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
-                view.onCanvasViewport = onCanvasViewport; view.onPageEdges = onPageEdges; view.onCanvasZoom = onCanvasZoom; if (view.page !== page || view.background !== background || view.imageBitmaps !== pictures) view.bind(page, background, pictures); view.resetCanvas(canvasReset); view.restoreWorkspaceCamera(initialViewport); view.onWorkspaceCamera = onCameraChanged; view.readOnly = readOnly; view.pageCamera = pageCamera; view.onPageKey = onPageKey; view.tool = tool; view.inkColor = options.color
-                view.answerAreaColor = areaColor; view.showAnswerAreas = showAnswerAreas; view.writingGuides = writingGuides; view.followEnabled = followEnabled; view.writingHand = writingHand; view.documentFollowZoom = followZoom
-                view.onFollowPan = onFollowPan; view.inputBlocked = inputBlocked
-                view.peekRegion = peekRegion
-                view.activeLayer = activeLayer
-                view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
-                view.rulerEnabled = rulerEnabled; view.ruler = ruler; view.onRulerChanged = onRulerChanged; view.eraserPressureEnabled = eraserPressureEnabled; view.scribbleToErase = scribbleToErase; view.scribbleSensitivity = scribbleSensitivity; view.scribbleHold = scribbleHold; view.eraserWholeStroke = eraserWholeStroke; view.shapeMeasurements = shapeMeasurements; view.multiTouchUndo = multiTouchUndo; view.palmRejectMs = palmRejectMs; view.panMultiplier = panMultiplier; view.onEraserFinished = onEraserFinished
-                view.onUndoRequest = onUndo; view.onRedoRequest = onRedo
-                if (zoomWritingPane && writingWindowTarget != null) view.frameWritingWindow(writingWindowTarget)
-                view.onActive = onActive; view.onDocumentPan = onPan; view.onDocumentPanEnd = onPanEnd
-                view.onSelectionChanged = onSelection
-                view.onSelectionViewBounds = onSelectionAnchor
-                view.onTextEdit = onTextEdit; view.onTextCreate = onTextCreate
-                view.selectedImageId = selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
-                view.onImageSelected = onImageSelected
-                view.onImageToolTap = actions.onImageToolTap
-                view.onCropMode = onCropMode; view.onNavigating = onNavigating; view.onLongPress = onLongPress
-                view.pdfLinks = pageLinks
-                view.onPdfLink = onPdfLink
-                view.markZones = pageZones
+            view.zoomWritingPane = surface.zoomWritingPane
+            view.shapeAssistOptions = shapeAssistOptions
+            view.stickyTextSize = stickyTextSize
+            view.bindMutations(actions.mutations, readOnly)
+            view.importantForAccessibility = if (hideFromAccessibility) android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                else android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+            view.isFocusable = !hideFromAccessibility
+            view.contentDescription = if (readOnly) "Reference page. Use the hand or two fingers to pan and zoom. Read only."
+                else "${presentation.pageLabel}. Draw with a pen or finger. Palm touches are ignored while you write with a stylus. Use two fingers to zoom and pan."
+            view.onCanvasViewport = actions.onCanvasViewport; view.onPageEdges = actions.onPageEdges; view.onCanvasZoom = actions.onCanvasZoom
+            if (view.page !== page || view.background !== assets.background || view.imageBitmaps !== assets.pictures) view.bind(page, assets.background, assets.pictures)
+            view.resetCanvas(presentation.canvasReset); view.restoreWorkspaceCamera(presentation.initialViewport)
+            view.onWorkspaceCamera = actions.onCameraChanged; view.readOnly = readOnly; view.pageCamera = presentation.pageCamera; view.onPageKey = actions.onPageKey
+            view.answerAreaColor = areaColor; view.showAnswerAreas = surface.showAnswerAreas; view.writingGuides = assets.guides
+            view.followEnabled = surface.followEnabled; view.writingHand = surface.writingHand; view.documentFollowZoom = surface.followZoom
+            view.onFollowPan = actions.onFollowPan
+            view.peekRegion = presentation.peekRegion
+            view.activeLayer = surface.activeLayer
+            view.onLayerBlocked = { android.widget.Toast.makeText(view.context, "That layer is hidden or locked. Pick another layer to draw.", android.widget.Toast.LENGTH_SHORT).show() }
+            view.rulerEnabled = surface.rulerEnabled; view.ruler = surface.ruler; view.onRulerChanged = actions.onRulerChanged
+            view.onEraserFinished = actions.onEraserFinished
+            view.onUndoRequest = actions.onUndo; view.onRedoRequest = actions.onRedo
+            if (surface.zoomWritingPane && presentation.writingWindowTarget != null) view.frameWritingWindow(presentation.writingWindowTarget)
+            view.onActive = actions.onActive; view.onDocumentPan = actions.onPan; view.onDocumentPanEnd = actions.onPanEnd
+            view.onSelectionChanged = actions.onSelection
+            view.onSelectionViewBounds = actions.onSelectionAnchor
+            view.onTextEdit = actions.onTextEdit; view.onTextCreate = actions.onTextCreate
+            view.selectedImageId = presentation.selectedImageId?.takeIf { id -> page.images.any { it.id == id } }
+            view.onImageSelected = actions.onImageSelected
+            view.onImageToolTap = actions.onImageToolTap
+            view.onCropMode = actions.onCropMode; view.onNavigating = actions.onNavigating; view.onLongPress = actions.onLongPress
+            view.pdfLinks = pageLinks
+            view.onPdfLink = actions.onPdfLink
+            view.markZones = pageZones
             configure(view)
             if (continuous) documentInput?.selectionOn(page.id)?.let(view::bindDocumentSelection)
         },

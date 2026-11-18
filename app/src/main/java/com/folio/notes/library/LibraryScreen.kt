@@ -904,7 +904,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
 }
 
 /** A quiet label above the folder tiles and above the notebooks below them. */
-@Composable private fun LibraryGroupLabel(text: String) {
+@Composable internal fun LibraryGroupLabel(text: String) {
     Text(text, Modifier.padding(top = FolioSpacing.dp4), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 

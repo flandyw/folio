@@ -34,7 +34,12 @@ import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.app.NameDialog
 import com.folio.notes.input.guardUiTouches
+import com.folio.notes.library.FolderTile
+import com.folio.notes.library.LibraryGroupLabel
 import com.folio.notes.library.libraryLastEditedLabel
+import com.folio.notes.ui.FolioActionPopover
+import com.folio.notes.ui.PopoverRow
+import androidx.compose.ui.graphics.Color
 import com.folio.notes.library.semanticsLabel
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioExpand
@@ -74,7 +79,7 @@ import com.folio.notes.ui.FolioSpacing
     LaunchedEffect(sort) { prefs.edit().putString(AppPrefs.MUSIC_SORT, sort.name).apply() }
     var importMenu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
-    var setMenu by remember { mutableStateOf<String?>(null) }
+    var composerMenu by remember { mutableStateOf(false) }
     // Scores waiting to join a set list that is still being named.
     var newSetWith by rememberSaveable { mutableStateOf<List<String>?>(null) }
     var renameSet by rememberSaveable { mutableStateOf<String?>(null) }
@@ -82,7 +87,6 @@ import com.folio.notes.ui.FolioSpacing
     var addScoresTo by rememberSaveable { mutableStateOf<String?>(null) }
     var setsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var folderId by rememberSaveable { mutableStateOf<String?>(null) }
-    var folderMenu by remember { mutableStateOf<String?>(null) }
     // Scores waiting to be filed into a folder that is still being named.
     var newFolderWith by rememberSaveable { mutableStateOf<List<String>?>(null) }
     var renameFolder by rememberSaveable { mutableStateOf<String?>(null) }
@@ -182,38 +186,77 @@ import com.folio.notes.ui.FolioSpacing
                 // Only a new scope starts at the top; returning from a score keeps the position.
                 if (inputs != shelfInputs) { shelfInputs = inputs; gridState.scrollToItem(0) }
             }
+            // Like the notebook shelf: the title names the place, search and view controls sit beside it,
+            // and set lists and folders are tiles above the scores instead of chips.
+            val roomy = maxWidth >= 720.dp
+            val coverWidth = if (maxWidth >= 600.dp) 168.dp else 140.dp
+            val home = selectedSet == null && selectedFolder == null && trimmed.isEmpty() && !filter.active
+            @Composable fun SearchBox(modifier: Modifier) {
+                OutlinedTextField(query, { query = it }, modifier.semanticsLabel("Search scores"),
+                    placeholder = { Text(selectedSet?.let { "Search ${it.name}" } ?: selectedFolder?.let { "Search ${it.name}" } ?: "Search scores, composers, marks",
+                        maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = { Icon(FolioIcons.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; focusManager.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } },
+                    singleLine = true, shape = FolioShapes.panel,
+                    colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color.Transparent,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
+            }
             Column(Modifier.fillMaxSize()) {
-                    FolioScreenHeading("Music") {
-                        Box {
-                            // The same split button the notebook shelf uses for New: tap imports,
-                            // the trailing half holds the other ways to add.
-                            SplitButtonLayout(
-                                leadingButton = { SplitButtonDefaults.LeadingButton(::importPdfs, enabled = ready && !state.busy) {
-                                    Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import")
-                                } },
-                                trailingButton = { SplitButtonDefaults.TrailingButton({ importMenu = true }, enabled = ready) {
-                                    Icon(FolioIcons.DropDown, "More ways to add music")
-                                } },
-                            )
-                            FolioMenuPopover(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add to music") {
-                                FolioMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
-                                    leadingIcon = { Icon(FolioIcons.Pdf, null) }, enabled = !state.busy)
-                                FolioMenuItem({ Text("New folder") }, { importMenu = false; newFolderWith = emptyList() },
-                                    leadingIcon = { Icon(FolioIcons.FolderAdd, null) })
-                                FolioMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
-                                    leadingIcon = { Icon(FolioIcons.ListAdd, null) })
+                FolioScreenHeading(selectedSet?.name ?: selectedFolder?.name ?: if (favorites) "Favorites" else "Music",
+                    leading = if (selectedSet != null || selectedFolder != null) { {
+                        IconButton({ setId = null; folderId = null }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Back to all music") }
+                    } } else null) {
+                    if (ready) {
+                        if (roomy) SearchBox(Modifier.width(300.dp))
+                        // A set list keeps its running order, so sort and covers only apply elsewhere.
+                        if (selectedSet == null) {
+                            Box {
+                                if (roomy) TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) {
+                                    Icon(FolioIcons.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label, maxLines = 1)
+                                } else IconButton({ sortMenu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Sort, "Sort: ${sort.label}") }
+                                if (sortMenu) FolioActionPopover("Sort scores", { sortMenu = false }) {
+                                    MusicSort.entries.forEach { option ->
+                                        PopoverRow(if (sort == option) FolioIcons.Check else null, option.label, selected = sort == option) { sort = option; sortMenu = false }
+                                    }
+                                }
+                            }
+                            IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(if (listView) FolioIcons.Pages else FolioIcons.List, if (listView) "Switch to covers" else "Switch to list")
                             }
                         }
                     }
+                    Box {
+                        // The same split button the notebook shelf uses for New: tap imports,
+                        // the trailing half holds the other ways to add.
+                        SplitButtonLayout(
+                            leadingButton = { SplitButtonDefaults.LeadingButton(::importPdfs, enabled = ready && !state.busy) {
+                                Icon(FolioIcons.Plus, null); if (roomy) { Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import") }
+                            } },
+                            trailingButton = { SplitButtonDefaults.TrailingButton({ importMenu = true }, enabled = ready) {
+                                Icon(FolioIcons.DropDown, "More ways to add music")
+                            } },
+                        )
+                        FolioMenuPopover(importMenu, { importMenu = false }, modifier = Modifier.guardUiTouches(), title = "Add to music") {
+                            FolioMenuItem({ Text("Import sheet music PDFs") }, { importMenu = false; importPdfs() },
+                                leadingIcon = { Icon(FolioIcons.Pdf, null) }, enabled = !state.busy)
+                            FolioMenuItem({ Text("New folder") }, { importMenu = false; newFolderWith = emptyList() },
+                                leadingIcon = { Icon(FolioIcons.FolderAdd, null) })
+                            FolioMenuItem({ Text("New set list") }, { importMenu = false; newSetWith = emptyList() },
+                                leadingIcon = { Icon(FolioIcons.ListAdd, null) })
+                        }
+                    }
+                }
             LazyVerticalGrid(
-                columns = if (rows) GridCells.Fixed(1) else GridCells.Adaptive(144.dp),
+                columns = if (rows) GridCells.Fixed(1) else GridCells.Adaptive(coverWidth),
                 modifier = Modifier.weight(1f).fillMaxWidth(), state = gridState,
                 contentPadding = PaddingValues(start = FolioDestinationInset, end = FolioDestinationInset, bottom = FolioDestinationInset),
-                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12),
-                verticalArrangement = Arrangement.spacedBy(if (rows) FolioSpacing.dp8 else FolioSpacing.dp16),
+                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16),
+                verticalArrangement = Arrangement.spacedBy(if (rows) FolioSpacing.dp8 else FolioSpacing.dp24),
             ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                         FolioExpand(state.busy) {
                             Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                                 Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
@@ -223,83 +266,51 @@ import com.folio.notes.ui.FolioSpacing
                                 }
                             }
                         }
-                        if (ready && !scoped) library.scores.filter { it.opened > 0 }.maxByOrNull { it.opened }?.let { recent ->
-                            Surface(onClick = { open(recent, null) }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
-                                Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                                    ScoreFace(recent, model, Modifier.width(32.dp).height(42.dp), small = true)
-                                    Column(Modifier.weight(1f)) {
-                                        Text(listOf("Continue playing", "page ${recent.page + 1} of ${recent.pages}",
-                                            recent.readingProgressLabel().takeIf { it.isNotEmpty() }, libraryLastEditedLabel(recent.opened))
-                                            .filterNotNull().joinToString(" · "),
-                                            style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(recent.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (recent.readingProgress() > 0f) LinearProgressIndicator(progress = { recent.readingProgress() },
-                                            modifier = Modifier.fillMaxWidth().padding(top = FolioSpacing.dp6).height(4.dp))
-                                    }
-                                    Icon(FolioIcons.Play, "Open the score you played last")
-                                }
-                            }
-                        }
                         if (ready) {
-                            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().semanticsLabel("Search scores"),
-                                placeholder = { Text("Find scores, composers, notes or marks…") },
-                                leadingIcon = { Icon(FolioIcons.Search, null) },
-                                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; focusManager.clearFocus() }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Clear search") } },
-                                singleLine = true, shape = FolioShapes.extraLarge,
-                                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
-                            // Set lists sit where folders do on the notebook shelf, menu and all.
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                FilterChip(selectedSet == null && !favorites && selectedFolder == null && !filter.active, { setId = null; favorites = false; folderId = null; annotatedOnly = false; unfinishedOnly = false; composer = null }, { Text("All scores") },
+                            if (!roomy) SearchBox(Modifier.fillMaxWidth())
+                            // Quick filters only; places (set lists, folders) are tiles below.
+                            if (selectedSet == null) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                FilterChip(!filter.active, ::clearFilters,
+                                    { Text(if (selectedFolder == null) "All · ${library.scores.size}" else "All") },
                                     leadingIcon = { Icon(FolioIcons.MusicLibrary, null, Modifier.size(16.dp)) })
-                                FilterChip(selectedSet == null && favorites, { setId = null; folderId = null; favorites = !favorites },
+                                FilterChip(favorites, { favorites = !favorites },
                                     { Text(if (starredCount > 0) "Favorites · $starredCount" else "Favorites") },
                                     leadingIcon = { Icon(FolioIcons.Star, null, Modifier.size(16.dp)) })
-                                FilterChip(annotatedOnly, { annotatedOnly = !annotatedOnly; setId = null }, { Text("Annotated") },
+                                FilterChip(annotatedOnly, { annotatedOnly = !annotatedOnly }, { Text("Annotated") },
                                     leadingIcon = { Icon(FolioIcons.Pen, null, Modifier.size(16.dp)) })
-                                FilterChip(unfinishedOnly, { unfinishedOnly = !unfinishedOnly; setId = null }, { Text("Unfinished") },
+                                FilterChip(unfinishedOnly, { unfinishedOnly = !unfinishedOnly }, { Text("Unfinished") },
                                     leadingIcon = { Icon(FolioIcons.Pending, null, Modifier.size(16.dp)) })
-                                library.folders.forEach { folder -> Box {
-                                    FilterChip(folder.id == folderId && selectedSet == null, { setId = null; favorites = false; folderId = if (folder.id == folderId) null else folder.id },
-                                        { Text("${folder.name} · ${library.scores.count { it.folder == folder.id }}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                        leadingIcon = { Icon(if (folder.id == folderId) FolioIcons.FolderOpen else FolioIcons.Folder, null, Modifier.size(16.dp)) },
-                                        trailingIcon = {
-                                            IconButton({ folderMenu = folder.id }, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) {
-                                                Icon(FolioIcons.MoreVertical, "Options for ${folder.name}", Modifier.size(18.dp))
-                                            }
-                                        })
-                                    FolioMenuPopover(folderMenu == folder.id, { folderMenu = null }, modifier = Modifier.guardUiTouches(), title = "Folder") {
-                                        FolioMenuItem({ Text("Rename folder") }, { folderMenu = null; renameFolder = folder.id }, leadingIcon = { Icon(FolioIcons.Pen, null) })
-                                        FolioMenuItem({ Text("Delete folder") }, { folderMenu = null; deleteFolder = folder.id }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
+                                // One chip for every composer, so a large shelf doesn't grow an endless row.
+                                if (composers.size > 1) Box {
+                                    FilterChip(composer != null, { composerMenu = true }, { Text(composer ?: "Composer", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        leadingIcon = { Icon(FolioIcons.Person, null, Modifier.size(16.dp)) },
+                                        trailingIcon = { Icon(FolioIcons.DropDown, null, Modifier.size(16.dp)) })
+                                    if (composerMenu) FolioActionPopover("Composer", { composerMenu = false }) {
+                                        if (composer != null) PopoverRow(FolioIcons.FilterOff, "Any composer") { composer = null; composerMenu = false }
+                                        composers.forEach { name ->
+                                            val picked = composer.equals(name, true)
+                                            PopoverRow(if (picked) FolioIcons.Check else null, name, selected = picked) { composer = if (picked) null else name; composerMenu = false }
+                                        }
                                     }
-                                } }
-                                library.sets.forEach { set -> Box {
-                                    FilterChip(set.id == setId, { setId = if (set.id == setId) null else set.id; favorites = false; folderId = null },
-                                        { Text("${set.name} · ${set.scores.size}") },
-                                        leadingIcon = { Icon(FolioIcons.QueueMusic, null, Modifier.size(16.dp)) },
-                                        trailingIcon = {
-                                            IconButton({ setMenu = set.id }, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) {
-                                                Icon(FolioIcons.MoreVertical, "Options for ${set.name}", Modifier.size(18.dp))
-                                            }
-                                        })
-                                    FolioMenuPopover(setMenu == set.id, { setMenu = null }, modifier = Modifier.guardUiTouches(), title = "Set list") {
-                                        FolioMenuItem({ Text("Rename set list") }, { setMenu = null; renameSet = set.id }, leadingIcon = { Icon(FolioIcons.Pen, null) })
-                                        FolioMenuItem({ Text("Duplicate set list") }, { setMenu = null; model.newSet("${set.name} copy", set.scores) }, leadingIcon = { Icon(FolioIcons.Copy, null) })
-                                        FolioMenuItem({ Text("Delete set list") }, { setMenu = null; deleteSet = set.id }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
-                                    }
-                                } }
-                                AssistChip({ newFolderWith = emptyList() }, { Text("New folder") }, leadingIcon = { Icon(FolioIcons.FolderAdd, null, Modifier.size(16.dp)) })
-                                AssistChip({ newSetWith = emptyList() }, { Text("New set list") }, leadingIcon = { Icon(FolioIcons.Plus, null, Modifier.size(16.dp)) })
-                                // Composers become their own filters once a shelf holds more than one voice.
-                                if (composers.size > 1) composers.forEach { name ->
-                                    FilterChip(composer.equals(name, true), { setId = null; composer = if (composer.equals(name, true)) null else name },
-                                        { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                        leadingIcon = { Icon(FolioIcons.Person, null, Modifier.size(16.dp)) })
                                 }
-                                if (filter.active) AssistChip(::clearFilters, { Text("Clear filters") },
-                                    leadingIcon = { Icon(FolioIcons.FilterOff, null, Modifier.size(16.dp)) })
+                            }
+                            if (home) library.scores.filter { it.opened > 0 }.maxByOrNull { it.opened }?.let { recent ->
+                                Surface(onClick = { open(recent, null) }, shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
+                                    Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                                        ScoreFace(recent, model, Modifier.width(56.dp).height(74.dp), small = true)
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+                                            Text("Continue playing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                            Text(recent.displayTitle(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(listOf("Page ${recent.page + 1} of ${recent.pages}", recent.readingProgressLabel().takeIf { it.isNotEmpty() },
+                                                libraryLastEditedLabel(recent.opened)).filterNotNull().joinToString(" · "),
+                                                style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if (recent.readingProgress() > 0f) LinearProgressIndicator(progress = { recent.readingProgress() },
+                                                modifier = Modifier.fillMaxWidth().padding(top = FolioSpacing.dp6).height(4.dp))
+                                        }
+                                        FilledIconButton({ open(recent, null) }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Play, "Open the score you played last") }
+                                    }
+                                }
                             }
                             if (selectedSet != null) SetHeader(selectedSet, library,
                                 onPlay = { selectedSet.scoresIn(library).firstOrNull()?.let { open(it, selectedSet.id) } },
@@ -307,30 +318,45 @@ import com.folio.notes.ui.FolioSpacing
                                 onReverse = { model.set(selectedSet.id) { it.reversedOrder() } },
                                 onShuffle = { model.set(selectedSet.id) { it.copy(scores = shuffledOrder(it.scores)) } },
                                 onShare = { shareSet(selectedSet) })
-                            else Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (trimmed.isNotEmpty()) "Search results" else if (selectedFolder != null) selectedFolder.name else if (favorites) "Favorites" else "Your scores", Modifier.weight(1f),
-                                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.width(FolioSpacing.dp8))
-                                Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier.semanticsLabel("${countOf(shown.size, "score")}, ${countOf(shelfPages, "page")}, ${countOf(shelfMarks, "pencil mark")}")) {
-                                    Text("${shown.size}", Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4),
-                                        style = MaterialTheme.typography.labelSmall)
-                                }
-                                Box {
-                                    TextButton({ sortMenu = true }, shapes = ButtonDefaults.shapes(), modifier = Modifier.semanticsLabel("Sort: ${sort.label}")) {
-                                        Icon(FolioIcons.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text(sort.label, maxLines = 1)
-                                    }
-                                    FolioMenuPopover(sortMenu, { sortMenu = false }, modifier = Modifier.guardUiTouches(), title = "Sort scores") {
-                                        MusicSort.entries.forEach { option ->
-                                            FolioMenuItem({ Text(option.label) }, { sort = option; sortMenu = false }, selected = sort == option)
-                                        }
-                                    }
-                                }
-                                IconButton({ listView = !listView }, shapes = IconButtonDefaults.shapes()) {
-                                    Icon(if (listView) FolioIcons.Pages else FolioIcons.List, if (listView) "Switch to covers" else "Switch to list")
-                                }
-                            }
                         }
+                    }
+                }
+                // Tiles span two cover columns on a wide shelf, the whole row otherwise.
+                fun tileSpan(maxLineSpan: Int) = GridItemSpan(if (rows || maxLineSpan < 4) maxLineSpan else 2)
+                if (ready && home && (library.scores.isNotEmpty() || library.sets.isNotEmpty())) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "sets-label") {
+                        ShelfGroupLabel("Set lists") { TextButton({ newSetWith = emptyList() }, shapes = ButtonDefaults.shapes()) {
+                            Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("New set list")
+                        } }
+                    }
+                    items(library.sets, key = { "set:${it.id}" }, span = { tileSpan(maxLineSpan) }) { set ->
+                        FolderTile(set.name, icon = FolioIcons.QueueMusic, onClick = { setId = set.id },
+                            detail = listOf(countOf(set.scores.size, "score"), if (set.scores.isEmpty()) null else "≈${set.estimatedMinutes(library)} min").filterNotNull().joinToString(" · "),
+                            menu = { close ->
+                                PopoverRow(FolioIcons.Play, "Play set", enabled = set.scores.isNotEmpty()) { close(); set.scoresIn(library).firstOrNull()?.let { open(it, set.id) } }
+                                PopoverRow(FolioIcons.Pen, "Rename set list") { close(); renameSet = set.id }
+                                PopoverRow(FolioIcons.Copy, "Duplicate set list") { close(); model.newSet("${set.name} copy", set.scores) }
+                                PopoverRow(FolioIcons.Delete, "Delete set list", destructive = true) { close(); deleteSet = set.id }
+                            })
+                    }
+                    if (library.folders.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "folders-label") {
+                            ShelfGroupLabel("Folders") { TextButton({ newFolderWith = emptyList() }, shapes = ButtonDefaults.shapes()) {
+                                Icon(FolioIcons.Plus, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp4)); Text("New folder")
+                            } }
+                        }
+                        items(library.folders, key = { "folder:${it.id}" }, span = { tileSpan(maxLineSpan) }) { folder ->
+                            FolderTile(folder.name, detail = countOf(library.scores.count { it.folder == folder.id }, "score"), onClick = { folderId = folder.id },
+                                menu = { close ->
+                                    PopoverRow(FolioIcons.Pen, "Rename folder") { close(); renameFolder = folder.id }
+                                    PopoverRow(FolioIcons.Delete, "Delete folder", destructive = true) { close(); deleteFolder = folder.id }
+                                })
+                        }
+                    }
+                }
+                if (ready && selectedSet == null && shown.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "scores-label") {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semanticsLabel("${countOf(shown.size, "score")}, ${countOf(shelfPages, "page")}, ${countOf(shelfMarks, "pencil mark")}")) {
+                        LibraryGroupLabel(if (trimmed.isNotEmpty()) "Search results · ${shown.size}" else "Scores · ${shown.size}")
                     }
                 }
                 when {
@@ -501,6 +527,14 @@ import com.folio.notes.ui.FolioSpacing
                 }
             }
         }
+    }
+}
+
+/** A shelf section's label, with its one create action at the end of the line. */
+@Composable private fun ShelfGroupLabel(text: String, action: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { LibraryGroupLabel(text) }
+        action()
     }
 }
 

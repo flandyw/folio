@@ -165,20 +165,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     val prefs = context.getSharedPreferences("ink-tools", 0)
     val appPrefs = context.getSharedPreferences("preferences", 0)
     val preferences by rememberEditorPreferences(appPrefs, shapeRecognitionSetting)
-    val palmRejectMs = preferences.palmRejectMs
-    val panMultiplier = preferences.panMultiplier
     val pageFollowEnabled = preferences.pageFollowEnabled
-    val snapEnabled = preferences.snapEnabled
-    val shapeRecognition = preferences.shapeRecognition
     val eraserSingleStroke = preferences.eraserSingleStroke
-    val eraserPressure = preferences.eraserPressure
-    val scribbleToErase = preferences.scribbleToErase
-    val scribbleSensitivity = preferences.scribbleSensitivity
-    val scribbleHold = preferences.scribbleHold
     val eraserWholeStroke = preferences.eraserWholeStroke
-    val shapeMeasurements = preferences.shapeMeasurements
-    val multiTouchUndo = preferences.multiTouchUndo
-    val graphStyle = preferences.graphStyle
     val singlePage = preferences.singlePage
     var commandPalette by remember { mutableStateOf(false) }
     var gestureGuide by remember { mutableStateOf(false) }
@@ -908,23 +897,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         if (zoomPaneOpen && tool in setOf(Tool.TEXT, Tool.LASSO, Tool.MARK_AREA, Tool.STICKY_NOTE, Tool.LASER)) closeZoomPane()
     }
     val inputTool = if (temporaryTool != null) Tool.HAND else tool
-    val sharedSurface = InkSurfaceConfig(tool = inputTool,
-        options = options,
-        toolOptionsFor = editor.tools::optionsFor,
-        finger = finger,
-        snapEnabled = snapEnabled,
-        shapeRecognition = shapeRecognition,
-        eraserPressureEnabled = eraserPressure,
-        scribbleToErase = scribbleToErase,
-        scribbleSensitivity = scribbleSensitivity,
-        scribbleHold = scribbleHold,
-        eraserWholeStroke = eraserWholeStroke,
-        shapeMeasurements = shapeMeasurements,
-        multiTouchUndo = multiTouchUndo,
-        graphStyle = graphStyle,
-        palmRejectMs = palmRejectMs,
-        panMultiplier = panMultiplier,
-        inkStyle = options.style)
+    val sharedSurface = preferences.inkSurface(inputTool, options, finger, editor.tools::optionsFor)
     // Split view's other pane writes with this same pen, so there is never a second toolbar.
     LocalSharedInk.current?.let { shared -> SideEffect { shared.value = sharedSurface } }
     val keyboardWindowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
