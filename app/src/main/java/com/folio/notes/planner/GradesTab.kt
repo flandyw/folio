@@ -65,6 +65,7 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
     var resultSort by rememberSaveable { mutableStateOf(GradesSort.NEWEST.label) }
     val resultSubjects = remember(exams) { gradesSubjects(exams) }
     val results = remember(exams, resultSubject, resultSort) { gradesResults(exams, resultSubject, GradesSort.of(resultSort)) }
+    val comparable = remember(references) { references.map { it.subject to comparisonName(it.paper) }.toSet() }
     val uri = LocalUriHandler.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -111,15 +112,16 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
                 }
             }
             items(results, key = { "result-${it.id}" }) { exam ->
+                val canCompare = exam.subject to comparisonName(exam.paper) in comparable
                 Surface({
-                    if (exam.subject in subjects) { pickedSubject = exam.subject; pickedPaper = comparisonName(exam.paper) }
+                    pickedSubject = exam.subject; pickedPaper = comparisonName(exam.paper)
                     scoreText = "%.1f".format(exam.percentage)
                     scope.launch { listState.animateScrollToItem(0) }
-                }, Modifier.fillMaxWidth(), shape = com.folio.notes.ui.FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                }, Modifier.fillMaxWidth(), enabled = canCompare, shape = com.folio.notes.ui.FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Text("${exam.subject} · ${paperLabel(exam.paper)} · ${"%.1f".format(exam.percentage)}%", style = MaterialTheme.typography.titleMedium)
                         Text("${listOf(exam.provider, "${exam.examYear}").filter { it.isNotBlank() }.joinToString(" ")} · ${mark(exam.rawScore)}/${mark(exam.rawMax)} · ${exam.date ?: exam.completedAt}", style = MaterialTheme.typography.bodySmall)
-                        Text("Tap to compare this mark", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (canCompare) Text("Tap to compare this mark", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
