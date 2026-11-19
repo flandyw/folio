@@ -89,22 +89,6 @@ internal fun TimingPanel(
 /** The exam-condition timer: a preset, a live countdown with reading and writing phases, and stop. */
 @Composable
 internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) -> Unit, onStop: (Int?) -> Unit, onAdjust: (Int) -> Unit, onSkip: () -> Unit, onPauseResume: () -> Unit) {
-    var previousTimer by remember { mutableStateOf<ExamTimerState?>(null) }
-    LaunchedEffect(timer) {
-        val warn = timer.crossedFinalWarning(previousTimer)
-        previousTimer = timer
-        if (warn) {
-            val tone = runCatching { android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 12) }.getOrNull()
-            tone?.let { player ->
-                try {
-                    runCatching { player.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 100) }
-                    kotlinx.coroutines.delay(180)
-                } finally {
-                    player.release()
-                }
-            }
-        }
-    }
     val context = androidx.compose.ui.platform.LocalContext.current
     val timerPrefs = remember(context) { context.getSharedPreferences("preferences", 0) }
     val defaultCustom = AppPrefs.timerCustomMinutes(timerPrefs.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { timerPrefs.contains(AppPrefs.TIMER_CUSTOM_MIN) })

@@ -77,4 +77,21 @@ class ExamTimerTest {
         assertFalse(done.crossedFinalWarning(warning))
         assertFalse(warning.copy(remaining = 0).inFinalMinutes)
     }
+
+    @Test fun managerTickSequenceWarnsOnceAndAdjustmentRearms() {
+        var prior = timer()
+        var crossings = 0
+        for (seconds in 1..400) {
+            val next = prior.tick(start + seconds * 1000L)
+            if (next.crossedFinalWarning(prior)) crossings++
+            prior = next
+        }
+        assertEquals(1, crossings)
+        val now = start + 400_000
+        val extended = prior.adjust(300, now)
+        assertFalse(extended.crossedFinalWarning(prior))
+        val adjusted = extended.adjust(-300, now)
+        assertTrue(adjusted.crossedFinalWarning(extended))
+        assertFalse(adjusted.tick(now + 1000).crossedFinalWarning(adjusted))
+    }
 }
