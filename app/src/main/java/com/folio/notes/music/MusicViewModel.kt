@@ -125,6 +125,7 @@ internal class MusicViewModel(application: Application) : AndroidViewModel(appli
         s.copy(scores = ids)
     }
     fun newSet(name: String, scores: List<String> = emptyList()) = edit { it.copy(sets = it.sets + MusicSet(UUID.randomUUID().toString(), name.trim(), scores)) }
+    fun duplicateSet(id: String) = edit { it.withDuplicatedSet(id, UUID.randomUUID().toString()) }
     fun set(id: String, change: (MusicSet) -> MusicSet) = edit { it.copy(sets = it.sets.map { s -> if (s.id == id) change(s) else s }) }
     fun deleteSet(id: String) = edit { it.copy(sets = it.sets.filterNot { s -> s.id == id }) }
     fun newFolder(name: String, scores: List<String> = emptyList()) = edit { library ->

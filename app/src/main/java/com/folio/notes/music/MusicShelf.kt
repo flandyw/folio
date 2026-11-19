@@ -101,6 +101,15 @@ internal fun previousMark(page: Int, marks: List<MusicMark>): MusicMark? =
 internal fun MusicSet.scoresIn(library: MusicLibrary): List<MusicScore> =
     scores.mapNotNull { id -> library.scores.find { it.id == id } }
 
+internal fun MusicLibrary.withDuplicatedSet(sourceId: String, newId: String): MusicLibrary {
+    val source = sets.find { it.id == sourceId } ?: return this
+    val names = sets.mapTo(sortedSetOf(String.CASE_INSENSITIVE_ORDER)) { it.name }
+    val name = generateSequence(1) { it + 1 }
+        .map { if (it == 1) "${source.name} (copy)" else "${source.name} (copy $it)" }
+        .first { it !in names }
+    return copy(sets = sets + source.copy(id = newId, name = name))
+}
+
 /** Total printed pages a set list holds, the number that decides how heavy the folder is. */
 internal fun MusicSet.totalPages(library: MusicLibrary): Int = scoresIn(library).sumOf { it.pages }
 

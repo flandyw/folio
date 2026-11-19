@@ -315,6 +315,7 @@ import com.folio.notes.ui.FolioSpacing
                             if (selectedSet != null) SetHeader(selectedSet, library,
                                 onPlay = { selectedSet.scoresIn(library).firstOrNull()?.let { open(it, selectedSet.id) } },
                                 onAdd = { addScoresTo = selectedSet.id }, onRename = { renameSet = selectedSet.id }, onDelete = { deleteSet = selectedSet.id },
+                                onDuplicate = { model.duplicateSet(selectedSet.id) },
                                 onReverse = { model.set(selectedSet.id) { it.reversedOrder() } },
                                 onShuffle = { model.set(selectedSet.id) { it.copy(scores = shuffledOrder(it.scores)) } },
                                 onShare = { shareSet(selectedSet) })
@@ -335,7 +336,7 @@ import com.folio.notes.ui.FolioSpacing
                             menu = { close ->
                                 PopoverRow(FolioIcons.Play, "Play set", enabled = set.scores.isNotEmpty()) { close(); set.scoresIn(library).firstOrNull()?.let { open(it, set.id) } }
                                 PopoverRow(FolioIcons.Pen, "Rename set list") { close(); renameSet = set.id }
-                                PopoverRow(FolioIcons.Copy, "Duplicate set list") { close(); model.newSet("${set.name} copy", set.scores) }
+                                PopoverRow(FolioIcons.Copy, "Duplicate set list") { close(); model.duplicateSet(set.id) }
                                 PopoverRow(FolioIcons.Delete, "Delete set list", destructive = true) { close(); deleteSet = set.id }
                             })
                     }
@@ -484,7 +485,7 @@ import com.folio.notes.ui.FolioSpacing
 
 /** The selected set list as a hero card: what it is, how long it runs, and the way to start it. */
 @Composable private fun SetHeader(set: MusicSet, library: MusicLibrary, onPlay: () -> Unit, onAdd: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit,
-    onReverse: () -> Unit, onShuffle: () -> Unit, onShare: () -> Unit) {
+    onDuplicate: () -> Unit, onReverse: () -> Unit, onShuffle: () -> Unit, onShare: () -> Unit) {
     val scores = set.scoresIn(library)
     var menu by remember { mutableStateOf(false) }
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -506,6 +507,7 @@ import com.folio.notes.ui.FolioSpacing
                     IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Set list options") }
                     FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Set list") {
                         FolioMenuItem({ Text("Rename set list") }, { menu = false; onRename() }, leadingIcon = { Icon(FolioIcons.Pen, null) })
+                        FolioMenuItem({ Text("Duplicate set list") }, { menu = false; onDuplicate() }, leadingIcon = { Icon(FolioIcons.Copy, null) })
                         FolioMenuItem({ Text("Delete set list") }, { menu = false; onDelete() }, leadingIcon = { Icon(FolioIcons.Delete, null) }, destructive = true)
                     }
                 }
