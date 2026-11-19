@@ -27,6 +27,7 @@ import com.folio.notes.pdf.PdfPageText
 import com.folio.notes.pdf.PdfSearch
 import com.folio.notes.pdf.PdfSearchHit
 import com.folio.notes.pdf.ReferenceSearchPanel
+import com.folio.notes.pdf.ReferenceContentsPanel
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.settings.write
@@ -140,35 +141,11 @@ import kotlinx.coroutines.withContext
         onDismiss = { pdfSearchOpen = false },
         onFindNotes = { pdfSearchOpen = false; noteSearchOpen = true }
     )
-    if (pdfContentsOpen) FolioPanel(title = "Contents", onDismissRequest = { pdfContentsOpen = false }) {
-        val outline = pdfOutline
-        if (outline == null) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                LoadingIndicator(Modifier.size(24.dp).semanticsLabel("Loading contents"))
-                Text("Reading bookmarks…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else if (outline.isEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                Icon(FolioIcons.Bullets, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(bottom = FolioSpacing.dp16), contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                itemsIndexed(outline) { _, entry ->
-                    Surface(onClick = { jumpTo(entry.pageIndex); pdfContentsOpen = false }, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-                        Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp16 + FolioSpacing.dp16 * entry.depth.coerceIn(0, 3), end = FolioSpacing.dp16, top = FolioSpacing.dp10, bottom = FolioSpacing.dp10), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                                Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Icon(FolioIcons.Forward, "Open ${entry.title}")
-                        }
-                    }
-                }
-            }
-        }
-    }
+    if (pdfContentsOpen) ReferenceContentsPanel(
+        outline = pdfOutline,
+        onOpen = { jumpTo(it); pdfContentsOpen = false },
+        onDismiss = { pdfContentsOpen = false }
+    )
 }
 
 /** Steps through search results above the pages: tap the caption to refine, arrows to move, × to finish. */

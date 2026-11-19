@@ -12,6 +12,24 @@ object PdfOutline {
     const val MAX_DEPTH = 8
     const val MAX_ENTRIES = 2000
 
+    /** Keeps matching titles and their ancestors in the original reading order. */
+    fun filter(entries: List<PdfOutlineEntry>, query: String): List<PdfOutlineEntry> {
+        if (query.isEmpty()) return entries
+        val visible = BooleanArray(entries.size)
+        val ancestors = mutableListOf<Int>()
+        entries.forEachIndexed { index, entry ->
+            while (ancestors.isNotEmpty() && entries[ancestors.last()].depth >= entry.depth) {
+                ancestors.removeAt(ancestors.lastIndex)
+            }
+            if (entry.title.contains(query, ignoreCase = true)) {
+                visible[index] = true
+                ancestors.forEach { visible[it] = true }
+            }
+            ancestors.add(index)
+        }
+        return entries.filterIndexed { index, _ -> visible[index] }
+    }
+
     /** Drops blank titles and out-of-range jumps, so a damaged outline cannot break navigation. */
     fun sanitize(entries: List<PdfOutlineEntry>, pageCount: Int): List<PdfOutlineEntry> =
         entries.take(MAX_ENTRIES).map {
