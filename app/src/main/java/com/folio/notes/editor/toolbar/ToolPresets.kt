@@ -35,6 +35,22 @@ object ToolPresets {
 
     fun normalizedName(name: String): String = name.trim().take(MAX_NAME)
 
+    fun renameError(presets: List<ToolPreset>, id: String, name: String): String? {
+        val trimmed = normalizedName(name)
+        return when {
+            presets.none { it.id == id } -> "This preset no longer exists."
+            trimmed.isEmpty() -> "Enter a preset name."
+            presets.any { it.id != id && it.name.equals(trimmed, ignoreCase = true) } ->
+                "Another preset already has this name."
+            else -> null
+        }
+    }
+
+    fun rename(presets: List<ToolPreset>, id: String, name: String): List<ToolPreset>? {
+        if (renameError(presets, id, name) != null) return null
+        return presets.map { if (it.id == id) it.copy(name = normalizedName(name)) else it }
+    }
+
     fun encode(presets: List<ToolPreset>): String = JSONArray().apply {
         presets.forEach { preset ->
             put(JSONObject().apply {
@@ -112,6 +128,14 @@ class ToolPresetState(private val prefs: SharedPreferences) {
             _presets.none { it.name.equals(preset.name, ignoreCase = true) }
         ) return false
         val updated = ToolPresets.upsert(_presets.toList(), preset)
+        _presets.clear()
+        _presets.addAll(updated)
+        persist()
+        return true
+    }
+
+    fun rename(id: String, name: String): Boolean {
+        val updated = ToolPresets.rename(_presets.toList(), id, name) ?: return false
         _presets.clear()
         _presets.addAll(updated)
         persist()
