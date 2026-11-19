@@ -36,20 +36,26 @@ import com.folio.notes.ui.FolioSpacing
 }
 
 /** Whether the Score details draft would save something different; Save trims, so whitespace alone is no edit. */
-internal fun MusicScore.detailsEdited(title: String, composer: String, part: String, notes: String) =
-    title.trim() != this.title.trim() || composer.trim() != this.composer.trim() || part.trim() != this.part.trim() || notes.trim() != this.notes.trim()
+internal fun MusicScore.detailsEdited(title: String, composer: String, part: String, notes: String,
+    duration: String = durationSeconds?.let { musicDurationText(it.toLong()) }.orEmpty()) =
+    title.trim() != this.title.trim() || composer.trim() != this.composer.trim() || part.trim() != this.part.trim() || notes.trim() != this.notes.trim() ||
+        (duration.isNotBlank() && parseMusicDuration(duration) == null) || parseMusicDuration(duration) != durationSeconds
 
-@Composable internal fun ScoreDetailsPanel(score: MusicScore, dismiss: () -> Unit, save: (String, String, String, String) -> Unit) {
+@Composable internal fun ScoreDetailsPanel(score: MusicScore, dismiss: () -> Unit, save: (String, String, String, String, Int?) -> Unit) {
     var title by rememberSaveable(score.id) { mutableStateOf(score.title) }
     var composer by rememberSaveable(score.id) { mutableStateOf(score.composer) }
     var part by rememberSaveable(score.id) { mutableStateOf(score.part) }
     var notes by rememberSaveable(score.id) { mutableStateOf(score.notes) }
+    var duration by rememberSaveable(score.id) { mutableStateOf(score.durationSeconds?.let { musicDurationText(it.toLong()) }.orEmpty()) }
     val composerFocus = remember { FocusRequester() }
     val partFocus = remember { FocusRequester() }
     var discard by rememberSaveable(score.id) { mutableStateOf(false) }
-    fun submit() { if (title.isNotBlank()) save(title.trim(), composer.trim(), part.trim(), notes.trim()) }
+    val durationSeconds = parseMusicDuration(duration)
+    val invalidDuration = duration.isNotBlank() && durationSeconds == null
+    val canSave = title.isNotBlank() && !invalidDuration
+    fun submit() { if (canSave) save(title.trim(), composer.trim(), part.trim(), notes.trim(), durationSeconds) }
     fun canDismiss(): Boolean {
-        val edited = score.detailsEdited(title, composer, part, notes)
+        val edited = score.detailsEdited(title, composer, part, notes, duration)
         if (edited) discard = true
         return !edited
     }
@@ -70,11 +76,17 @@ internal fun MusicScore.detailsEdited(title: String, composer: String, part: Str
                     keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }))
             }
+            OutlinedTextField(duration, { duration = it }, Modifier.fillMaxWidth(), label = { Text("Duration (optional)") },
+                placeholder = { Text("e.g. 3:45") }, singleLine = true, isError = invalidDuration,
+                supportingText = { Text(if (invalidDuration) "Enter a duration greater than zero as minutes:seconds (e.g. 3:45)."
+                    else "Minutes:seconds. Leave blank to estimate at ${MUSIC_ESTIMATE_SECONDS_PER_PAGE}s/page.") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }))
             OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Rehearsal notes") }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
                 placeholder = { Text("Bowings, cuts, who to watch for the cue…") }, minLines = 4)
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
                 TextButton({ if (canDismiss()) dismiss() }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
-                Button(::submit, enabled = title.isNotBlank(), shapes = ButtonDefaults.shapes()) { Text("Save") }
+                Button(::submit, enabled = canSave, shapes = ButtonDefaults.shapes()) { Text("Save") }
             }
         }
     }

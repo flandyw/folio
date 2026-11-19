@@ -331,7 +331,7 @@ import com.folio.notes.ui.FolioSpacing
                     }
                     items(library.sets, key = { "set:${it.id}" }, span = { tileSpan(maxLineSpan) }) { set ->
                         FolderTile(set.name, icon = FolioIcons.QueueMusic, onClick = { setId = set.id },
-                            detail = listOf(countOf(set.scores.size, "score"), if (set.scores.isEmpty()) null else "≈${set.estimatedMinutes(library)} min").filterNotNull().joinToString(" · "),
+                            detail = listOfNotNull(set.scoresIn(library).setDurationText(), countOf(set.scores.size, "score")).joinToString(" · "),
                             menu = { close ->
                                 PopoverRow(FolioIcons.Play, "Play set", enabled = set.scores.isNotEmpty()) { close(); set.scoresIn(library).firstOrNull()?.let { open(it, set.id) } }
                                 PopoverRow(FolioIcons.Pen, "Rename set list") { close(); renameSet = set.id }
@@ -472,8 +472,8 @@ import com.folio.notes.ui.FolioSpacing
             "Delete score", { deleteScore = null }) { model.delete(score.id); folio.deleteMusicScore(score.id); deleteScore = null }
     }
     library.scores.find { it.id == details }?.let { score ->
-        ScoreDetailsPanel(score, { details = null }) { title, composer, part, notes ->
-            model.score(score.id) { it.copy(title = title, composer = composer, part = part, notes = notes) }; details = null
+        ScoreDetailsPanel(score, { details = null }) { title, composer, part, notes, durationSeconds ->
+            model.score(score.id) { it.copy(title = title, composer = composer, part = part, notes = notes, durationSeconds = durationSeconds) }; details = null
         }
     }
     library.sets.find { it.id == addScoresTo }?.let { set -> AddScoresPanel(set, library.scores, model) { addScoresTo = null } }
@@ -496,9 +496,11 @@ import com.folio.notes.ui.FolioSpacing
                 Column(Modifier.weight(1f)) {
                     Text("Set list", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(set.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(listOf("${scores.size} ${if (scores.size == 1) "score" else "scores"}", countOf(scores.sumOf { it.pages }, "page"),
-                        if (scores.isEmpty()) null else "≈${set.estimatedMinutes(library)} min").filterNotNull().joinToString(" · "),
+                    Text("${countOf(scores.size, "score")} · ${countOf(scores.sumOf { it.pages }, "page")}",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    scores.setDurationText()?.let {
+                        Text("Duration: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 Box {
                     IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Set list options") }
