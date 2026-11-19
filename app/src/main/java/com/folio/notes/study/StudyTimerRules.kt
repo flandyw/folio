@@ -97,6 +97,37 @@ internal fun focalStudyStreak(entries: List<FocalStudyEntry>, now: Long, zone: Z
     return streak
 }
 
+/** Longest run of local days with positive measured study, across all history up to [now]. */
+internal fun focalLongestStudyStreak(entries: List<FocalStudyEntry>, now: Long, zone: ZoneId): Int {
+    val days = sortedSetOf<LocalDate>()
+    focalCountedStudy(entries).forEach { entry ->
+        val end = if (entry.active && !entry.paused) now else minOf(entry.endedAt, now)
+        val from = entry.intervals.minOfOrNull { it.startAt }
+            ?: maxOf(entry.startedAt, end - entry.activeMillis.coerceIn(0L, MAX_REPORTED_SESSION_MILLIS))
+        var day = Instant.ofEpochMilli(from).atZone(zone).toLocalDate()
+        val last = Instant.ofEpochMilli(end).atZone(zone).toLocalDate()
+        while (!day.isAfter(last)) {
+            if (focalMeasuredMillisBetween(entry, startOf(day, zone), minOf(now, startOf(day.plusDays(1), zone))) > 0L) days.add(day)
+            day = day.plusDays(1)
+        }
+    }
+    var longest = 0
+    var run = 0
+    var previous: LocalDate? = null
+    days.forEach { day ->
+        run = if (previous?.plusDays(1) == day) run + 1 else 1
+        longest = maxOf(longest, run)
+        previous = day
+    }
+    return longest
+}
+
+/** Daily average over the last seven local calendar days, including today, rounded to minutes. */
+internal fun focalLastSevenDaysDailyAverageMinutes(entries: List<FocalStudyEntry>, now: Long, zone: ZoneId): Long {
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    return studyRoundedMinutes(focalStudyMillisBetween(entries, startOf(today.minusDays(6), zone), now) / 7)
+}
+
 /** The plan list's time filters. */
 internal enum class PlanScope(val label: String) { ALL("All"), TODAY("Today"), OVERDUE("Overdue"), UPCOMING("Upcoming") }
 

@@ -77,6 +77,39 @@ class StudyTimerRulesTest {
         assertEquals(0, focalStudyStreak(listOf(plan(listOf(FocalStudyInterval(at(20, 9), at(20, 10))))), at(21, 8), zone))
     }
 
+    @Test fun longestStreakKeepsHistoricalRunsAcrossGapsAndAnUnstudiedToday() {
+        val entries = listOf(10, 11, 12, 18, 19, 20).map { day -> done("$day", at(day, 9), at(day, 10)) }
+        assertEquals(3, focalLongestStudyStreak(entries.reversed(), at(21, 8), zone))
+        assertEquals(3, focalStudyStreak(entries, at(21, 8), zone))
+        assertEquals(3, focalLongestStudyStreak(entries, at(23, 8), zone))
+        assertEquals(26L, focalLastSevenDaysDailyAverageMinutes(entries, at(21, 8), zone))
+        assertEquals(4, focalLongestStudyStreak(entries + done("today", at(21, 7), at(21, 7, 1)), at(21, 8), zone))
+    }
+
+    @Test fun statsSplitStudyAtLocalMidnightAndUseLocalSevenDayWindow() {
+        val entries = listOf(done("midnight", at(20, 23, 59), at(21, 0, 1)),
+            done("edge", at(14, 23), at(15, 1)))
+        val now = at(21, 8)
+        assertEquals(2, focalLongestStudyStreak(entries, now, zone))
+        assertEquals(1, focalLongestStudyStreak(entries, now, ZoneId.of("UTC")))
+        assertEquals(9L, focalLastSevenDaysDailyAverageMinutes(entries, now, zone))
+        assertEquals(17L, focalLastSevenDaysDailyAverageMinutes(entries, now, ZoneId.of("UTC")))
+    }
+
+    @Test fun statsIgnoreNonStudyAndInvalidDurationsAndHandleEmptyHistory() {
+        val now = at(21, 8)
+        val invalid = listOf(done("zero", at(20, 9), at(20, 9)),
+            done("negative", at(20, 10), at(20, 9)),
+            done("exam", at(20, 9), at(20, 10), kind = "exam"),
+            done("deleted", at(20, 9), at(20, 10)).copy(deleted = true),
+            plan(listOf(FocalStudyInterval(at(20, 9), at(20, 10)))))
+        for (entries in listOf(emptyList(), invalid)) {
+            assertEquals(0, focalLongestStudyStreak(entries, now, zone))
+            assertEquals(0L, focalLastSevenDaysDailyAverageMinutes(entries, now, zone))
+        }
+        assertEquals(1, focalLongestStudyStreak(listOf(done("short", now - 1_000, now)), now, zone))
+    }
+
     @Test fun planScopesAndSearch() {
         val now = at(21, 12)
         val dayStart = at(21, 0)
