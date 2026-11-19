@@ -1,5 +1,6 @@
 package com.folio.notes.planner
 
+import com.folio.notes.progress.ExamReference
 import com.folio.notes.progress.LoggedExam
 import org.junit.Assert.*
 import org.junit.Test
@@ -42,5 +43,20 @@ class GradesViewTest {
     @Test fun sortLabelsRoundTrip() {
         GradesSort.entries.forEach { assertEquals(it, GradesSort.of(it.label)) }
         assertEquals(GradesSort.NEWEST, GradesSort.of("bogus"))
+    }
+
+    @Test fun comparisonReferenceMatchesLikeReferenceFor() {
+        fun ref(id: String, subject: String, paper: String) = ExamReference(id, subject, 2024, paper, 100.0, "", emptyList())
+        val refs = listOf(
+            ref("bio", "Biology", "Written examination"),
+            ref("m1", "Mathematical Methods", "Written examination 1"),
+            ref("m2", "Mathematical Methods", "Written examination 2")
+        )
+        fun logged(subject: String, paper: String) =
+            LoggedExam("x", subject, "VCAA", "t", 2019, paper, "2026-01-01", 50.0, 100.0, "{}")
+        assertEquals("bio", comparisonReference(logged("biology", "Exam"), refs)?.id)
+        assertEquals("m2", comparisonReference(logged("mathematical methods", "Exam 2"), refs)?.id)
+        assertNull(comparisonReference(logged("Mathematical Methods", "Exam 3"), refs))
+        assertNull(comparisonReference(logged("Physics", "Exam"), refs))
     }
 }

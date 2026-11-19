@@ -1,6 +1,8 @@
 package com.folio.notes.planner
 
+import com.folio.notes.progress.ExamReference
 import com.folio.notes.progress.LoggedExam
+import com.folio.notes.progress.comparisonName
 
 /** How the Grades tab orders the student's own logged results. */
 enum class GradesSort(val label: String) {
@@ -27,4 +29,12 @@ fun gradesResults(exams: List<LoggedExam>, subject: String, sort: GradesSort): L
         GradesSort.LOWEST -> compareBy<LoggedExam> { it.percentage }.then(byDate.reversed())
     }
     return filtered.sortedWith(order.thenBy { it.id })
+}
+
+/** The VCAA paper a logged result compares against in any year, matched like [com.folio.notes.progress.referenceFor]: same normalized subject and paper, or the subject's only paper. */
+fun comparisonReference(exam: LoggedExam, references: List<ExamReference>): ExamReference? {
+    val subject = comparisonName(exam.subject); val paper = comparisonName(exam.paper)
+    val candidates = references.filter { comparisonName(it.subject) == subject }
+    return candidates.find { comparisonName(it.paper) == paper }
+        ?: candidates.distinctBy { comparisonName(it.paper) }.singleOrNull()
 }

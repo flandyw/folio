@@ -65,7 +65,6 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
     var resultSort by rememberSaveable { mutableStateOf(GradesSort.NEWEST.label) }
     val resultSubjects = remember(exams) { gradesSubjects(exams) }
     val results = remember(exams, resultSubject, resultSort) { gradesResults(exams, resultSubject, GradesSort.of(resultSort)) }
-    val comparable = remember(references) { references.map { it.subject to comparisonName(it.paper) }.toSet() }
     val uri = LocalUriHandler.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -112,9 +111,10 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
                 }
             }
             items(results, key = { "result-${it.id}" }) { exam ->
-                val canCompare = exam.subject to comparisonName(exam.paper) in comparable
+                val match = remember(exam, references) { comparisonReference(exam, references) }
+                val canCompare = match != null
                 Surface({
-                    pickedSubject = exam.subject; pickedPaper = comparisonName(exam.paper)
+                    match?.let { pickedSubject = it.subject; pickedPaper = comparisonName(it.paper) }
                     scoreText = "%.1f".format(exam.percentage)
                     scope.launch { listState.animateScrollToItem(0) }
                 }, Modifier.fillMaxWidth(), enabled = canCompare, shape = com.folio.notes.ui.FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
