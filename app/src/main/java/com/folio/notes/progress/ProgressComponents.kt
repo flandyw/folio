@@ -232,6 +232,22 @@ internal fun friendlyDate(value: String): String = examDate(value)?.let { date -
     }
 }
 
+/** A subject's best mark with the paper it came from, and the latest change as a pill. */
+@Composable internal fun SubjectBestRow(entry: SubjectBest) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+        ScoreRing(entry.best.percentage)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
+            Text(entry.subject, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Best ${entry.best.percentage.display()}% · ${entry.best.paper} · ${friendlyDate(entry.best.completedAt)} · " +
+                com.folio.notes.model.countOf(entry.attempts, "attempt"),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        val change = entry.change
+        if (change == null) StatusPill("First attempt")
+        else StatusPill("${signed(change)} pts", trendIcon(change), strong = change > 0)
+    }
+}
+
 internal fun signed(value: Double, digits: Int = 1) = "${if (value >= 0) "+" else ""}${value.display(digits)}"
 
 internal fun trendIcon(delta: Double?): ImageVector = when {

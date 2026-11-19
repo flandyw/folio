@@ -71,6 +71,9 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     } }
 
     wide("h-subjects") { SectionHeader("By subject", "Tap a chart to inspect a result") }
+    item("bests") { ProgressCard("Best marks", "Highest raw mark per subject, and how the latest attempt moved from the one before.", FolioIcons.Star) {
+        subjectBests(exams).forEach { SubjectBestRow(it) }
+    } }
     exams.groupBy { it.subject }.forEach { (subject, attempts) ->
         val ordered = attempts.sortedBy { it.completedAt }
         item("trend:$subject") { ScoreTrend(subject, ordered.map { "${it.completedAt.take(10)} · ${it.paper}" to it.percentage },
@@ -256,6 +259,17 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
         } }, enabled = !busy, modifier = Modifier.align(Alignment.End).padding(FolioSpacing.dp16)) { Text(if (busy) "Saving…" else "Save") }
     }
 }
+
+/** One subject's best raw mark and how its latest attempt compares with the one before it. */
+data class SubjectBest(val subject: String, val attempts: Int, val best: LoggedExam, val latest: LoggedExam, val change: Double?)
+
+/** Attempts are ordered by completion date (then timestamp, then id); a tied best keeps the first attempt that reached it. */
+fun subjectBests(exams: List<LoggedExam>): List<SubjectBest> = exams.groupBy { it.subject }.map { (subject, attempts) ->
+    val ordered = attempts.sortedWith(compareBy<LoggedExam>({ it.date }, { it.completedAt }, { it.id }))
+    val best = ordered.reduce { kept, next -> if (next.percentage > kept.percentage) next else kept }
+    val change = if (ordered.size < 2) null else ordered.last().percentage - ordered[ordered.lastIndex - 1].percentage
+    SubjectBest(subject, ordered.size, best, ordered.last(), change)
+}.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.subject })
 
 /** Standalone HTML opens in a browser and can be printed or saved as a PDF by the recipient. */
 internal fun progressReport(exams: List<LoggedExam>, references: List<ExamReference>, settings: JSONObject?): String {
