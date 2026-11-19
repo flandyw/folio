@@ -2,27 +2,19 @@
 package com.folio.notes.pdf
 
 import com.folio.notes.ui.FolioIcons
-import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -30,10 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,9 +33,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.app.PdfSearchState
-import com.folio.notes.editor.page.PageThumbnailCache
-import com.folio.notes.input.guardUiTouches
-import com.folio.notes.model.Notebook
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
@@ -216,91 +201,6 @@ import com.folio.notes.ui.FolioSpacing
                             Icon(FolioIcons.Forward, "Open ${entry.title}")
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Jump to any page of the reference, by number or relative to the open one — the fastest way
- * through a 60-page paper when you know it is "around 40" or "eight pages back".
- */
-@Composable internal fun ReferenceJumpDialog(
-    currentIndex: Int,
-    pageCount: Int,
-    onJump: (Int) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var entry by remember { mutableStateOf("") }
-    val target = remember(entry, currentIndex, pageCount) { PdfReference.parseJump(entry, currentIndex, pageCount) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Go to page") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                OutlinedTextField(
-                    entry, { entry = it },
-                    Modifier.fillMaxWidth(),
-                    label = { Text("Page") },
-                    placeholder = { Text("12, p 12, +3 or last") },
-                    singleLine = true,
-                    shape = FolioShapes.large,
-                    isError = entry.isNotBlank() && target == null,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = { target?.let(onJump) })
-                )
-                Text(PdfReference.jumpHint(currentIndex, pageCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { Button({ target?.let(onJump) }, enabled = target != null) { Text(if (target != null) "Open page ${target + 1}" else "Open") } },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } }
-    )
-}
-
-/**
- * A filmstrip of the reference's pages, so a long paper can be found by eye rather than by number.
- * Previews come from the shared thumbnail cache, so the strip costs nothing on pages already seen.
- */
-@Composable internal fun ReferenceFilmstrip(
-    noteId: String,
-    note: Notebook,
-    currentIndex: Int,
-    thumbnails: PageThumbnailCache,
-    onPick: (Int) -> Unit
-) {
-    val widthPx = with(LocalDensity.current) { 52.dp.roundToPx() }
-    val strip = rememberLazyListState()
-    // Follow the pane, but only while the current page is off the strip — a manual scroll wins.
-    LaunchedEffect(currentIndex, note.id) {
-        val visible = strip.layoutInfo.visibleItemsInfo.map { it.index }
-        if (currentIndex !in visible) strip.scrollToItem(currentIndex)
-    }
-    LazyRow(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp4).guardUiTouches(),
-        state = strip, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-        itemsIndexed(note.pages, key = { _, page -> page.id }) { index, page ->
-            val current = index == currentIndex
-            Surface(
-                onClick = { onPick(index) },
-                modifier = Modifier
-                    .width(52.dp)
-                    .heightIn(max = 76.dp)
-                    .semantics { contentDescription = "Reference page ${index + 1} of ${note.pages.size}" },
-                shape = FolioShapes.small,
-                color = if (current) MaterialTheme.colorScheme.secondaryContainer else Color.White,
-                border = BorderStroke(if (current) 2.dp else 1.dp,
-                    if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    val preview by produceState<Bitmap?>(null, noteId, page.id, page.revision, page.loaded, widthPx) {
-                        value = try { thumbnails.thumbnail(noteId, page, widthPx) } catch (_: Exception) { null }
-                    }
-                    val bitmap = preview
-                    if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-                    else if (!page.loaded) LoadingIndicator(Modifier.size(16.dp))
-                    Text("${index + 1}", style = MaterialTheme.typography.labelSmall,
-                        color = if (current) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.BottomEnd).background(Color.White.copy(alpha = 0.7f), FolioShapes.small).padding(horizontal = FolioSpacing.dp4))
                 }
             }
         }
