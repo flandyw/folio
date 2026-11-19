@@ -134,10 +134,19 @@ import kotlinx.coroutines.withContext
             }
         }
     }
-    if (pdfSearchOpen) ReferenceSearchPanel(
+    ReferenceSearchPanel(
+        open = pdfSearchOpen,
         search = state.pdfSearch, currentIndex = state.pageIndex,
         onQuery = model::searchPdf,
-        onJump = { index -> overlays.searchMatches.value = state.pdfSearch.results.map { it.pageIndex }.distinct(); overlays.searchMatch.intValue = overlays.searchMatches.value.indexOf(index).coerceAtLeast(0); overlays.searchCaption.value = state.pdfSearch.query; overlays.searchFromPdf.value = true; jumpTo(index); pdfSearchOpen = false },
+        loadPages = { model.repository.pdfs.pdfPageTexts(note.id) },
+        onJump = { index, pages ->
+            overlays.searchMatches.value = pages
+            overlays.searchMatch.intValue = pages.indexOf(index).coerceAtLeast(0)
+            overlays.searchCaption.value = state.pdfSearch.query
+            overlays.searchFromPdf.value = true
+            jumpTo(index)
+            pdfSearchOpen = false
+        },
         onDismiss = { pdfSearchOpen = false },
         onFindNotes = { pdfSearchOpen = false; noteSearchOpen = true }
     )
