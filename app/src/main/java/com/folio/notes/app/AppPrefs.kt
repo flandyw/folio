@@ -16,6 +16,7 @@ import com.folio.notes.model.Notebook
 import com.folio.notes.model.Paper
 import com.folio.notes.model.Tool
 import com.folio.notes.ui.BuiltInCoverColors
+import com.folio.notes.vcaa.VcaaFilterShortcuts
 import com.folio.notes.workspace.SplitPanes
 
 /**
@@ -27,6 +28,10 @@ import com.folio.notes.workspace.SplitPanes
  * and every screen reads the same value.
  */
 object AppPrefs {
+    /** On-device VCAA filter shortcuts as JSON; unset or invalid means no saved shortcuts. */
+    const val VCAA_FILTER_SHORTCUTS = "vcaa.filterShortcuts"
+    internal fun vcaaFilterShortcuts(raw: String?) = VcaaFilterShortcuts.decode(raw)
+
     /** Ask ChatGPT (when signed in) to check PDF imports the on-device classifier is unsure about. */
     const val AI_IMPORT_CHECK = "import.aiCheck"
     const val DEFAULT_AI_IMPORT_CHECK = true
