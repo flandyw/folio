@@ -4,6 +4,7 @@ package com.folio.notes.planner
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,10 +14,12 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.folio.notes.input.guardUiTouches
+import kotlinx.coroutines.launch
 import com.folio.notes.progress.ExamReference
 import com.folio.notes.progress.analyseScore
 import com.folio.notes.progress.ChoiceField
 import com.folio.notes.progress.LoggedExam
+import com.folio.notes.progress.MenuChip
 import com.folio.notes.progress.comparisonName
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioDestinationInset
@@ -40,6 +43,8 @@ fun ordinal(value: Double): String {
     return "$n" + if (mod in 11..13) "th" else when (Math.abs(n) % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
 }
 
+private fun mark(v: Double) = if (v % 1.0 == 0.0) "${v.toLong()}" else "%.1f".format(v)
+
 private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]")) { it.value.uppercase() }
     .replace(Regex("\\b(And|Or)\\b")) { it.value.lowercase() }.replace(Regex("^Written Examination"), "Exam").trim()
 
@@ -56,9 +61,15 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
     var scoreText by rememberSaveable { mutableStateOf(latest?.let { "%.1f".format(it.percentage) } ?: "75") }
     val score = parseComparisonScore(scoreText)
     val insights = remember(ofSubject, paper, score) { score?.let { yearInsights(ofSubject.filter { comparisonName(it.paper) == paper }, it) }.orEmpty() }
+    var resultSubject by rememberSaveable { mutableStateOf(ALL_SUBJECTS) }
+    var resultSort by rememberSaveable { mutableStateOf(GradesSort.NEWEST.label) }
+    val resultSubjects = remember(exams) { gradesSubjects(exams) }
+    val results = remember(exams, resultSubject, resultSort) { gradesResults(exams, resultSubject, GradesSort.of(resultSort)) }
     val uri = LocalUriHandler.current
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     fun pct(v: Double?) = v?.let { "%.1f%%".format(it) } ?: "—"
-    LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
+    LazyColumn(Modifier.fillMaxSize().guardUiTouches(), listState, contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         if (references.isEmpty()) item { EmptyHint("VCAA grade data is unavailable.") } else {
             item { ChoiceField("Subject", subject, subjects, { pickedSubject = it; pickedPaper = "" }) }
@@ -85,6 +96,32 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
                         Text("${y.reference.year} · ${y.grade ?: "ungraded"}${y.percentile?.let { " · ${ordinal(it)} percentile" } ?: ""}", style = MaterialTheme.typography.titleMedium)
                         Text("Cohort ${y.cohort?.toString() ?: "—"} · A+ from ${pct(y.aPlus)} · mean ${pct(y.mean)} · median ${pct(y.median)}", style = MaterialTheme.typography.bodySmall)
                         Text("Tap to open the VCAA report", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        if (exams.isNotEmpty()) {
+            item(key = "results") {
+                Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    Text("Your results", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        MenuChip("Subject", resultSubjects.find { it == resultSubject } ?: ALL_SUBJECTS, resultSubjects, { resultSubject = it })
+                        MenuChip("Sort", resultSort, GradesSort.entries.map { it.label }, { resultSort = it })
+                    }
+                }
+            }
+            items(results, key = { "result-${it.id}" }) { exam ->
+                val match = remember(exam, references) { comparisonReference(exam, references) }
+                val canCompare = match != null
+                Surface({
+                    match?.let { pickedSubject = it.subject; pickedPaper = comparisonName(it.paper) }
+                    scoreText = "%.1f".format(exam.percentage)
+                    scope.launch { listState.animateScrollToItem(0) }
+                }, Modifier.fillMaxWidth(), enabled = canCompare, shape = com.folio.notes.ui.FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Column(Modifier.padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        Text("${exam.subject} · ${paperLabel(exam.paper)} · ${"%.1f".format(exam.percentage)}%", style = MaterialTheme.typography.titleMedium)
+                        Text("${listOf(exam.provider, "${exam.examYear}").filter { it.isNotBlank() }.joinToString(" ")} · ${mark(exam.rawScore)}/${mark(exam.rawMax)} · ${exam.date ?: exam.completedAt}", style = MaterialTheme.typography.bodySmall)
+                        if (canCompare) Text("Tap to compare this mark", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
