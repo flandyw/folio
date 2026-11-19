@@ -104,49 +104,6 @@ internal fun FollowPreview(preferences: FollowPreferences, hand: WritingHand, pr
     }
 }
 
-/** Three scaled lines so millimetres become visible: “this far apart on paper”. */
-@Composable
-internal fun SpacingExample(spacing: Float) {
-    val faint = MaterialTheme.colorScheme.outlineVariant
-    val ink = MaterialTheme.colorScheme.onSurfaceVariant
-    Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-        Column(Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-            Text("On paper", style = MaterialTheme.typography.labelMedium)
-            Canvas(Modifier.fillMaxWidth().height(64.dp)) {
-                val gap = (10 + (spacing - 16f) / (96f - 16f) * 30f).dp.toPx().coerceIn(10.dp.toPx(), 40.dp.toPx())
-                val cx = size.width / 2f
-                var y = size.height / 2f - gap
-                repeat(3) {
-                    drawLine(faint, Offset(cx - 110.dp.toPx(), y), Offset(cx + 110.dp.toPx(), y), strokeWidth = 1.5.dp.toPx())
-                    y += gap
-                }
-                // Handwriting-ish squiggle on the middle line.
-                drawLine(ink, Offset(cx - 70.dp.toPx(), y - gap * 2 + 2.dp.toPx()), Offset(cx + 40.dp.toPx(), y - gap * 2 + 2.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-            }
-        }
-    }
-}
-
-/** Fixed time scale makes timing changes visible without a distracting looping animation. */
-@Composable
-internal fun FollowTimingPreview(preferences: FollowPreferences) {
-    val pauseColor = MaterialTheme.colorScheme.secondary
-    val glideColor = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.surfaceContainerHighest
-    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-        Text("Line return: pen lifts → pause → glide", style = MaterialTheme.typography.labelMedium)
-        Canvas(Modifier.fillMaxWidth().height(12.dp)) {
-            drawRoundRect(track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
-            val pause = size.width * preferences.returnDelayMs / 2800f
-            val glide = size.width * preferences.glideDurationMs / 2800f
-            drawRect(pauseColor, size = androidx.compose.ui.geometry.Size(pause, size.height))
-            drawRect(glideColor, topLeft = Offset(pause, 0f), size = androidx.compose.ui.geometry.Size(glide, size.height))
-        }
-        Text("Follow pause ${FollowPreferences.returnDelayLabel(preferences.glideDelayMs)} · return pause at least ${FollowPreferences.returnDelayLabel(preferences.returnDelayMs)} · glide ${preferences.glideDurationMs} ms.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
 /** The same movement boundary, palm offset and direction used by the native writing surface. */
 @Composable internal fun FollowEdgeStripPreview(preferences: FollowPreferences, hand: WritingHand) {
     val accent = MaterialTheme.colorScheme.primary
