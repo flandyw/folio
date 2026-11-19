@@ -93,10 +93,6 @@ private fun shapeLabel(tool: Tool) = when (tool) {
 internal fun toolLabel(tool: Tool): String =
     if (tool in ShapePickerTools) shapeLabel(tool) else spec(ToolbarSlot.entries.first { tool in it.tools }).label
 
-/** The glyph a tool wears on the toolbar. */
-internal fun toolIcon(tool: Tool): ImageVector =
-    if (tool in ShapePickerTools) shapeIcon(tool) else spec(ToolbarSlot.entries.first { tool in it.tools }).icon
-
 /** Space a divider keeps from the tool tray beside it, so a selected tile never touches it. */
 private val DividerAir = 4.dp
 
