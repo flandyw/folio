@@ -24,7 +24,7 @@ internal fun focalFilterHistory(
         val date = Instant.ofEpochMilli(entry.endedAt).atZone(zone).toLocalDate()
         entry.completed && !entry.deleted && !focalIsCalendarPlaceholder(entry) &&
             (search.isEmpty() || entry.title.contains(search, ignoreCase = true) ||
-                subjectNames[entry.subjectId].orEmpty().contains(search, ignoreCase = true)) &&
+                focalSessionSubjects(entry).any { (subjectNames[it] ?: it).contains(search, ignoreCase = true) }) &&
             (from == null || !date.isBefore(from)) && (to == null || !date.isAfter(to))
     }.sortedByDescending { it.endedAt }
     val page = filtered.take(limit.coerceAtLeast(0))

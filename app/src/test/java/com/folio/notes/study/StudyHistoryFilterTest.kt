@@ -34,6 +34,24 @@ class StudyHistoryFilterTest {
         assertEquals(1, filter(listOf(late), from = day, to = day).totalCount)
     }
 
+    @Test fun searchesEverySubjectCoveredByASession() {
+        val original = entry("Revision")
+        val session = original.copy(subjectId = "eng",
+            intervals = listOf(FocalStudyInterval(original.startedAt, original.endedAt)), metadata = """
+            {"subjectSwitches":[
+                {"at":"2026-10-02T14:00:00Z","subjectId":"maths"},
+                {"at":"2026-10-03T02:00:00Z","subjectId":"eng"}
+            ]}
+        """.trimIndent())
+        val subjects = mapOf("maths" to "Mathematics", "eng" to "English")
+
+        for (query in listOf("Mathematics", "English")) {
+            val result = focalFilterHistory(listOf(session), subjects, query, zone = zone, limit = 20)
+            assertEquals(listOf(session), result.entries)
+            assertEquals(1, result.totalCount)
+        }
+    }
+
     @Test fun filtersBeforePaginationAndTotalsCoverAllMatchesNotJustPage() {
         val entries = listOf(entry("other", day.plusDays(1))) + (1..25).map { entry("match $it", minutes = 2) }
         val first = filter(entries, "match", limit = 20)
