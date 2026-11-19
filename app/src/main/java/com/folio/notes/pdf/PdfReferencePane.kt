@@ -1,10 +1,11 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.pdf
 
 import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,23 +37,47 @@ import com.folio.notes.app.PdfSearchState
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * Text search over the reference pane's PDF. The same matching as the editor's own PDF search, so
- * "quadratic" finds the same pages beside a paper as it does under it; hits jump the pane, and the
- * previous/next buttons walk every matching page in reading order.
+ * Text search over a PDF's embedded text. Hits jump the pane, and the previous/next buttons
+ * walk every matching page in reading order.
  */
 @Composable internal fun ReferenceSearchPanel(
+    open: Boolean,
     search: PdfSearchState,
     currentIndex: Int,
     onQuery: (String) -> Unit,
-    onJump: (Int) -> Unit,
+    loadPages: suspend () -> List<PdfPageText>,
+    onJump: (Int, List<Int>) -> Unit,
     onDismiss: () -> Unit,
     onFindNotes: (() -> Unit)? = null
 ) {
+    var matchCase by rememberSaveable { mutableStateOf(false) }
+    var wholeWord by rememberSaveable { mutableStateOf(false) }
+    if (!open) return
+
     var query by rememberSaveable { mutableStateOf(search.query) }
+    val currentQuery = search.query == query.trim()
+    val filterHits = currentQuery && (matchCase || wholeWord) && search.results.isNotEmpty()
+    var filtered by remember(search, matchCase, wholeWord) { mutableStateOf<List<PdfSearchHit>?>(null) }
+    if (filterHits) {
+        LaunchedEffect(search, matchCase, wholeWord) {
+            // Refine the workspace's hits without changing its saved tab query or the default search.
+            val candidates = search.results.mapTo(hashSetOf()) { it.pageIndex }
+            val pdfPages = loadPages()
+            filtered = withContext(Dispatchers.Default) {
+                PdfSearch.search(pdfPages.filter { it.pageIndex in candidates }, search.query, matchCase, wholeWord)
+            }
+        }
+    }
+    val results = if (filterHits) filtered.orEmpty() else search.results
+    val searching = search.searching || (filterHits && filtered == null)
+    val pages = remember(results) { PdfReference.hitPages(results) }
     val keyboard = LocalSoftwareKeyboardController.current
     fun submit() { if (query.isNotBlank()) { keyboard?.hide(); onQuery(query.trim()) } }
+    fun jump(index: Int) = onJump(index, pages)
     FolioPanel(title = "Search this PDF", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -72,45 +97,49 @@ import com.folio.notes.ui.FolioSpacing
                     }
                 }
             )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                FilterChip(selected = matchCase, onClick = { matchCase = !matchCase }, label = { Text("Match case") })
+                FilterChip(selected = wholeWord, onClick = { wholeWord = !wholeWord }, label = { Text("Whole word") })
+            }
             if (onFindNotes != null) TextButton(onFindNotes) { Text("Search typed notes instead") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Button(::submit, enabled = query.isNotBlank() && !search.searching, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
+                Button(::submit, enabled = query.isNotBlank() && !searching, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) {
                     Icon(FolioIcons.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Search")
                 }
-                val pages = remember(search.results) { PdfReference.hitPages(search.results) }
-                if (pages.size > 1 && !search.searching && search.query.trim() == query.trim()) {
-                    OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = false)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
+                if (pages.size > 1 && !searching && currentQuery) {
+                    OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = false)?.let(::jump) }, shapes = ButtonDefaults.shapes()) {
                         Icon(FolioIcons.Back, "Previous match", Modifier.size(18.dp))
                     }
-                    OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = true)?.let(onJump) }, shapes = ButtonDefaults.shapes()) {
+                    OutlinedButton({ PdfReference.nextHit(currentIndex, pages, forward = true)?.let(::jump) }, shapes = ButtonDefaults.shapes()) {
                         Icon(FolioIcons.Forward, "Next match", Modifier.size(18.dp))
                     }
                 }
             }
             when {
-                search.searching -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                searching -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                     LoadingIndicator(Modifier.size(24.dp).semantics { contentDescription = "Searching PDF" })
                     Text("Reading this PDF's text…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 query.isBlank() -> Text("Type a word or phrase to search this PDF.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                search.query.trim() != query.trim() -> Text("Press Search to find “${query.trim().take(80)}”.",
+                !currentQuery -> Text("Press Search to find “${query.trim().take(80)}”.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                search.searched && search.query.isNotBlank() && search.results.isEmpty() -> Column(
+                search.searched && search.query.isNotBlank() && results.isEmpty() -> Column(
                     Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp12),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                     Icon(FolioIcons.SearchOff, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No matches for “${search.query.trim().take(80)}”.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Scanned or locked PDFs have no searchable text.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (search.results.isEmpty()) Text("Scanned or locked PDFs have no searchable text.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                search.results.isNotEmpty() -> {
+                results.isNotEmpty() -> {
                     Text(
-                        "${search.results.size} ${if (search.results.size == 1) "page matches" else "pages match"} — most matches first.",
+                        "${results.size} ${if (results.size == 1) "page matches" else "pages match"} — most matches first.",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                        items(search.results, key = { it.pageIndex }) { hit ->
-                            Surface(onClick = { onJump(hit.pageIndex) }, shape = FolioShapes.large,
+                        items(results, key = { it.pageIndex }) { hit ->
+                            Surface(onClick = { jump(hit.pageIndex) }, shape = FolioShapes.large,
                                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp10),

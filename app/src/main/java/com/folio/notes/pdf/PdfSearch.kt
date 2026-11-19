@@ -18,11 +18,16 @@ object PdfSearch {
     private val whitespace = Regex("\\s+")
 
     /**
-     * Pages containing [query], most matches first and page order breaking ties. Matching ignores
-     * case and treats every run of whitespace — including a line break inside the PDF — as one
-     * space, so "exam 1" also finds "exam" at the end of one line and "1" starting the next.
+     * Pages containing [query], most matches first and page order breaking ties. Matching treats
+     * a run of whitespace as one space, including line breaks. Whole-word searches require a
+     * boundary on both sides of the match; punctuation such as a hyphen separates words.
      */
-    fun search(pages: List<PdfPageText>, query: String): List<PdfSearchHit> {
+    fun search(
+        pages: List<PdfPageText>,
+        query: String,
+        matchCase: Boolean = false,
+        wholeWord: Boolean = false
+    ): List<PdfSearchHit> {
         val needle = collapse(query)
         if (needle.isEmpty()) return emptyList()
         return pages.mapNotNull { page ->
@@ -32,15 +37,28 @@ object PdfSearch {
             var from = 0
             var first = -1
             while (true) {
-                val at = haystack.indexOf(needle, from, ignoreCase = true)
+                val at = haystack.indexOf(needle, from, ignoreCase = !matchCase)
                 if (at < 0) break
+                val end = at + needle.length
+                if (wholeWord && ((at > 0 && isWordCharacter(haystack.codePointBefore(at))) ||
+                        (end < haystack.length && isWordCharacter(haystack.codePointAt(end))))) {
+                    from = at + 1
+                    continue
+                }
                 if (first < 0) first = at
                 count++
-                from = at + needle.length
+                from = end
             }
             if (count == 0) null else PdfSearchHit(page.pageIndex, count, snippet(haystack, first, needle.length))
         }.sortedWith(compareByDescending<PdfSearchHit> { it.matchCount }.thenBy { it.pageIndex })
     }
+
+    private fun isWordCharacter(codePoint: Int): Boolean =
+        Character.isLetterOrDigit(codePoint) || when (Character.getType(codePoint)) {
+            Character.NON_SPACING_MARK.toInt(), Character.COMBINING_SPACING_MARK.toInt(),
+            Character.ENCLOSING_MARK.toInt(), Character.CONNECTOR_PUNCTUATION.toInt() -> true
+            else -> false
+        }
 
     /** One excerpt around the match at [at], with ellipses where the page text continues. */
     fun snippet(haystack: String, at: Int, length: Int): String {
