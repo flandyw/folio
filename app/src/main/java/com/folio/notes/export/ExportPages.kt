@@ -101,6 +101,19 @@ fun parsePageRange(input: String, pageCount: Int): List<Int> {
     return found.sorted()
 }
 
+/** Every notebook page not in [selected], in reading order, so "all but these" is one tap. */
+fun invertExportSelection(selected: Collection<Int>, pageCount: Int): Set<Int> {
+    if (pageCount <= 0) return emptySet()
+    val keep = selected.toSet()
+    return (0 until pageCount).filterNotTo(linkedSetOf()) { it in keep }
+}
+
+/** Selected/excluded counts shown beside the selection controls, e.g. "3 selected · 9 excluded". */
+fun exportSelectionCounts(selected: Collection<Int>, pageCount: Int): String {
+    val chosen = normalizeExportIndices(selected, pageCount).size
+    return "$chosen selected · ${maxOf(pageCount, 0) - chosen} excluded"
+}
+
 /** Compacts 0-based indices back to a short label like "1–3, 5" for the export dialog. */
 fun formatExportSelection(indices: List<Int>): String {
     if (indices.isEmpty()) return "No pages"
