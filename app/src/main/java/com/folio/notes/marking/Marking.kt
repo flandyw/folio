@@ -59,10 +59,6 @@ object Marking {
     val COLORS: List<Int> = listOf(0xFFC62828.toInt(), 0xFF1565C0.toInt(), 0xFF2E7D32.toInt(), 0xFF6A1B9A.toInt())
     fun colorName(color: Int): String = when (color) { COLORS[0] -> "red"; COLORS[1] -> "blue"; COLORS[2] -> "green"; COLORS[3] -> "purple"; else -> "custom" }
     val MARK_LABELS: List<String> = listOf("✓", "½", "✗", "+1", "+2", "+3", "+4")
-    val DEFAULT_COMMENTS: List<String> = listOf(
-        "Link back to the question", "Needs evidence", "Define the key term", "Explain, don't just describe",
-        "Good analysis", "Unclear — rephrase", "Show working", "Units?", "Check arithmetic", "Expand this point"
-    )
     val ROOM_AMOUNTS: List<Pair<String, Float>> = listOf("Small" to 160f, "Medium" to 320f, "Large" to 560f)
 
     const val MAX_COMMENTS = 24
