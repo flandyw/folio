@@ -21,5 +21,6 @@ class ComparisonScoreTest {
         assertEquals(100.0, parseComparisonScore("100")!!, 0.0)
         assertEquals(87.5, parseComparisonScore("87.5")!!, 0.0)
         assertEquals(87.5, parseComparisonScore(" 87.5 ")!!, 0.0)
+        assertEquals(87.5, parseComparisonScore("87,5")!!, 0.0)
     }
 }
