@@ -60,8 +60,6 @@ data class FollowPreferences(
     val spacingMm: Float get() = spacing / UNITS_PER_MM
     /** Vertical writing height as a whole percent down the screen. */
     val positionPercent: Int get() = (position * 100).roundToInt()
-    /** Horizontal writing column as a whole percent across the screen. */
-    val horizontalPercent: Int get() = (horizontalPosition * 100).roundToInt()
 
     companion object {
         const val UNITS_PER_MM = 4f
@@ -104,11 +102,6 @@ data class FollowPreferences(
         fun fromMm(mm: Float): Float = (mm * UNITS_PER_MM).coerceIn(MIN_SPACING, MAX_SPACING)
 
         fun returnDelayLabel(ms: Int): String = "${(if (ms % 100 == 0) "%.1f" else "%.2f").format(ms / 1000f)} s"
-        fun paceLabel(pace: Float): String = when {
-            pace < .35f -> "Gentle"
-            pace <= .75f -> "Smooth"
-            else -> "Snappy"
-        }
     }
 }
 

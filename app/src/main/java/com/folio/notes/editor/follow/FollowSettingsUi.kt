@@ -13,16 +13,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.folio.notes.app.AppPrefs
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
-import kotlin.math.roundToInt
 
 /**
  * Miniature screen mock: the solid cross shows where the fresh line lands,
@@ -101,34 +96,5 @@ internal fun FollowPreview(preferences: FollowPreferences, hand: WritingHand, pr
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-/** The same movement boundary, palm offset and direction used by the native writing surface. */
-@Composable internal fun FollowEdgeStripPreview(preferences: FollowPreferences, hand: WritingHand) {
-    val accent = MaterialTheme.colorScheme.primary
-    val paper = MaterialTheme.colorScheme.surfaceContainerLowest
-    val line = MaterialTheme.colorScheme.outlineVariant
-    val width = preferences.edgeStripWidth(hand)
-    val opacity = AppPrefs.followEdgeStripOpacity(preferences.edgeStripOpacity)
-    val ltr = preferences.direction == WritingDirection.LTR
-    val active = preferences.mode == FollowMode.TEXT && preferences.horizontalFollow
-    val description = if (!active) "Sideways following off" else if (opacity == 0f) "Edge strip hidden · trigger ${(width * 100).roundToInt()}% from the edge"
-        else "Edge strip ${(width * 100).roundToInt()}% wide on the ${if (ltr) "right" else "left"}, ${(opacity * 100).roundToInt()}% opacity"
-    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        Text("Live preview · $description", style = MaterialTheme.typography.labelMedium)
-        Canvas(Modifier.fillMaxWidth().height(110.dp).semantics { contentDescription = description }) {
-            drawRoundRect(paper)
-            repeat(2) { i ->
-                val y = size.height * (.36f + i * .4f)
-                drawLine(line, Offset(size.width * .06f, y), Offset(size.width * .94f, y), strokeWidth = 1.dp.toPx())
-            }
-            val strip = size.width * width
-            if (active) drawRect(accent.copy(alpha = opacity), Offset(if (ltr) size.width - strip else 0f, 0f), Size(strip, size.height))
-            drawRoundRect(line, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
-        }
-        Text(if (active) "Write into the strip, then lift and pause for ${FollowPreferences.returnDelayLabel(preferences.glideDelayMs)} to reveal more space. Room before moving changes its width; visibility only changes the tint."
-            else "Enable sideways following in Text mode to use the edge strip.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
