@@ -175,4 +175,50 @@ class CalendarTest {
         val weeks = Calendar.month(java.time.YearMonth.of(2026, 10), Calendar.Sources())
         assertEquals(5, weeks.size); assertEquals(LocalDate.parse("2026-09-28"), weeks[0][0].date)
     }
+
+    @Test fun moveOneOverdueTaskKeepsOtherTasksAndUnknownFocalFields() {
+        val learning = JSONObject("""{
+            "updatedAt":"old","futureLearningField":{"value":1},
+            "tasks":[
+                {"id":"one","status":"planned","plannedFor":"2026-10-20","updatedAt":"old","futureTaskField":{"tags":["revision"]}},
+                {"id":"two","status":"planned","plannedFor":"2026-10-21","updatedAt":"old"}
+            ]
+        }""")
+        val original = learning.toString()
+        val today = LocalDate.parse("2026-10-22")
+        val now = "2026-10-22T12:34:56Z"
+
+        val moved = requireNotNull(Calendar.moveOverdueToToday(learning, today, taskId = "one", now = now))
+        val expected = JSONObject(original).put("updatedAt", now)
+        expected.getJSONArray("tasks").getJSONObject(0).put("plannedFor", today.toString()).put("updatedAt", now)
+        assertEquals(expected.toString(), moved.toString())
+        assertEquals(original, learning.toString())
+    }
+
+    @Test fun moveAllOverdueTasksLeavesOthersUntouched() {
+        val today = LocalDate.parse("2026-10-22")
+        val now = "2026-10-22T12:34:56Z"
+        fun task(id: String, date: String, status: String = "planned") =
+            JSONObject().put("id", id).put("status", status).put("plannedFor", date).put("updatedAt", "old")
+
+        val learning = JSONObject().put("updatedAt", "old").put("tasks", JSONArray(listOf(
+            task("one", "2026-10-20"),
+            task("two", "2026-10-21"),
+            task("archived", "2026-10-20").put("archivedAt", "2026-10-21T00:00:00Z"),
+            task("completed", "2026-10-20", "completed"),
+            task("skipped", "2026-10-20", "skipped"),
+            task("today", "2026-10-22"),
+            task("future", "2026-10-23"),
+            task("unscheduled", ""),
+            task("invalid", "2026-02-30")
+        )))
+
+        assertNull(Calendar.moveOverdueToToday(learning, today, taskId = "completed", now = now))
+        assertNull(Calendar.moveOverdueToToday(learning, today, taskId = "absent", now = now))
+        val moved = requireNotNull(Calendar.moveOverdueToToday(learning, today, now = now))
+        val expected = JSONObject(learning.toString()).put("updatedAt", now)
+        repeat(2) { expected.getJSONArray("tasks").getJSONObject(it).put("plannedFor", today.toString()).put("updatedAt", now) }
+        assertEquals(expected.toString(), moved.toString())
+        assertNull(Calendar.moveOverdueToToday(moved, today, now = now))
+    }
 }
