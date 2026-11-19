@@ -384,7 +384,7 @@ object InkRenderer {
          * Per-point combined pressure×taper multipliers for [Tool.PEN], or null otherwise.
          * Precomputed once with the spline so every frame after pays one add+multiply per
          * segment instead of a sqrt per segment — which is what made dense pages re-pay
-         * pressure math on every raster. Compare via [widthsEqual], not `==`: FloatArray
+         * pressure math on every raster. Compare via `contentEquals`, not `==`: FloatArray
          * equality is referential, like [taper].
          */
         val widths: FloatArray? = null
@@ -392,14 +392,6 @@ object InkRenderer {
         internal var live = false
         internal var stableCount: Int = centre.size
         internal var ink: AndroidxInk.Geometry? = null
-    }
-
-    /** Structural equality for cached width multipliers; FloatArray `==` is referential. */
-    internal fun widthsEqual(a: FloatArray?, b: FloatArray?): Boolean {
-        if (a === b) return true
-        if (a == null || b == null || a.size != b.size) return false
-        for (i in a.indices) if (a[i] != b[i]) return false
-        return true
     }
 
     /**
