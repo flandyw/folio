@@ -58,5 +58,8 @@ class GradesViewTest {
         assertEquals("m2", comparisonReference(logged("mathematical methods", "Exam 2"), refs)?.id)
         assertNull(comparisonReference(logged("Mathematical Methods", "Exam 3"), refs))
         assertNull(comparisonReference(logged("Physics", "Exam"), refs))
+        val french = listOf(ref("fr", "French", "Oral and written examination"))
+        assertEquals("fr", comparisonReference(logged("French", "Exam"), french)?.id)
+        assertNull(comparisonReference(logged("French", "Oral examination"), french))
     }
 }

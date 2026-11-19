@@ -31,10 +31,10 @@ fun gradesResults(exams: List<LoggedExam>, subject: String, sort: GradesSort): L
     return filtered.sortedWith(order.thenBy { it.id })
 }
 
-/** The VCAA paper a logged result compares against in any year, matched like [com.folio.notes.progress.referenceFor]: same normalized subject and paper, or the subject's only paper. */
+/** The VCAA paper a logged result compares against in any year, matched like [com.folio.notes.progress.referenceFor]: same normalized subject and paper, or the subject's only paper when the result names no specific paper. */
 fun comparisonReference(exam: LoggedExam, references: List<ExamReference>): ExamReference? {
     val subject = comparisonName(exam.subject); val paper = comparisonName(exam.paper)
     val candidates = references.filter { comparisonName(it.subject) == subject }
     return candidates.find { comparisonName(it.paper) == paper }
-        ?: candidates.distinctBy { comparisonName(it.paper) }.singleOrNull()
+        ?: candidates.distinctBy { comparisonName(it.paper) }.singleOrNull()?.takeIf { paper == "" || paper == "exam" }
 }
