@@ -261,7 +261,7 @@ internal class DocumentInputCoordinator(private val surfaces: EditorSurfaceRegis
             val expected = model.state.value.active?.takeIf { it.id == note.id }?.pages
                 ?.filter { it.id in ids }?.associateBy { it.id }.orEmpty()
             // Only classify successfully committed gestures; never reinterpret a refused transaction.
-            if (scribble && drawn != null && ids.all { id -> expected[id]?.revision == revisions.getValue(id) + 1 }) {
+            if (scribble && ids.all { id -> expected[id]?.revision == revisions.getValue(id) + 1 }) {
                 val epoch = recognitionEpoch
                 val guards = expected.mapValues { InkRecognitionSnapshot(it.value) }
                 InkGestureRecognizer.scribbleDocument(drawn, originalPages.filterKeys { it in ids }, paths, notes,
