@@ -49,9 +49,7 @@ data class PageMarks(val pageIndex: Int, val title: String, val marks: Float, va
  * Pure geometry and parsing — no Android imports.
  */
 object Marking {
-    const val PREF_COMMENTS = "marking.comments"
     const val PREF_COLOR = "marking.color"
-    const val PREF_AUTO_PLACE = "marking.autoPlace"
     /** Offer tick/cross on printed "[4 marks]" labels; on by default, and it only does anything on a PDF. */
     const val PREF_ASSIST = "marking.assist"
     const val FEEDBACK_TITLE = "Feedback"
@@ -82,13 +80,6 @@ object Marking {
     private const val SEPARATOR = '\u001F'
 
     // ---- Comment bank ---------------------------------------------------------------------------
-
-    /** The saved bank; a missing preference is the defaults, an empty one is a deliberately empty bank. */
-    fun loadBank(raw: String?): List<String> =
-        if (raw == null) DEFAULT_COMMENTS
-        else raw.split(SEPARATOR).map(::cleanComment).filter { it.isNotEmpty() }.distinct().take(MAX_COMMENTS)
-
-    fun encodeBank(bank: List<String>): String = bank.joinToString(SEPARATOR.toString())
 
     /** The bank with [text] added at the front; blank, duplicate or over-full input leaves it as it was. */
     fun withComment(bank: List<String>, text: String): List<String> {
