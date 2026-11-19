@@ -38,6 +38,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -153,6 +156,19 @@ import com.folio.notes.ui.FolioSpacing
     onDismiss: () -> Unit
 ) {
     FolioPanel(title = "Contents", onDismissRequest = onDismiss) {
+        var query by rememberSaveable { mutableStateOf("") }
+        val filtered = remember(outline, query) { PdfOutline.filter(outline.orEmpty(), query) }
+        if (!outline.isNullOrEmpty()) OutlinedTextField(
+            value = query, onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp12),
+            label = { Text("Search headings") }, singleLine = true, shape = FolioShapes.large,
+            leadingIcon = { Icon(FolioIcons.Search, null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton({ query = "" }, shapes = IconButtonDefaults.shapes()) {
+                    Icon(FolioIcons.Close, "Clear search")
+                }
+            }
+        )
         if (outline == null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -165,10 +181,14 @@ import com.folio.notes.ui.FolioSpacing
                 Icon(FolioIcons.Bullets, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("This PDF has no bookmarks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        } else if (filtered.isEmpty()) {
+            Text("No headings match your search.",
+                modifier = Modifier.padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(bottom = FolioSpacing.dp24),
                 contentPadding = PaddingValues(horizontal = FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                itemsIndexed(outline) { _, entry ->
+                itemsIndexed(filtered) { _, entry ->
                     Surface(onClick = { onOpen(entry.pageIndex) }, shape = FolioShapes.large,
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
@@ -176,7 +196,21 @@ import com.folio.notes.ui.FolioSpacing
                             .padding(start = FolioSpacing.dp16 + FolioSpacing.dp16 * entry.depth.coerceIn(0, 3), end = FolioSpacing.dp16, top = FolioSpacing.dp10, bottom = FolioSpacing.dp10),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                                Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                val title = buildAnnotatedString {
+                                    var start = 0
+                                    var match = if (query.isEmpty()) -1 else entry.title.indexOf(query, ignoreCase = true)
+                                    while (match >= 0) {
+                                        append(entry.title.substring(start, match))
+                                        withStyle(SpanStyle(background = MaterialTheme.colorScheme.primaryContainer,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer)) {
+                                            append(entry.title.substring(match, match + query.length))
+                                        }
+                                        start = match + query.length
+                                        match = entry.title.indexOf(query, start, ignoreCase = true)
+                                    }
+                                    append(entry.title.substring(start))
+                                }
+                                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Page ${entry.pageIndex + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Icon(FolioIcons.Forward, "Open ${entry.title}")
