@@ -29,6 +29,7 @@ import com.folio.notes.input.rememberLongPressGuard
             val reading = timer.phase == ExamTimerPhase.READING
             val caption = when {
                 timer.paused -> if (timer.autoParked) "Stopped" else "Paused"
+                timer.inFinalMinutes -> "Final minutes"
                 done -> "Time"
                 reading -> "Reading"
                 else -> "Writing"
@@ -44,8 +45,8 @@ import com.folio.notes.input.rememberLongPressGuard
                 },
                 value = clock,
                 tone = when {
-                    done -> SessionTone.ALERT
                     timer.paused -> SessionTone.PAUSED
+                    done || timer.inFinalMinutes -> SessionTone.ALERT
                     else -> SessionTone.RUNNING
                 },
                 reserve = if (done) null else if (phaseSeconds >= 3600) "0:00:00" else "00:00",

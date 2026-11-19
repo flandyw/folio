@@ -161,6 +161,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             val current = _state.value.timer
             val next = current.tick(now)
             if (next != current) _state.update { it.copy(timer = next) }
+            warnFinalMinutes(current, next)
             if (next.running && now - lastSeenPersistedAt >= LAST_SEEN_THROTTLE_MS) {
                 lastSeenPersistedAt = now
                 saveSitting(next, lastSeen = now)
@@ -183,6 +184,21 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
                 else now
                 recordTimerInFocal(latest, boundaryAt,
                     force = latest.phase != current.phase || latest.paused != current.paused)
+            }
+        }
+    }
+
+    private fun warnFinalMinutes(prior: ExamTimerState, next: ExamTimerState) {
+        if (!next.crossedFinalWarning(prior)) return
+        runtime.scope.launch(Dispatchers.Default) {
+            val tone = runCatching { android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 12) }.getOrNull()
+            tone?.let { player ->
+                try {
+                    runCatching { player.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 100) }
+                    delay(180)
+                } finally {
+                    runCatching { player.release() }
+                }
             }
         }
     }
@@ -269,6 +285,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             val adjusted = prior.adjust(seconds, now)
             saveSitting(adjusted)
             _state.update { it.copy(timer = adjusted) }
+            warnFinalMinutes(prior, adjusted)
             recordTimerInFocal(adjusted, now, force = true,
                 phaseAt = now.takeIf { prior.phase == ExamTimerPhase.READING && adjusted.phase != ExamTimerPhase.READING })
         }
@@ -295,6 +312,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             val skipped = prior.skip(now)
             saveSitting(skipped)
             _state.update { it.copy(timer = skipped) }
+            warnFinalMinutes(prior, skipped)
             recordTimerInFocal(skipped, now, force = true,
                 phaseAt = now.takeIf { prior.phase == ExamTimerPhase.READING && skipped.phase != ExamTimerPhase.READING })
         }
