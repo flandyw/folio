@@ -562,6 +562,8 @@ object EditorQuickPrefs {
     var naming by remember { mutableStateOf(false) }
     var presetName by remember { mutableStateOf("") }
     val saved = presets.presets
+    var renamingId by remember { mutableStateOf<String?>(null) }
+    var renameName by remember { mutableStateOf("") }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Tool presets", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         TextButton({ presetName = ""; naming = true }, enabled = saved.size < ToolPresets.MAX_PRESETS, shapes = ButtonDefaults.shapes()) { Text("Save current") }
@@ -577,11 +579,34 @@ object EditorQuickPrefs {
                 label = { Text("${preset.name} · ${preset.tool.name.lowercase()}$styleSuffix") },
                                 trailingIcon = { Row {
                     IconButton({ layout.togglePin(preset.id) }) { Icon(FolioIcons.Bookmark, if (preset.id in layout.layout.pinnedPresetIds) "Unpin ${preset.name}" else "Pin ${preset.name} to toolbar", tint = if (preset.id in layout.layout.pinnedPresetIds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton({ renameName = preset.name; renamingId = preset.id }) { Icon(FolioIcons.Pencil, "Rename ${preset.name}") }
                     IconButton({ presets.delete(preset.id) }) { Icon(FolioIcons.Close, "Delete ${preset.name}") }
                 } }
             )
         }
         Text("Tap to apply. Pin a preset here to keep it on the toolbar.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    renamingId?.let { id ->
+        val error = ToolPresets.renameError(saved, id, renameName)
+        fun confirmRename() {
+            if (presets.rename(id, renameName)) renamingId = null
+        }
+        AlertDialog(
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
+            modifier = Modifier.guardUiTouches(),
+            onDismissRequest = { renamingId = null },
+            title = { Text("Rename tool preset") },
+            text = {
+                OutlinedTextField(renameName, { renameName = it.take(ToolPresets.MAX_NAME) },
+                    label = { Text("Preset name") }, singleLine = true,
+                    isError = error != null,
+                    supportingText = { if (error != null) Text(error) },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { confirmRename() }))
+            },
+            dismissButton = { TextButton({ renamingId = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
+            confirmButton = { TextButton({ confirmRename() }, enabled = error == null, shapes = ButtonDefaults.shapes()) { Text("Rename") } }
+        )
     }
     if (naming) AlertDialog(
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
