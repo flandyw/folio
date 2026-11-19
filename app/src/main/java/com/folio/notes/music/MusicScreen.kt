@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -231,8 +232,9 @@ import com.folio.notes.ui.FolioSpacing
                         // The same split button the notebook shelf uses for New: tap imports,
                         // the trailing half holds the other ways to add.
                         SplitButtonLayout(
-                            leadingButton = { SplitButtonDefaults.LeadingButton(::importPdfs, enabled = ready && !state.busy) {
-                                Icon(FolioIcons.Plus, null); if (roomy) { Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import") }
+                            leadingButton = { SplitButtonDefaults.LeadingButton(::importPdfs, Modifier.semanticsLabel("Import sheet music PDFs"), enabled = ready && !state.busy) {
+                                // The label above names it in both layouts; the short visible word would repeat it.
+                                Icon(FolioIcons.Plus, null); if (roomy) { Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import", Modifier.clearAndSetSemantics {}) }
                             } },
                             trailingButton = { SplitButtonDefaults.TrailingButton({ importMenu = true }, enabled = ready) {
                                 Icon(FolioIcons.DropDown, "More ways to add music")

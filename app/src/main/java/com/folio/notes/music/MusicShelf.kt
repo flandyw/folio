@@ -54,12 +54,15 @@ internal data class MusicFilter(
     fun withComposer(name: String) = copy(composer = if (composer.equals(name, true)) "" else name)
 }
 
+// Unicode separators too, so a pasted no-break space still splits terms (as Files search does).
+private val musicQueryWhitespace = Regex("[\\s\\p{Z}]+")
+
 /**
  * Every whitespace-separated term must match somewhere — title, composer, part, rehearsal notes or
  * a rehearsal-mark name — so "shostakovich cello" narrows the shelf rather than widening it.
  */
 internal fun MusicScore.matchesQuery(query: String): Boolean {
-    val terms = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val terms = query.trim().split(musicQueryWhitespace).filter { it.isNotEmpty() }
     if (terms.isEmpty()) return true
     return terms.all { term ->
         title.contains(term, true) || composer.contains(term, true) || part.contains(term, true) ||
@@ -162,7 +165,7 @@ internal fun organizeScores(
         .filter { !filter.favoritesOnly || it.starred }
         .filter { !filter.annotatedOnly || it.annotationCount() > 0 }
         .filter { !filter.unfinishedOnly || it.isUnfinished() }
-        .filter { composer.isEmpty() || it.composer.equals(composer, true) }
+        .filter { composer.isEmpty() || it.composer.trim().equals(composer, true) }
         .filter { it.matchesQuery(query) }
     return when (sort) {
         MusicSort.ADDED -> filtered.reversed()
@@ -180,7 +183,10 @@ internal fun organizeScores(
     }
 }
 
-/** The distinct composers on the shelf, sorted and blank-free, for the composer filter row. */
+/**
+ * The distinct composers on the shelf, sorted and blank-free, for the composer filter row. Spellings
+ * that differ only in case are one choice (the first spelling shown), as [organizeScores] matches them.
+ */
 internal fun composerNames(scores: List<MusicScore>): List<String> =
-    scores.map { it.composer.trim() }.filter { it.isNotEmpty() }.distinct()
-        .sortedWith(String.CASE_INSENSITIVE_ORDER)
+    scores.map { it.composer.trim() }.filter { it.isNotEmpty() }
+        .toSortedSet(String.CASE_INSENSITIVE_ORDER).toList()

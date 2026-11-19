@@ -35,6 +35,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -479,7 +483,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     else Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
         score.marks.sortedBy { it.page }.forEach { mark ->
             val here = mark.page in visible
-            Surface(onClick = { go(mark.page) }, shape = FolioShapes.medium,
+            Surface(selected = here, onClick = { go(mark.page) }, shape = FolioShapes.medium,
                 color = if (here) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(start = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -605,9 +609,9 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     Slider(bpm, { bpm = it }, modifier = Modifier.semanticsLabel("Tempo in beats per minute"), valueRange = 30f..240f, onValueChangeFinished = { tempo(bpm.roundToInt()) })
     // Coarse steps for finding a tempo quickly, then the slider for the exact number.
     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        OutlinedButton({ tempo(bpm.roundToInt() - 5) }, modifier = Modifier.weight(1f), enabled = bpm > 30, shapes = ButtonDefaults.shapes()) { Text("−5") }
+        OutlinedButton({ tempo(bpm.roundToInt() - 5) }, modifier = Modifier.weight(1f).semanticsLabel("Decrease tempo by 5 beats per minute"), enabled = bpm > 30, shapes = ButtonDefaults.shapes()) { Text("−5") }
         OutlinedButton({ tempo(nearestTempo(bpm.roundToInt()).bpm) }, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) { Text(nearestTempo(bpm.roundToInt()).label) }
-        OutlinedButton({ tempo(bpm.roundToInt() + 5) }, modifier = Modifier.weight(1f), enabled = bpm < 240, shapes = ButtonDefaults.shapes()) { Text("+5") }
+        OutlinedButton({ tempo(bpm.roundToInt() + 5) }, modifier = Modifier.weight(1f).semanticsLabel("Increase tempo by 5 beats per minute"), enabled = bpm < 240, shapes = ButtonDefaults.shapes()) { Text("+5") }
     }
     // One tap to a familiar marking, then fine-tune with the slider.
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
@@ -634,20 +638,22 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     if (score.beatAccents.isEmpty()) FilterChip(accent, { onAccent(!accent) }, { Text("Accent beat 1") })
     else TextButton({ model.score(score.id) { it.copy(beatAccents = emptyList()) } }, shapes = ButtonDefaults.shapes()) { Text("Reset beat pattern") }
     Text("Count-in bars", style = MaterialTheme.typography.labelLarge)
-    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         listOf(0, 1, 2, 4).forEach { bars ->
-            FilterChip(countInBars == bars, { onCountInBars(bars) }, { Text(if (bars == 0) "Off" else "$bars") })
+            FilterChip(countInBars == bars, { onCountInBars(bars) }, { Text(if (bars == 0) "Off" else "$bars") },
+                modifier = Modifier.semanticsLabel(if (bars == 0) "Count-in off" else "Count-in $bars ${if (bars == 1) "bar" else "bars"}"))
         }
     }
     Text("Subdivision", style = MaterialTheme.typography.labelLarge)
-    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         listOf(0 to "Off", 2 to "2", 3 to "3", 4 to "4").forEach { (value, label) ->
-            FilterChip(subdivision == value, { onSubdivision(value) }, { Text(label) })
+            FilterChip(subdivision == value, { onSubdivision(value) }, { Text(label) },
+                modifier = Modifier.semanticsLabel(if (value == 0) "Subdivision off" else "$value subdivisions per beat"))
         }
     }
     if (sound) {
         Text("Click sound", style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
             MetronomeVoice.entries.forEach { choice ->
                 FilterChip(voice == choice, { onVoice(choice) }, { Text(choice.label) })
             }
@@ -688,14 +694,18 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         for (index in 0 until score.pages) {
             val here = index in visible
-            Surface(onClick = { go(index) }, shape = FolioShapes.medium, modifier = Modifier.size(44.dp),
+            val notes = counts[index] ?: 0
+            val label = listOfNotNull("Page ${index + 1}", if (index in marked) "rehearsal mark" else null,
+                if (notes > 0) "$notes pencil ${if (notes == 1) "note" else "notes"}" else null).joinToString(", ")
+            Surface(selected = here, onClick = { go(index) }, shape = FolioShapes.medium, modifier = Modifier.size(44.dp).semanticsLabel(label),
                 color = if (here) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
                 contentColor = if (here) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface) {
-                Box(contentAlignment = Alignment.Center) {
+                // The tile's label says all of this; the bare numbers alone would be ambiguous.
+                Box(Modifier.clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                     Text("${index + 1}", style = MaterialTheme.typography.labelLarge)
                     if (index in marked) Box(Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp4).size(6.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
-                    (counts[index] ?: 0).takeIf { it > 0 }?.let { count ->
-                        Text("$count", Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp2),
+                    if (notes > 0) {
+                        Text("$notes", Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp2),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
@@ -703,7 +713,13 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
         }
     }
     // A scrubber for a long score: drag straight to a page instead of hunting for its tile.
-    if (score.pages > 1) Slider(visible.first.toFloat(), { go(it.roundToInt()) }, valueRange = 0f..(score.pages - 1).toFloat(), modifier = Modifier.semanticsLabel("Score page"))
+    // 1-based like the tiles; only go() takes the stored zero-based index.
+    if (score.pages > 1) Slider(visible.first + 1f, { go(it.roundToInt() - 1) }, valueRange = 1f..score.pages.toFloat(),
+        modifier = Modifier.semantics {
+            contentDescription = "Score page"
+            stateDescription = if (visible.first == visible.last) "Page ${visible.first + 1} of ${score.pages}"
+                else "Pages ${visible.first + 1} to ${visible.last + 1} of ${score.pages}"
+        })
     if (marked.isNotEmpty() || counts.isNotEmpty()) Text(
         listOfNotNull(if (marked.isNotEmpty()) "a dot marks a rehearsal mark" else null,
             if (counts.isNotEmpty()) "a blue number counts pencil notes" else null).joinToString("; ").replaceFirstChar { it.uppercase() } + ".",
