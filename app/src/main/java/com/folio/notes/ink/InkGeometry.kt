@@ -573,17 +573,7 @@ object InkGeometry {
     }
 
     /**
-     * Position multipliers: neutral (stroke ends keep the same width as the middle at equal
-     * pressure) unless the user has turned on ink taper, see [InkTaper]. Shared by the live, saved
-     * and selection rendering geometry.
-     */
-    fun taperScales(points: List<InkPoint>): List<Float> {
-        val scales = taperScalesArray(points)
-        return List(scales.size) { scales[it] }
-    }
-
-    /**
-     * [taperScales] without the boxed list. The renderer reads one multiplier per centreline point on
+     * Unboxed position multipliers from [InkTaper]. The renderer reads one multiplier per centreline point on
      * every frame of a stroke in progress, so handing it primitives keeps that pass allocation-free
      * instead of churning a boxed Float per point per frame.
      */
