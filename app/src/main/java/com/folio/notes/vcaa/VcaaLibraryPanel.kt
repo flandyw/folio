@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.exam.ExamType
@@ -41,6 +42,9 @@ import com.folio.notes.exam.subjectColor
 import com.folio.notes.library.semanticsLabel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.Paper
+import com.folio.notes.settings.rememberPref
+import com.folio.notes.settings.rememberPrefs
+import com.folio.notes.settings.write
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem
@@ -98,8 +102,10 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
     var reportsOnly by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(VcaaSort.NEWEST) }
     var showingShortcuts by rememberSaveable { mutableStateOf(false) }
-    val shortcutPrefs = remember(context) { context.getSharedPreferences("vcaa-shortcuts", android.content.Context.MODE_PRIVATE) }
-    var shortcuts by remember(shortcutPrefs) { mutableStateOf(VcaaFilterShortcuts.decode(shortcutPrefs.getString("filters", null))) }
+    val prefs = rememberPrefs()
+    val shortcuts by rememberPref(prefs, AppPrefs.VCAA_FILTER_SHORTCUTS) {
+        AppPrefs.vcaaFilterShortcuts(it.getString(AppPrefs.VCAA_FILTER_SHORTCUTS, null))
+    }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var picked by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var linkError by remember { mutableStateOf<String?>(null) }
@@ -151,8 +157,7 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
         availability = VcaaAvailability.ALL; reportsOnly = false; query = ""; sort = VcaaSort.NEWEST
     }
     fun saveShortcuts(next: List<VcaaFilterShortcut>) {
-        shortcutPrefs.edit().putString("filters", VcaaFilterShortcuts.encode(next)).apply()
-        shortcuts = next
+        prefs.write { putString(AppPrefs.VCAA_FILTER_SHORTCUTS, VcaaFilterShortcuts.encode(next)) }
     }
     fun openResource(url: String) {
         linkError = null
