@@ -67,6 +67,48 @@ class CalendarTest {
         }
     }
 
+    @Test fun eventSubjectRoundTripAndDisplay() {
+        val day = LocalDate.parse("2026-10-22")
+        val event = Calendar.saveEvent(null, "Revision", "event", day, "09:00", "10:00", null, "", "mm")
+        val loaded = JSONObject(event.toString())
+        val edited = Calendar.saveEvent(loaded, "Edited", "exam", day, "10:00", "11:00", null, "R1", loaded.getString("subjectId"))
+        assertEquals("mm", JSONObject(edited.toString()).getString("subjectId"))
+        assertEquals("Exam · Mathematical Methods · R1", Calendar.dayPlan(day,
+            Calendar.Sources(events = listOf(edited), subjectNames = mapOf("mm" to "Mathematical Methods"))).items.single().detail)
+        assertEquals("Exam · mm · R1", Calendar.dayPlan(day, Calendar.Sources(events = listOf(edited))).items.single().detail)
+    }
+
+    @Test fun eventWithoutSubjectAndClearingSubject() {
+        val day = LocalDate.parse("2026-10-22")
+        val event = Calendar.saveEvent(null, "Meeting", "event", day, "09:00", "10:00", null, "", null)
+        assertFalse(JSONObject(event.toString()).has("subjectId"))
+        assertEquals("Event", Calendar.dayPlan(day, Calendar.Sources(events = listOf(event))).items.single().detail)
+        for (subject in listOf("mm", JSONObject.NULL)) {
+            val source = JSONObject(event.toString()).put("subjectId", subject)
+            val edited = Calendar.saveEvent(source, "Meeting", "event", day, "09:00", "10:00", null, "", "")
+            assertFalse(JSONObject(edited.toString()).has("subjectId"))
+            assertTrue(source.has("subjectId"))
+        }
+    }
+
+    @Test fun eventEditPreservesUnknownFocalFieldsWithoutMutatingSource() {
+        val day = LocalDate.parse("2026-10-22")
+        val source = Calendar.newEvent("Original", "event", day, "09:00", "10:00", null, "Room")
+            .put("subjectId", "custom-subject").put("isFinished", true).put("finishedAt", "stamp")
+            .put("future", JSONObject().put("nested", JSONArray().put(1).put(JSONObject.NULL).put(JSONObject().put("flag", true))))
+            .put("futureNull", JSONObject.NULL).put("futureNumber", 42).put("futureText", "keep")
+        val original = source.toString()
+        val edited = JSONObject(Calendar.saveEvent(source, "Edited", "exam", day, "11:00", "12:00", null, "", source.getString("subjectId"), "updated").toString())
+        for (key in listOf("id", "created_at", "subjectId", "isFinished", "finishedAt", "futureNull", "futureNumber", "futureText"))
+            assertEquals(key, source.get(key), edited.get(key))
+        assertEquals(source.getJSONObject("future").toString(), edited.getJSONObject("future").toString())
+        edited.getJSONObject("future").put("changed", true)
+        assertEquals(original, source.toString())
+        assertEquals("Edited", edited.getString("title"))
+        assertEquals("updated", edited.getString("updated_at"))
+        assertFalse(edited.has("location"))
+    }
+
     @Test fun eventValidationAndDays() {
         assertNull(Calendar.validateEvent("Test", "2026-10-22", "09:00", "10:00", ""))
         assertNotNull(Calendar.validateEvent("Test", "2026-10-22", "10:00", "09:00", ""))
