@@ -178,14 +178,10 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
             .put("updatedAt", isoTime()).apply { if (subject.isBlank()) remove("subject") else put("subject", subject) } }
         if (saveLearning(next)) { selectDay(LocalDate.parse(date)); null } else "Could not save the task. Try again."
     }
-    if (addingEvent || editingEvent != null) EventDialog(editingEvent, day, { addingEvent = false; editingEvent = null },
-        onDelete = editingEvent?.let { e -> { scope.launch { saveEvent(e.optString("id"), null) } } }) { title, type, date, start, end, endDate, location ->
-        val source = editingEvent
-        val event = if (source == null) Calendar.newEvent(title, type, LocalDate.parse(date), start, end, endDate.takeIf { it.isNotBlank() }?.let(LocalDate::parse), location)
-            .put("isFinished", false)
-        else JSONObject(source.toString()).put("title", title.trim()).put("eventType", type).put("startTime", Calendar.toIso(LocalDate.parse(date), start))
-            .put("endTime", Calendar.toIso(endDate.takeIf { it.isNotBlank() }?.let(LocalDate::parse) ?: LocalDate.parse(date), end)).put("updated_at", isoTime())
-            .apply { if (location.isBlank()) remove("location") else put("location", location.trim()) }
+    if (addingEvent || editingEvent != null) EventDialog(editingEvent, day, names, { addingEvent = false; editingEvent = null },
+        onDelete = editingEvent?.let { e -> { scope.launch { saveEvent(e.optString("id"), null) } } }) { title, type, date, start, end, endDate, location, subjectId ->
+        val event = Calendar.saveEvent(editingEvent, title, type, LocalDate.parse(date), start, end,
+            endDate.takeIf { it.isNotBlank() }?.let(LocalDate::parse), location, subjectId)
         if (saveEvent(event.getString("id"), event)) { selectDay(LocalDate.parse(date)); null } else "Could not save the event. Try again."
     }
     if (importing) TimetableDialog(timetable, { importing = false }) { parsed -> if (saveTimetable(parsed)) null else "Could not save the timetable. Try again." }
@@ -451,8 +447,8 @@ private const val CELL_LINES = 3
     }
 }
 
-@Composable internal fun EventDialog(source: JSONObject?, day: LocalDate, onDismiss: () -> Unit, onDelete: (() -> Unit)?,
-    onSave: suspend (String, String, String, String, String, String, String) -> String?) {
+@Composable internal fun EventDialog(source: JSONObject?, day: LocalDate, subjects: Map<String, String>, onDismiss: () -> Unit, onDelete: (() -> Unit)?,
+    onSave: suspend (String, String, String, String, String, String, String, String) -> String?) {
     val startDate = source?.text("startTime")?.let(Calendar::dateLabel).orEmpty()
     val finishDate = source?.text("endTime")?.let(Calendar::dateLabel).orEmpty()
     var title by rememberSaveable { mutableStateOf(source?.text("title").orEmpty()) }
@@ -462,11 +458,18 @@ private const val CELL_LINES = 3
     var end by rememberSaveable { mutableStateOf(source?.text("endTime")?.takeIf { it.isNotEmpty() }?.let(Calendar::timeLabel) ?: "10:00") }
     var endDate by rememberSaveable { mutableStateOf(finishDate.takeIf { it != startDate }.orEmpty()) }
     var location by rememberSaveable { mutableStateOf(source?.text("location").orEmpty()) }
+    var subjectId by rememberSaveable { mutableStateOf(source?.text("subjectId").orEmpty()) }
+    val subjectOptions = (subjects.keys + subjectId).filter { it.isNotBlank() }.distinct().associateWith { id ->
+        val name = subjects[id] ?: id
+        if (name == "None" || subjects.values.count { it == name } > 1) "$name ($id)" else name
+    }
     FormPanel(if (source == null) "Add event" else "Edit event", onDismiss, onSave = {
-        Calendar.validateEvent(title, date.trim(), start.trim(), end.trim(), endDate.trim()) ?: onSave(title, type, date.trim(), start.trim(), end.trim(), endDate.trim(), location)
+        Calendar.validateEvent(title, date.trim(), start.trim(), end.trim(), endDate.trim()) ?: onSave(title, type, date.trim(), start.trim(), end.trim(), endDate.trim(), location, subjectId)
     }) {
         Field("Title", title) { title = it }
         ChoiceField("Type", Calendar.typeLabel(type), Calendar.EVENT_TYPES.map { it.second }, { label -> type = Calendar.EVENT_TYPES.first { it.second == label }.first })
+        ChoiceField("Subject (optional)", subjectOptions[subjectId] ?: "None", listOf("None") + subjectOptions.values,
+            { label -> subjectId = subjectOptions.entries.firstOrNull { it.value == label }?.key.orEmpty() })
         DateField("Date", date) { date = it }
         Row2 {
             TimeField("Start", start, Modifier.weight(1f)) { start = it }

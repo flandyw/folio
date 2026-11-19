@@ -53,6 +53,16 @@ object Calendar {
             .put("startTime", toIso(date, start)).put("endTime", toIso(endDate ?: date, end))
             .apply { if (location.isNotBlank()) put("location", location.trim()) }.put("created_at", now).put("updated_at", now)
 
+    fun saveEvent(source: JSONObject?, title: String, type: String, date: LocalDate, start: String, end: String,
+        endDate: LocalDate?, location: String, subjectId: String?, now: String = isoTime()): JSONObject =
+        (source?.let { JSONObject(it.toString()) }
+            ?: newEvent(title, type, date, start, end, endDate, location, now).put("isFinished", false))
+            .put("title", title.trim()).put("eventType", type).put("startTime", toIso(date, start))
+            .put("endTime", toIso(endDate ?: date, end)).put("updated_at", now).apply {
+                if (location.isBlank()) remove("location") else put("location", location.trim())
+                if (subjectId.isNullOrBlank()) remove("subjectId") else put("subjectId", subjectId)
+            }
+
     fun validateEvent(title: String, date: String, start: String, end: String, endDate: String): String? {
         if (title.isBlank()) return "Add a title."
         val first = runCatching { LocalDate.parse(date) }.getOrNull() ?: return "Enter the date as YYYY-MM-DD."
