@@ -111,6 +111,7 @@ internal object MusicParts {
         require(request.pages == request.pages.distinct().sorted() && request.pages.all { it in 0 until source.pages }) { "Invalid part pages" }
         val mapping = request.pages.withIndex().associate { it.value to it.index }
         return source.copy(id = id, title = request.title.trim(), part = request.instrument.trim(), pages = request.pages.size,
+            durationSeconds = source.durationSeconds.takeIf { request.pages.size == source.pages },
             page = 0, opened = 0, marks = source.marks.mapNotNull { mark -> mapping[mark.page]?.let { mark.copy(page = it) } },
             jumps = source.jumps.mapNotNull { jump ->
                 val from = mapping[jump.from]; val to = mapping[jump.to]

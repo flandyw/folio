@@ -104,10 +104,30 @@ internal fun MusicSet.scoresIn(library: MusicLibrary): List<MusicScore> =
 /** Total printed pages a set list holds, the number that decides how heavy the folder is. */
 internal fun MusicSet.totalPages(library: MusicLibrary): Int = scoresIn(library).sumOf { it.pages }
 
-/** Roughly how long the set runs, at half a minute a page; 0 for an empty set. */
-internal fun MusicSet.estimatedMinutes(library: MusicLibrary): Int {
-    val pages = totalPages(library)
-    return if (pages == 0) 0 else (pages * 30f / 60f).roundToInt().coerceAtLeast(1)
+internal const val MUSIC_ESTIMATE_SECONDS_PER_PAGE = 30
+
+internal fun musicDurationText(seconds: Long): String =
+    "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+
+internal fun parseMusicDuration(text: String): Int? {
+    val parts = text.trim().split(':', limit = 3)
+    if (parts.size != 2 || parts[0].isEmpty() || parts[1].length != 2 ||
+        parts.any { part -> part.any { it !in '0'..'9' } }) return null
+    val minutes = parts[0].toIntOrNull() ?: return null
+    val seconds = parts[1].toInt()
+    return (minutes * 60L + seconds).takeIf { seconds < 60 && it in 1..Int.MAX_VALUE }?.toInt()
+}
+
+internal fun List<MusicScore>.setDurationText(): String? {
+    if (isEmpty()) return null
+    val estimated = count { it.durationSeconds == null }
+    val total = sumOf { it.durationSeconds?.toLong() ?: it.pages.toLong() * MUSIC_ESTIMATE_SECONDS_PER_PAGE }
+    val duration = musicDurationText(total)
+    return when (estimated) {
+        0 -> duration
+        size -> "$duration estimated (${MUSIC_ESTIMATE_SECONDS_PER_PAGE}s/page)"
+        else -> "$duration partially estimated (${MUSIC_ESTIMATE_SECONDS_PER_PAGE}s/page)"
+    }
 }
 
 /** The running order reversed, for the set list's "Reverse" action. */

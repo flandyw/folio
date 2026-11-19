@@ -69,6 +69,7 @@ internal data class MusicScore(
     val turnSeconds: Int = 20,
     /** 0 = silent, 1 = normal, 2 = strong; empty uses the default downbeat accent. */
     val beatAccents: List<Int> = emptyList(),
+    val durationSeconds: Int? = null,
 )
 /** Copy [pages] (indexes into the source score, in order) from the source score's notebook. */
 internal data class MusicSeed(val from: String, val pages: List<Int>)
@@ -120,6 +121,7 @@ internal object MusicCodec {
                         stroke.optString("style", MUSIC_SOLID))
                 }.filter { it.page in 0 until pages },
                 opened = s.optLong("opened").coerceAtLeast(0),
+                durationSeconds = s.optString("durationSeconds").toIntOrNull()?.takeIf { it > 0 },
                 folder = s.optString("folder").takeIf { it in folderIds },
                 pencil = s.optJSONArray("pencil")?.let { a -> (0 until minOf(a.length(), pages)).map { a.getInt(it).coerceAtLeast(0) } } ?: emptyList(),
                 seed = s.optJSONObject("seed")?.let { o ->
@@ -151,6 +153,7 @@ internal object MusicCodec {
                 .apply { if (s.texts.isNotEmpty()) put("texts", JSONArray(s.texts.map { textJson(it) })) }
                 .apply { if (s.pencil.any { it > 0 }) put("pencil", JSONArray(s.pencil)) }
                 .apply { if (s.beatAccents.isNotEmpty()) put("beatAccents", JSONArray(s.beatAccents)) }
+                .apply { s.durationSeconds?.let { put("durationSeconds", it) } }
                 .apply { if (!s.twoUp) put("twoUp", false) }
                 .apply { if (s.overlapTurns) put("overlapTurns", true) }
                 .apply { if (s.turnSeconds != 20) put("turnSeconds", musicTurnSeconds(s.turnSeconds)) }

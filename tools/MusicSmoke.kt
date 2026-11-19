@@ -223,7 +223,8 @@ fun main() {
     val bigSet = MusicSet("set-1", "Big", listOf(second.id, aria.id, "99999999-9999-9999-9999-999999999999"))
     check(bigSet.scoresIn(bigLibrary) == listOf(second, aria)) { "Set list kept an id with no score" }
     check(bigSet.totalPages(bigLibrary) == second.pages + aria.pages) { "Set list page total wrong" }
-    check(bigSet.estimatedMinutes(bigLibrary) > 0 && MusicSet("s2", "Empty", emptyList()).estimatedMinutes(bigLibrary) == 0) { "Set list duration wrong" }
+    check(bigSet.scoresIn(bigLibrary).setDurationText() == "${musicDurationText((second.pages + aria.pages) * 30L)} estimated (30s/page)" &&
+        MusicSet("s2", "Empty", emptyList()).scoresIn(bigLibrary).setDurationText() == null) { "Set list duration wrong" }
     check(bigSet.reversedOrder().scores == bigSet.scores.reversed()) { "Set list reversal wrong" }
     val shuffled = shuffledOrder(listOf("a", "b", "c", "d", "e"), kotlin.random.Random(1))
     check(shuffled == shuffledOrder(listOf("a", "b", "c", "d", "e"), kotlin.random.Random(1)) && shuffled.toSet() == setOf("a", "b", "c", "d", "e")) { "Shuffle was not reproducible" }

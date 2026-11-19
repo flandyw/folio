@@ -130,11 +130,12 @@ import kotlinx.coroutines.withContext
     }
 }
 
-/** Composer, part, size and how marked-up a score is, all on one line for a card or row. */
+/** Composer, part, size, duration and marks, all on one line for a card or row. */
 internal fun scoreMeta(score: MusicScore): String {
     val bits = mutableListOf<String>()
     bits += listOf(score.composer, score.part).filter { it.isNotBlank() }
     bits += "${score.pages} ${if (score.pages == 1) "page" else "pages"}"
+    score.durationSeconds?.let { bits += musicDurationText(it.toLong()) }
     if (score.marks.isNotEmpty()) bits += "${score.marks.size} ${if (score.marks.size == 1) "mark" else "marks"}"
     if (score.annotationCount() > 0) bits += "${score.annotationCount()} ${if (score.annotationCount() == 1) "note" else "notes"}"
     return bits.joinToString(" · ")
