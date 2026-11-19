@@ -175,9 +175,10 @@ import com.folio.notes.ui.folioSelected
                 FilterChip(selected == odd && odd.isNotEmpty(), { pick(odd) }, { Text("Odd pages") }, enabled = note.pages.size > 1)
                 FilterChip(selected == even && even.isNotEmpty(), { pick(even) }, { Text("Even pages") }, enabled = even.isNotEmpty())
             }
-            Row(
+            // Wraps on narrow phones so the three actions and the counts never clip.
+            FlowRow(
                 Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                itemVerticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
             ) {
                 TextButton(
@@ -190,9 +191,14 @@ import com.folio.notes.ui.folioSelected
                     enabled = selected.isNotEmpty(),
                     shapes = ButtonDefaults.shapes()
                 ) { Text("Clear selection") }
+                TextButton(
+                    onClick = { pick(invertExportSelection(selected, note.pages.size)) },
+                    enabled = note.pages.isNotEmpty(),
+                    shapes = ButtonDefaults.shapes()
+                ) { Text("Invert selection") }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "${selected.size}/${note.pages.size}",
+                    exportSelectionCounts(selected, note.pages.size),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
