@@ -50,6 +50,7 @@ import com.folio.notes.ui.FolioSpacing
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
 
@@ -91,7 +92,10 @@ internal fun FocalStudyContent(
     var confidence by rememberSaveable(state.userId, state.visibleFocus?.sessionId) { mutableIntStateOf(entries.firstOrNull { it.id == state.visibleFocus?.sessionId }?.confidence ?: 0) }
     var discardId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
-    var historyLimit by rememberSaveable { mutableIntStateOf(20) }
+    var historySearch by rememberSaveable(state.userId) { mutableStateOf("") }
+    var historyFrom by rememberSaveable(state.userId) { mutableStateOf<Long?>(null) }
+    var historyTo by rememberSaveable(state.userId) { mutableStateOf<Long?>(null) }
+    var historyLimit by rememberSaveable(state.userId, historySearch, historyFrom, historyTo) { mutableIntStateOf(20) }
     var manualLog by rememberSaveable { mutableStateOf(false) }
     var manualMinutes by rememberSaveable { mutableStateOf("") }
     var planEditorId by rememberSaveable(state.userId) { mutableStateOf<String?>(null) }
@@ -155,7 +159,13 @@ internal fun FocalStudyContent(
         }
     }
     val filtering = planSearch.isNotBlank() || planScope != PlanScope.ALL || planSubject != null
-    val historyDays = remember(history, historyLimit, dedicated) { focalHistoryDays(history.take(if (dedicated) historyLimit else 5), zone) }
+    val historyPage = remember(history, state.subjects, historySearch, historyFrom, historyTo, historyLimit, dedicated, zone) {
+        focalFilterHistory(history, state.subjects.associate { it.id to it.name }, historySearch,
+            historyFrom?.let(LocalDate::ofEpochDay), historyTo?.let(LocalDate::ofEpochDay), zone,
+            if (dedicated) historyLimit else 5)
+    }
+    val historyDays = historyPage.days
+    val historyFiltering = historySearch.isNotBlank() || historyFrom != null || historyTo != null
     val cardColor = if (dedicated) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHighest
     val anotherRunning = entries.any { it.active && !it.paused }
     val startBlocked = when {
@@ -525,8 +535,37 @@ internal fun FocalStudyContent(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (history.isEmpty()) item(key = "empty-history") {
-            EmptyHint("Complete a study session or log past study to see it here.")
+        item(key = "history-filters") {
+            val context = LocalContext.current
+            fun pickDate(current: Long?, onPick: (Long) -> Unit) {
+                val date = current?.let(LocalDate::ofEpochDay) ?: todayDate
+                android.app.DatePickerDialog(context, { _, year, month, day ->
+                    onPick(LocalDate.of(year, month + 1, day).toEpochDay())
+                }, date.year, date.monthValue - 1, date.dayOfMonth).show()
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                OutlinedTextField(historySearch, { historySearch = it }, label = { Text("Search history") },
+                    placeholder = { Text("Title or subject") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    OutlinedButton({ pickDate(historyFrom) { historyFrom = it } }, modifier = Modifier.weight(1f)) {
+                        Text("From: " + (historyFrom?.let { LocalDate.ofEpochDay(it).toString() } ?: "Any"))
+                    }
+                    OutlinedButton({ pickDate(historyTo) { historyTo = it } }, modifier = Modifier.weight(1f)) {
+                        Text("To: " + (historyTo?.let { LocalDate.ofEpochDay(it).toString() } ?: "Any"))
+                    }
+                }
+                if (historyFrom != null && historyTo != null && historyFrom!! > historyTo!!) {
+                    Text("From date must be on or before To date.", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Text("${historyPage.totalCount} sessions", style = MaterialTheme.typography.bodySmall)
+                if (historyFiltering) TextButton({ historySearch = ""; historyFrom = null; historyTo = null }) {
+                    Text("Clear filters")
+                }
+            }
+        }
+        if (historyPage.totalCount == 0) item(key = "empty-history") {
+            EmptyHint(if (historyFiltering) "No sessions match your filters." else "Complete a study session or log past study to see it here.")
         }
         historyDays.forEach { day ->
             item(key = "day:${day.date}") {
@@ -543,7 +582,7 @@ internal fun FocalStudyContent(
                     onDelete = if (dedicated && entry.kind == "study") { { deleteHistoryId = entry.id } } else null)
             }
         }
-        if (dedicated && history.size > historyLimit) item(key = "more-history") {
+        if (dedicated && historyPage.totalCount > historyLimit) item(key = "more-history") {
             TextButton({ historyLimit += 20 }) { Text("Show more sessions") }
         }
     }
