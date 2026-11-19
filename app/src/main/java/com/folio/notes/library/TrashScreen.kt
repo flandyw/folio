@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,12 +25,32 @@ import java.util.Date
 
 @Composable internal fun TrashScreen(state: FolioState, model: FolioViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
     var deleting by remember { mutableStateOf<Set<String>?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(TrashSort.NEWEST) }
+    var sortExpanded by remember { mutableStateOf(false) }
+    val visible = remember(state.trash, query, sort) { queryTrash(state.trash, query, sort) }
     val available = state.trash.map { it.notebook.id }.filterNot { it in state.trashBusyIds }.toSet()
     val enabled = !state.loading && !state.loadFailed && !state.saveFailed
     Column(modifier) {
         FolioScreenHeading("Trash", leading = {
             IconButton(onBack, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Back to Library") }
         })
+        Column(Modifier.fillMaxWidth().padding(horizontal = FolioDestinationInset),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(),
+                label = { Text("Search Trash by title") }, singleLine = true,
+                trailingIcon = {
+                    if (query.isNotEmpty()) TextButton({ query = "" }, shapes = ButtonDefaults.shapes()) { Text("Clear") }
+                })
+            Box {
+                TextButton({ sortExpanded = true }, shapes = ButtonDefaults.shapes()) { Text(sort.label) }
+                DropdownMenu(sortExpanded, { sortExpanded = false }) {
+                    TrashSort.entries.forEach { option ->
+                        DropdownMenuItem(text = { Text(option.label) }, onClick = { sort = option; sortExpanded = false })
+                    }
+                }
+            }
+        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = FolioDestinationInset,
             end = FolioDestinationInset, bottom = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             item {
@@ -54,7 +75,16 @@ import java.util.Date
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            items(state.trash, key = { it.notebook.id }) { entry ->
+            if (state.trash.isNotEmpty() && visible.isEmpty()) item {
+                Column(Modifier.fillMaxWidth().padding(vertical = 64.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                    Text("No results for “$query”", style = MaterialTheme.typography.titleMedium)
+                    Text("Try another notebook title.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton({ query = "" }, shapes = ButtonDefaults.shapes()) { Text("Clear search") }
+                }
+            }
+            items(visible, key = { it.notebook.id }) { entry ->
                 val note = entry.notebook
                 val busy = note.id in state.trashBusyIds
                 Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
