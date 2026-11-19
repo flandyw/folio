@@ -6,6 +6,8 @@
 
 The VCAA destination provides a searchable catalog of exam resources. Select a paper to download and import it as a PDF-backed notebook; Folio fills available subject, year, paper and marks metadata. Downloads are restricted to the VCAA host. Imported papers use the same editor and notebook storage as other PDFs.
 
+Open **Saved filters** to name and save a subject, year, and/or paper type on this device. Applying a shortcut replaces the current search and filters with those saved choices; it does not download or import any papers. You can remove shortcuts from the same panel.
+
 Marking tools provide mark areas, mark stamps, comments, numbered flags and a feedback sheet. A mark area can span PDF pages: it is one linked award, even though it has a region on each page. Marking decorations and comments are ordinary page content, so edits participate in undo. See [document transactions](../document-transactions.md) for cross-page rules.
 
 Long-response workflows support linked drafts and marked copies, pinned questions, plans, comparison and feedback. Notebook sittings can record exam timing and writing activity.

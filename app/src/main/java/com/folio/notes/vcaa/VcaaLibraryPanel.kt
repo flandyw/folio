@@ -97,6 +97,9 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
     var provider by rememberSaveable { mutableStateOf<String?>(null) }
     var reportsOnly by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(VcaaSort.NEWEST) }
+    var showingShortcuts by rememberSaveable { mutableStateOf(false) }
+    val shortcutPrefs = remember(context) { context.getSharedPreferences("vcaa-shortcuts", android.content.Context.MODE_PRIVATE) }
+    var shortcuts by remember(shortcutPrefs) { mutableStateOf(VcaaFilterShortcuts.decode(shortcutPrefs.getString("filters", null))) }
     var selecting by rememberSaveable { mutableStateOf(false) }
     var picked by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var linkError by remember { mutableStateOf<String?>(null) }
@@ -147,6 +150,10 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
         study = null; year = null; type = null; provider = null
         availability = VcaaAvailability.ALL; reportsOnly = false; query = ""; sort = VcaaSort.NEWEST
     }
+    fun saveShortcuts(next: List<VcaaFilterShortcut>) {
+        shortcutPrefs.edit().putString("filters", VcaaFilterShortcuts.encode(next)).apply()
+        shortcuts = next
+    }
     fun openResource(url: String) {
         linkError = null
         runCatching { uriHandler.openUri(url) }.onFailure {
@@ -192,19 +199,27 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
                                 Icon(FolioIcons.ChevronDown, null, Modifier.size(18.dp))
                             }
                         }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            YearFilter(year, index?.years.orEmpty()) { year = it }
-                            index?.types.orEmpty().forEach { option ->
-                                FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) })
+                            if (index != null) AssistChip(
+                                onClick = { focus.clearFocus(); showingShortcuts = true },
+                                label = { Text("Saved filters") },
+                                leadingIcon = { Icon(FolioIcons.Bookmark, null, Modifier.size(18.dp)) },
+                            )
+                            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                                YearFilter(year, index?.years.orEmpty()) { year = it }
+                                index?.types.orEmpty().forEach { option ->
+                                    FilterChip(type == option, { type = if (type == option) null else option }, { Text(option.label) })
+                                }
+                                ChoiceFilter(provider ?: "All sessions", provider != null, listOf<String?>(null) + index?.providers.orEmpty(),
+                                    { it ?: "All sessions" }, { it == provider }) { provider = it }
+                                ChoiceFilter(availability.label, availability != VcaaAvailability.ALL, VcaaAvailability.entries,
+                                    { it.label }, { it == availability }) { availability = it }
+                                FilterChip(reportsOnly, { reportsOnly = !reportsOnly }, { Text("With reports or guides") })
+                                ChoiceFilter(sort.label, sort != VcaaSort.NEWEST, VcaaSort.entries,
+                                    { it.label }, { it == sort }) { sort = it }
                             }
-                            ChoiceFilter(provider ?: "All sessions", provider != null, listOf<String?>(null) + index?.providers.orEmpty(),
-                                { it ?: "All sessions" }, { it == provider }) { provider = it }
-                            ChoiceFilter(availability.label, availability != VcaaAvailability.ALL, VcaaAvailability.entries,
-                                { it.label }, { it == availability }) { availability = it }
-                            FilterChip(reportsOnly, { reportsOnly = !reportsOnly }, { Text("With reports or guides") })
-                            ChoiceFilter(sort.label, sort != VcaaSort.NEWEST, VcaaSort.entries,
-                                { it.label }, { it == sort }) { sort = it }
                         }
                         linkError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                         if (index != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -257,6 +272,16 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
             SubjectList(studies, index?.studyCounts.orEmpty(), index?.exams?.size ?: 0, study,
                 { study = it; choosingStudy = false }, Modifier.fillMaxWidth().weight(1f, fill = false))
         }
+        if (showingShortcuts) VcaaShortcutPanel(
+            shortcuts, VcaaFilterSet(study, year, type), onDismiss = { showingShortcuts = false },
+            onSave = { saveShortcuts(shortcuts + it) },
+            onRemove = { saveShortcuts(shortcuts - it) },
+            onApply = { filters ->
+                resetFilters()
+                study = filters.study; year = filters.year; type = filters.type
+                showingShortcuts = false
+            },
+        )
         previewUrl?.let { url ->
             index?.exams?.firstOrNull { it.url == url }?.let { exam ->
                 VcaaPreview(exam, index?.ownedBy(exam, owned), canImport, onImport = { import(listOf(exam)) },
@@ -284,6 +309,69 @@ internal fun VcaaScreen(state: FolioState, model: FolioViewModel, folderId: Stri
         }
     }
 }
+
+@Composable
+private fun VcaaShortcutPanel(
+    shortcuts: List<VcaaFilterShortcut>, current: VcaaFilterSet, onDismiss: () -> Unit,
+    onSave: (VcaaFilterShortcut) -> Unit, onRemove: (VcaaFilterShortcut) -> Unit, onApply: (VcaaFilterSet) -> Unit,
+) {
+    val focus = LocalFocusManager.current
+    var draft by rememberSaveable { mutableStateOf<String?>(null) }
+    val name = draft
+    val error = name?.let { VcaaFilterShortcuts.nameError(it, shortcuts) }
+    fun save() {
+        if (name == null || error != null || current.isEmpty) return
+        onSave(VcaaFilterShortcut(name.trim(), current))
+        focus.clearFocus()
+        draft = null
+    }
+    FolioPanel(if (name == null) "Saved filters" else "Save current filters", onDismiss) {
+        Column(Modifier.padding(start = FolioSpacing.dp24, end = FolioSpacing.dp24, bottom = FolioSpacing.dp16),
+            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            if (name != null) {
+                Text(current.summary(), style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(name, { draft = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Shortcut name") },
+                    isError = name.isNotEmpty() && error != null,
+                    supportingText = if (name.isNotEmpty() && error != null) ({ Text(error) }) else null,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton({ focus.clearFocus(); draft = null }) { Text("Cancel") }
+                    Button(::save, enabled = error == null && !current.isEmpty) { Text("Save") }
+                }
+            } else {
+                Text(if (current.isEmpty) "Choose a subject, year or paper type to save a shortcut."
+                    else "Shortcuts save the subject, year and paper type on this device.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (shortcuts.isNotEmpty()) LazyColumn(Modifier.weight(1f, fill = false)) {
+                    items(shortcuts, key = { it.name }) { shortcut ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(onClick = { onApply(shortcut.filters) }, modifier = Modifier.weight(1f),
+                                shape = FolioShapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Column(Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp8, horizontal = FolioSpacing.dp8)) {
+                                    Text(shortcut.name, style = MaterialTheme.typography.titleSmall)
+                                    Text(shortcut.filters.summary(), style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            IconButton({ onRemove(shortcut) }) { Icon(FolioIcons.Delete, "Remove ${shortcut.name}") }
+                        }
+                    }
+                }
+                TextButton({ draft = "" }, enabled = !current.isEmpty) {
+                    Icon(FolioIcons.BookmarkAdd, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(FolioSpacing.dp8))
+                    Text("Save current filters")
+                }
+            }
+        }
+    }
+}
+
+private fun VcaaFilterSet.summary(): String =
+    listOf(study ?: "All subjects", year?.toString() ?: "All years", type?.label ?: "All paper types").joinToString(" · ")
 
 @Composable
 private fun SubjectList(studies: List<String>, counts: Map<String, Int>, total: Int, current: String?, onPick: (String?) -> Unit, modifier: Modifier) {
