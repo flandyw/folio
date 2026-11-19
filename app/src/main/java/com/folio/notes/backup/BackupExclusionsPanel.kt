@@ -15,12 +15,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.notes.model.Notebook
 import com.folio.notes.ui.FolioPanel
+import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 
 /** Exclusions are by identity, so renaming or moving an imported textbook keeps the choice. */
@@ -33,11 +37,21 @@ import com.folio.notes.ui.FolioSpacing
     val visible = remember(notes, query) {
         notes.filter { matchesQuery(it, query) }.sortedBy { it.title.lowercase() }
     }
-    val count = notes.count { it.id in excludedIds }
+    val impact = remember(notes, excludedIds) { BackupExclusionImpact.of(notes, excludedIds) }
     FolioPanel("Backup exclusions", onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Select notebooks to exclude from automatic and portable library backups. Changes save immediately. You can still export any notebook individually.", style = MaterialTheme.typography.bodyMedium)
-            Text("$count of ${notes.size} notebooks excluded. Older restore points may still contain excluded notebooks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (impact.nothingProtected) Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
+                Row(Modifier.padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
+                    Icon(FolioIcons.Warning, contentDescription = null)
+                    Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                        Text("Every notebook is excluded", style = MaterialTheme.typography.titleSmall)
+                        Text("Library backups will save none of your notebooks. Include at least one, or export notebooks individually.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            } else if (notes.isNotEmpty()) Text(impact.protectedSummary, style = MaterialTheme.typography.titleSmall)
+            Text("${impact.excludedSummary} Older restore points may still contain excluded notebooks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search notebooks") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
