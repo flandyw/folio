@@ -42,6 +42,13 @@ data class ExamTimerState(
     val active: Boolean get() = phase == ExamTimerPhase.READING || phase == ExamTimerPhase.WRITING
     val paused: Boolean get() = pausedAt != null
     val running: Boolean get() = active && !paused
+    val finalWarningSeconds: Int get() = finalWarningSeconds(preset.writingSeconds)
+    val inFinalMinutes: Boolean get() = phase == ExamTimerPhase.WRITING &&
+        finalWarningSeconds > 0 && remaining in 1..finalWarningSeconds
+
+    fun crossedFinalWarning(previous: ExamTimerState?): Boolean =
+        inFinalMinutes && !paused && previous != null && previous.startedAt == startedAt && !previous.inFinalMinutes
+
     private fun elapsedMillis(now: Long): Long =
         ((pausedAt ?: now) - (startedAt ?: now) - pausedMillis).coerceAtLeast(0L)
 
@@ -165,6 +172,12 @@ data class ExamTimerState(
          * foregrounded; clean backgroundings are already recorded as pauses before this runs.
          */
         const val UNSEEN_GAP_GRACE_MS = 30_000L
+
+        fun finalWarningSeconds(writingSeconds: Int): Int = when {
+            writingSeconds > 300 -> 300
+            writingSeconds > 60 -> 60
+            else -> 0
+        }
 
         /**
          * Rebuilds a sitting that was already running when the app last stopped, from the preset and
