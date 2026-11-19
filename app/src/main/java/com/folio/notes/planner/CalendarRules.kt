@@ -162,9 +162,23 @@ object Calendar {
             .filter { week -> week.any { it.inMonth } }
     }
 
+    private fun isOverdue(task: JSONObject, before: LocalDate) =
+        !task.has("archivedAt") && task.text("status") == "planned" &&
+            runCatching { LocalDate.parse(task.text("plannedFor")) }.getOrNull()?.isBefore(before) == true
+
     /** Planned tasks left behind before [before], oldest first. */
-    fun overdue(tasks: List<JSONObject>, before: LocalDate) = tasks.filter { !it.has("archivedAt") && it.text("status") == "planned" && it.text("plannedFor").isNotEmpty() && it.text("plannedFor") < before.toString() }
+    fun overdue(tasks: List<JSONObject>, before: LocalDate) = tasks.filter { isOverdue(it, before) }
         .sortedWith(compareBy({ it.text("plannedFor") }, { it.text("createdAt") }))
+
+    fun moveOverdueToToday(learning: JSONObject, today: LocalDate, taskId: String? = null, now: String = isoTime()): JSONObject? {
+        val copy = JSONObject(learning.toString())
+        val tasks = copy.optJSONArray("tasks")?.objects().orEmpty().filter {
+            (taskId == null || it.text("id") == taskId) && isOverdue(it, today)
+        }
+        if (tasks.isEmpty()) return null
+        tasks.forEach { it.put("plannedFor", today.toString()).put("updatedAt", now) }
+        return copy.put("updatedAt", now)
+    }
 
     // ---- Timetable ----
 

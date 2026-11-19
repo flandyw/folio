@@ -98,6 +98,7 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
     var editingEvent by remember { mutableStateOf<JSONObject?>(null) }
     var addingEvent by rememberSaveable { mutableStateOf(false) }
     var importing by rememberSaveable { mutableStateOf(false) }
+    var movingOverdue by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val names = remember(studyState.subjects) { studyState.subjects.associate { it.id to it.name } }
@@ -121,7 +122,7 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
     val source = remember(tasks, sacs, events, sessions, logged, due, names) { Calendar.Sources(tasks, sacs, events, sessions, logged, due, names) }
     val weeks = remember(month, source) { Calendar.month(month, source) }
     val plan = remember(day, source) { Calendar.dayPlan(day, source) }
-    val overdue = remember(tasks, day) { if (day >= today) Calendar.overdue(tasks, today) else emptyList() }
+    val overdue = remember(tasks, day, today) { if (day >= today) Calendar.overdue(tasks, today) else emptyList() }
     val school = remember(day, timetable) { timetable?.takeIf { it.optBoolean("enabled", true) }?.let { Calendar.periodsOn(day, it) } }
     val summary = remember(weeks) { val inMonth = weeks.flatten().filter { it.inMonth }
         inMonth.sumOf { it.minutes }.let { m -> if (m > 0) "${formatMinutes(m)} of study across ${inMonth.count { it.minutes > 0 }} day${if (inMonth.count { it.minutes > 0 } == 1) "" else "s"}" else "No study planned this month" } +
@@ -129,6 +130,15 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
 
     fun selectDay(d: LocalDate) { dayText = d.toString(); monthText = YearMonth.from(d).toString(); timelineDay = d.toEpochDay() }
     fun setTask(id: String, edit: (JSONObject) -> Unit) { scope.launch { saveLearning(Planner.edit(learning, "tasks", id) { edit(it); it.put("updatedAt", isoTime()) }) } }
+    fun moveOverdue(taskId: String?) {
+        if (!enabled || movingOverdue) return
+        val next = Calendar.moveOverdueToToday(learning, LocalDate.now(), taskId) ?: return
+        movingOverdue = true
+        scope.launch {
+            try { saveLearning(next) }
+            finally { movingOverdue = false }
+        }
+    }
     val actions = RowActions(
         onTask = { id, status -> setTask(id) { it.put("status", status) } },
         onEditTask = { id -> editingTask = tasks.find { it.text("id") == id } },
@@ -145,7 +155,7 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
     val grid: @Composable (Boolean) -> Unit = { wide -> MonthGrid(weeks, day, today, wide, ::selectDay) }
     val pane: @Composable () -> Unit = {
         DayPane(day, today, plan, school, timetable != null, overdue, actions, { selectDay(day.plusDays(it.toLong())) }, { importing = true },
-            { id -> setTask(id) { it.put("plannedFor", day.toString()) } })
+            enabled && !movingOverdue, ::moveOverdue)
     }
     val timeline: @Composable () -> Unit = {
         StudyTimeline(studyState, now, canStart = studyState.focus == null, cardColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -303,7 +313,7 @@ private const val CELL_LINES = 3
 }
 
 @Composable private fun DayPane(day: LocalDate, today: LocalDate, plan: Calendar.Plan, school: Pair<Int, List<Calendar.Period>>?, hasTimetable: Boolean,
-    overdue: List<JSONObject>, actions: RowActions, onShift: (Int) -> Unit, onTimetable: () -> Unit, onMoveHere: (String) -> Unit) {
+    overdue: List<JSONObject>, actions: RowActions, onShift: (Int) -> Unit, onTimetable: () -> Unit, moveEnabled: Boolean, onMoveOverdue: (String?) -> Unit) {
     val open = plan.items.filterNot(::itemDone); val banked = plan.items.filter(::itemDone)
     Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
@@ -334,9 +344,11 @@ private const val CELL_LINES = 3
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
             if (overdue.isNotEmpty()) DaySection("Carried over", overdue.size) {
+                TextButton({ onMoveOverdue(null) }, Modifier.align(Alignment.End).padding(horizontal = FolioSpacing.dp8),
+                    enabled = moveEnabled) { Text("Move all to today") }
                 overdue.forEach { task ->
                     ItemLine(kindColor(Calendar.Kind.TASK), task.text("title"), "${task.text("plannedFor")} · ${task.optInt("durationMinutes")} min") {
-                        OutlinedButton({ onMoveHere(task.text("id")) }, enabled = actions.enabled) { Text("Move here") }
+                        OutlinedButton({ onMoveOverdue(task.text("id")) }, enabled = moveEnabled) { Text("Move to today") }
                     }
                 }
             }
