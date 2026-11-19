@@ -54,8 +54,8 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
     var pickedPaper by rememberSaveable { mutableStateOf("") }
     val paper = if (pickedPaper in papers) pickedPaper else latest?.takeIf { it.subject == subject }?.let { comparisonName(it.paper) }?.takeIf { it in papers } ?: papers.keys.firstOrNull().orEmpty()
     var scoreText by rememberSaveable { mutableStateOf(latest?.let { "%.1f".format(it.percentage) } ?: "75") }
-    val score = (scoreText.toDoubleOrNull() ?: 0.0).coerceIn(0.0, 100.0)
-    val insights = remember(ofSubject, paper, score) { yearInsights(ofSubject.filter { comparisonName(it.paper) == paper }, score) }
+    val score = parseComparisonScore(scoreText)
+    val insights = remember(ofSubject, paper, score) { score?.let { yearInsights(ofSubject.filter { comparisonName(it.paper) == paper }, it) }.orEmpty() }
     val uri = LocalUriHandler.current
     fun pct(v: Double?) = v?.let { "%.1f%%".format(it) } ?: "—"
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
@@ -64,10 +64,11 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
             item { ChoiceField("Subject", subject, subjects, { pickedSubject = it; pickedPaper = "" }) }
             item { ChoiceField("Exam", papers[paper].orEmpty(), papers.values.toList(), { label -> pickedPaper = papers.entries.first { it.value == label }.key }) }
             item { OutlinedTextField(scoreText, { scoreText = it }, Modifier.fillMaxWidth(), label = { Text("Score to compare (%)") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), isError = score == null,
+                supportingText = if (score == null) { { Text("Enter a number from 0 to 100.") } } else null) }
             item { Text("A+ cutoffs are official. Mean, median and percentile are estimated from grouped grade bands.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (insights.isEmpty()) item { EmptyHint("No VCAA grade distributions are available for $subject.") }
+            if (score != null && insights.isEmpty()) item { EmptyHint("No VCAA grade distributions are available for $subject.") }
             insights.filter { it.percentile != null }.takeIf { it.size >= 2 }?.let { list -> item(key = "percentiles") {
                 com.folio.notes.progress.ProgressCard("Where ${"%.1f".format(score)}% lands each year", "Estimated percentile in each year's cohort") {
                     com.folio.notes.progress.ColumnChart(list.map { "${it.reference.year}".takeLast(2) to it.percentile!! }, "Percentile by year: " +
