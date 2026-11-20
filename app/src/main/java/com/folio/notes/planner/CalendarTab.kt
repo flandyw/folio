@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -284,7 +285,7 @@ private const val CELL_LINES = 3
     val background = when { active -> scheme.primary.copy(alpha = .08f); !day.inMonth -> scheme.surfaceContainer; weekend -> scheme.surfaceContainerLowest; else -> Color.Transparent }
     Column(modifier.background(background).then(if (active) Modifier.border(BorderStroke(2.dp, scheme.primary)) else Modifier)
         .clickable(onClick = onClick).heightIn(min = if (wide) 112.dp else 64.dp).padding(FolioSpacing.dp4)
-        .semantics { contentDescription = "${day.date}, ${open.size} open, $done done, ${formatMinutes(day.minutes)} of study" },
+        .semantics { selected = active; contentDescription = "${if (isToday) "Today, " else ""}${day.date}, ${open.size} open, $done done, ${formatMinutes(day.minutes)} of study" },
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(24.dp).clip(CircleShape).background(if (isToday) scheme.primary else Color.Transparent), contentAlignment = Alignment.Center) {

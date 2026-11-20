@@ -63,4 +63,62 @@ class PlannerTest {
         assertNotNull(Planner.validateGoal("exam-percentage", "", 80.0, "2026-12-01", today))
         assertNotNull(Planner.validateGoal("exam-percentage", "Methods", 80.0, "2026-10-01", today))
     }
+
+    private fun form(source: JSONObject? = null, score: String = "", max: String = "", weighting: String = "", minutes: String = "60") =
+        Planner.sacFromForm(source, "Methods", "School", "SAC 2.0", "3", "2026-08-01", minutes, score, max, weighting, now = "2026-07-01T00:00:00.000Z")
+
+    @Test fun sacFormRejectsBadNumbersWithoutThrowing() {
+        for (bad in listOf("abc", "NaN", "Infinity", "-Infinity", "1e999")) {
+            assertEquals(bad, "Marks and weighting must be numbers.", form(score = bad, max = "10").second)
+            assertEquals(bad, "Marks and weighting must be numbers.", form(score = "5", max = bad).second)
+            assertEquals(bad, "Marks and weighting must be numbers.", form(weighting = bad).second)
+            assertEquals(bad, "Duration must be greater than zero.", form(minutes = bad).second)
+        }
+        assertEquals("Enter both the mark and maximum, or leave both blank.", form(score = "", max = "10").second)
+        assertEquals("Enter both the mark and maximum, or leave both blank.", form(score = "7", max = " ").second)
+    }
+
+    @Test fun sacFormSavesUpcomingAndCompletedMarks() {
+        val (upcoming, none) = form(weighting = "25")
+        assertNull(none)
+        assertFalse(Planner.isCompleted(upcoming!!))
+        assertFalse(upcoming.has("completedAt"))
+        assertEquals("SAC 2.0", upcoming.getString("title"))
+        assertEquals(25.0, upcoming.getDouble("weighting"), 0.0)
+        val (done, error) = form(upcoming, score = " 18 ", max = "20")
+        assertNull(error)
+        assertEquals(90.0, Planner.percentage(done!!)!!, 1e-9)
+        assertEquals("2026-08-01", done.getString("completedAt"))
+        assertEquals(upcoming.getString("id"), done.getString("id"))
+        // Clearing both marks makes it upcoming again.
+        assertFalse(form(done).first!!.has("completedAt"))
+    }
+
+    @Test fun sacFormKeepsUnknownFieldsAndLeavesTheSourceAlone() {
+        val source = Planner.newSac("Methods", "School", "SAC 1", 3, "2026-08-01", 60.0, null, null, null, "2026-06-01T00:00:00.000Z")
+            .put("focalOnly", JSONObject().put("x", 1))
+        val before = source.toString()
+        val saved = form(source, score = "5", max = "10").first!!
+        assertEquals(before, source.toString())
+        assertEquals(1, saved.getJSONObject("focalOnly").getInt("x"))
+        assertEquals("2026-06-01T00:00:00.000Z", saved.getString("createdAt"))
+        assertEquals("2026-07-01T00:00:00.000Z", saved.getString("updatedAt"))
+        assertEquals(source.getString("id"), saved.getString("id"))
+        assertEquals(before, source.toString())
+        assertNull(form(source, score = "x", max = "10").first)
+        assertEquals(before, source.toString())
+    }
+
+    @Test fun sacFormTextKeepsTitlesLiteralAndTidiesNumbers() {
+        val sac = JSONObject().put("title", "SAC 2.0").put("provider", "Room 1.0").put("unit", 3).put("durationMinutes", 60.0)
+            .put("score", 17.5).put("maxScore", 20.0)
+        assertEquals("SAC 2.0", Planner.sacFormText(sac, "title"))
+        assertEquals("Room 1.0", Planner.sacFormText(sac, "provider"))
+        assertEquals("3", Planner.sacFormText(sac, "unit"))
+        assertEquals("60", Planner.sacFormText(sac, "durationMinutes"))
+        assertEquals("17.5", Planner.sacFormText(sac, "score"))
+        assertEquals("20", Planner.sacFormText(sac, "maxScore"))
+        assertEquals("", Planner.sacFormText(sac, "weighting"))
+        assertEquals("", Planner.sacFormText(null, "title"))
+    }
 }

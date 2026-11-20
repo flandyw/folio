@@ -4,13 +4,13 @@ package com.folio.notes.planner
 import com.folio.notes.ui.FolioIcons
 import android.content.ClipData
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +23,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -72,6 +76,8 @@ import org.json.JSONObject
 private val TABS = listOf("Calendar" to FolioIcons.Calendar, "SACs" to FolioIcons.Clipboard, "Stoplight" to FolioIcons.Stoplight,
     "Goals" to FolioIcons.Flag, "Score" to FolioIcons.Sigma, "Grades" to FolioIcons.BarChart)
 private val RATING_COLOUR = mapOf("red" to Color(0xFFC62828), "amber" to Color(0xFFF9A825), "green" to Color(0xFF2E7D32))
+// The chip colours are fixed, so their labels are too: white on amber is under 2:1, black is over 10:1.
+private val RATING_LABEL = mapOf("red" to Color.White, "amber" to Color.Black, "green" to Color.White)
 
 private val CONFLICT_NAMES = mapOf("user_state:sacRecords" to "Your SACs", "user_state:learning" to "Your checklist, goals or tasks",
     "user_state:atarEstimates" to "Your ATAR estimates", "timetable_config:timetable_config" to "Your timetable")
@@ -155,7 +161,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             fields()
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         }
         FlowRow(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
             TextButton(onDismiss, enabled = !busy) { Text("Cancel") }
@@ -300,7 +306,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 }
 
 @Composable private fun SacDialog(source: JSONObject?, subjects: List<String>, onDismiss: () -> Unit, onDelete: (() -> Unit)?, onSave: suspend (JSONObject) -> String?) {
-    fun str(key: String) = source?.let { if (it.has(key)) it.optString(key).removeSuffix(".0") else null }.orEmpty()
+    fun str(key: String) = Planner.sacFormText(source, key)
     var subject by rememberSaveable { mutableStateOf(str("subject")) }
     var provider by rememberSaveable { mutableStateOf(str("provider").ifEmpty { "School" }) }
     var title by rememberSaveable { mutableStateOf(str("title")) }
@@ -311,18 +317,8 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     var max by rememberSaveable { mutableStateOf(str("maxScore")) }
     var weighting by rememberSaveable { mutableStateOf(str("weighting")) }
     FormPanel(if (source == null) "Plan or log SAC" else "Edit SAC", onDismiss, onSave = {
-        val now = com.folio.notes.mistakes.isoTime()
-        val sac = (source?.let { JSONObject(it.toString()) } ?: Planner.newSac("", "", "", 1, date, 1.0, null, null, null, now))
-            .put("subject", subject.trim()).put("provider", provider.trim()).put("title", title.trim()).put("unit", unit.toIntOrNull() ?: 0)
-            .put("scheduledAt", date.trim()).put("durationMinutes", minutes.toDoubleOrNull() ?: 0.0).put("updatedAt", now)
-        if (score.isBlank() && max.isBlank()) { sac.remove("score"); sac.remove("maxScore"); sac.remove("completedAt") }
-        else { sac.put("score", score.toDoubleOrNull() ?: Double.NaN); sac.put("maxScore", max.toDoubleOrNull() ?: Double.NaN)
-            if (!sac.has("completedAt")) sac.put("completedAt", date.trim()) }
-        if (weighting.isBlank()) sac.remove("weighting") else sac.put("weighting", weighting.toDoubleOrNull() ?: Double.NaN)
-        // NaN is not valid JSON: surface it as the field error instead of writing it.
-        Planner.validateSac(sac)?.also { return@FormPanel it }
-        if (listOf("score", "maxScore", "weighting").any { sac.has(it) && sac.optDouble(it).isNaN() }) "Marks and weighting must be numbers."
-        else onSave(sac)
+        val (sac, error) = Planner.sacFromForm(source, subject, provider, title, unit, date, minutes, score, max, weighting)
+        sac?.let { onSave(it) } ?: error
     }) {
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         Field("School or provider", provider) { provider = it }
@@ -364,7 +360,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Button({ importing = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Braces, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Import checklist") }
                 if (subject.isNotEmpty()) OutlinedButton({
                     scope.launch {
@@ -382,7 +378,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                 ProgressCard("Checklist health", "Tap a subject to open its checklist", FolioIcons.Stoplight) {
                     itemSubjects.forEach { s ->
                         val list = bySubject[s].orEmpty()
-                        Column(Modifier.fillMaxWidth().clip(FolioShapes.medium).clickable { chosen = s }
+                        Column(Modifier.fillMaxWidth().clip(FolioShapes.medium).selectable(s == subject) { chosen = s }
                             .background(if (s == subject) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f) else Color.Transparent).padding(FolioSpacing.dp8),
                             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                             Row { Text(s, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (s == subject) FontWeight.SemiBold else null, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -390,7 +386,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                             RagBar(list)
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                         Planner.RATINGS.forEach { com.folio.notes.progress.ChartKey(RATING_COLOUR.getValue(it), it.replaceFirstChar(Char::uppercase)) }
                         com.folio.notes.progress.ChartKey(MaterialTheme.colorScheme.surfaceContainerHighest, "Unrated")
                     }
@@ -400,6 +396,11 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     listOf("All", "Red", "Amber", "Green", "Re-check", "Unrated").forEach { FilterChip(filter == it, { filter = it }, { Text(it) }) }
+                }
+            }
+            if (visible.isEmpty()) item(key = "no-match") {
+                EmptyState(FolioIcons.Filter, "No ${filter.lowercase()} items", "Nothing in $subject matches this filter.") {
+                    TextButton({ filter = "All" }) { Text("Show all") }
                 }
             }
             visible.forEach { (group, list) ->
@@ -416,12 +417,12 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                             item.optString("check").ifEmpty { null }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
                             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         // Under the name, not beside it: three chips next to a long skill squeezed the text to a sliver on a phone.
-                        Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Planner.RATINGS.forEach { r ->
                                 val on = item.optString("rating") == r
                                 // Tapping the rating in place takes it off again, back to Unrated.
                                 FilterChip(on, { scope.launch { save(if (on) Planner.clearRating(learning, item.optString("id")) else Planner.setRating(learning, item.optString("id"), r)) } }, { Text(r.replaceFirstChar(Char::uppercase)) },
-                                    enabled = enabled, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = RATING_COLOUR.getValue(r), selectedLabelColor = Color.White))
+                                    enabled = enabled, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = RATING_COLOUR.getValue(r), selectedLabelColor = RATING_LABEL.getValue(r)))
                             }
                         }
                     }
@@ -440,7 +441,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     var reply by rememberSaveable { mutableStateOf("") }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    var copied by remember { mutableStateOf(false) }
+    var copied by remember(subject.trim()) { mutableStateOf(false) }
     FormPanel("Import checklist", onDismiss, onSave = {
         if (subject.isBlank()) "Choose a subject."
         else runCatching { Planner.parseImport(reply) }.fold({ it.takeIf { l -> l.isNotEmpty() }?.let { l -> onImport(subject.trim(), l) } ?: "No items found in that reply." },
@@ -642,7 +643,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
                 ChoiceField("Study", ref?.studyName.orEmpty(), studies.map { it.studyName }, { name ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
                 if (predicted != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(row.optBoolean("usePrediction"), { on -> update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("usePrediction", on) else r }) })
+                    Switch(row.optBoolean("usePrediction"), modifier = Modifier.semantics { contentDescription = "Use predicted score for ${ref?.studyName.orEmpty()} ($predicted)" }, onCheckedChange = { on -> update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("usePrediction", on) else r }) })
                     Spacer(Modifier.width(FolioSpacing.dp8)); Text("Use predicted score ($predicted)")
                 }
                 if (predicted == null || !row.optBoolean("usePrediction")) Field("Raw study score", row.optString("raw"), number = true) { v ->

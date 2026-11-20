@@ -45,6 +45,32 @@ object Planner {
         return null
     }
 
+    /** A stored field as the SAC form shows it: numbers lose a trailing `.0`, text stays literal ("SAC 2.0"). */
+    fun sacFormText(source: JSONObject?, key: String): String = when (val v = source?.opt(key)) {
+        null, JSONObject.NULL -> ""
+        is Number -> v.toDouble().toString().removeSuffix(".0")
+        else -> v.toString()
+    }
+
+    /**
+     * The SAC form's text applied to a copy of [source] (or a new SAC), returning the record or the error to show.
+     * Numbers are parsed before anything is written, because `JSONObject.put` throws on NaN and infinity.
+     */
+    fun sacFromForm(source: JSONObject?, subject: String, provider: String, title: String, unit: String, date: String,
+        minutes: String, score: String, max: String, weighting: String, now: String = isoTime()): Pair<JSONObject?, String?> {
+        fun num(text: String) = text.trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+        if (listOf(score, max, weighting).any { it.isNotBlank() && num(it) == null }) return null to "Marks and weighting must be numbers."
+        val mark = num(score); val outOf = num(max); val weight = num(weighting)
+        val sac = (source?.let { JSONObject(it.toString()) } ?: newSac("", "", "", 1, date, 1.0, null, null, null, now))
+            .put("subject", subject.trim()).put("provider", provider.trim()).put("title", title.trim()).put("unit", unit.trim().toIntOrNull() ?: 0)
+            .put("scheduledAt", date.trim()).put("durationMinutes", num(minutes) ?: 0.0).put("updatedAt", now)
+        if (mark == null) sac.remove("score") else sac.put("score", mark)
+        if (outOf == null) sac.remove("maxScore") else sac.put("maxScore", outOf)
+        if (mark == null && outOf == null) sac.remove("completedAt") else if (!sac.has("completedAt")) sac.put("completedAt", date.trim())
+        if (weight == null) sac.remove("weighting") else sac.put("weighting", weight)
+        return validateSac(sac)?.let { null to it } ?: (sac to null)
+    }
+
     fun newSac(subject: String, provider: String, title: String, unit: Int, date: String, minutes: Double,
         score: Double?, max: Double?, weighting: Double?, now: String = isoTime()): JSONObject = JSONObject()
         .put("id", UUID.randomUUID().toString()).put("subject", subject.trim()).put("provider", provider.trim())
