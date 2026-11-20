@@ -44,3 +44,10 @@ and chat. Mistake reviews do not move Stoplight ratings (Focal does that on its 
 Sign in, add a SAC / event / task / goal and a stoplight import, sync, and confirm each appears in Focal (web or desktop)
 and that an edit made in Focal arrives here. A SAC list Focal cannot validate disappears there entirely, so check this
 first after changing `Planner.validateSac`.
+
+Accessibility and layout (manual, not automated): at 320 dp / a narrow split pane and at the largest font size, the
+Stoplight actions, legend and rating chips wrap instead of running off screen, and a filter with no matches shows
+*Show all*. In light and dark themes the amber chip label is black and readable. With TalkBack, a calendar day reads
+"Today" and its selected state, the checklist's chosen subject reads as selected, the ATAR *Use predicted score*
+switch names its study, and a SAC form error (try a mark of `abc`) is announced. Editing a SAC titled `SAC 2.0`
+keeps the `.0`.
