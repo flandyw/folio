@@ -20,7 +20,6 @@ import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.Paper
-import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioSpacing
 import java.text.DateFormat
@@ -181,81 +180,4 @@ import java.util.Date
         },
         confirmButton = { TextButton({ model.renameResponseAttempt(note.id, renameId!!, name); renameId = null }, enabled = name.isNotBlank()) { Text("Save") } },
         dismissButton = { TextButton({ renameId = null }) { Text("Cancel") } })
-}
-
-/** Available from marking, a response, or the library; ordinary worksheets can have actions too. */
-@Composable internal fun FeedbackActionsPanel(notes: List<Notebook>, model: FolioViewModel, onDismiss: () -> Unit,
-    sourceNote: Notebook? = null, sourcePage: NotePage? = null) {
-    var subject by rememberSaveable { mutableStateOf(sourceNote?.exam?.subjectLabel.orEmpty()) }
-    var allSubjects by rememberSaveable { mutableStateOf(sourceNote == null) }
-    var showCompleted by rememberSaveable { mutableStateOf(false) }
-    var text by rememberSaveable { mutableStateOf("") }
-    var sourceTextId by rememberSaveable { mutableStateOf<String?>(null) }
-    var practice by rememberSaveable { mutableStateOf(FeedbackPractice.PARAGRAPH) }
-    var removeNote by rememberSaveable { mutableStateOf<String?>(null) }
-    var removeAction by rememberSaveable { mutableStateOf<String?>(null) }
-    val rows = notes.filter { allSubjects || it.exam.subjectLabel == subject }.flatMap { note ->
-        note.feedbackActions.filter { showCompleted || !it.done }.map { note to it }
-    }
-    FolioPanel(title = "Feedback actions", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24).padding(bottom = FolioSpacing.dp24),
-            verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-            if (sourceNote != null && sourcePage != null) {
-                Text("New action · ${sourcePage.title.ifBlank { "Page ${sourceNote.pages.indexOfFirst { it.id == sourcePage.id } + 1}" }}", style = MaterialTheme.typography.titleSmall)
-                OutlinedTextField(text, { text = it.take(2000); sourceTextId = null }, label = { Text("What should you improve?") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
-                val comments = sourcePage.texts.filter { it.text.isNotBlank() && Marking.markValue(it.text) == null }
-                if (comments.isNotEmpty()) {
-                    var chooseComment by rememberSaveable { mutableStateOf(false) }
-                    TextButton({ chooseComment = !chooseComment }) { Text(if (chooseComment) "Hide page comments" else "Use a comment from this page") }
-                    if (chooseComment) Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        comments.forEach { comment -> TextButton({ text = comment.text.take(2000); sourceTextId = comment.id; chooseComment = false }) {
-                            Text(comment.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        } }
-                    }
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    FeedbackPractice.entries.forEach { item -> FilterChip(practice == item, { practice = item }, { Text(item.label) }) }
-                }
-                Button({ model.addFeedbackAction(sourceNote.id, sourcePage.id, text, practice, sourceTextId); text = ""; sourceTextId = null }, enabled = text.isNotBlank()) { Text("Add action") }
-                HorizontalDivider()
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                FilterChip(allSubjects, { allSubjects = true }, { Text("All subjects") })
-                notes.map { it.exam.subjectLabel }.distinct().sorted().forEach { label ->
-                    FilterChip(!allSubjects && subject == label, { allSubjects = false; subject = label }, { Text(label.ifBlank { "No subject" }) })
-                }
-                FilterChip(showCompleted, { showCompleted = !showCompleted }, { Text("Include completed") })
-            }
-            if (rows.isEmpty()) EmptyHint("No ${if (showCompleted) "" else "open "}actions here. Turn a marking comment into a focused practice task.")
-            rows.forEach { (note, action) ->
-                val pageIndex = note.pages.indexOfFirst { it.id == action.pageId }
-                val attempt = note.longResponse?.attempts?.find { it.id == action.practiceAttemptId }
-                val practiceAvailable = attempt?.pageIds?.any { id -> note.pages.any { it.id == id } } == true
-                OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
-                        Text(note.title, style = MaterialTheme.typography.labelMedium)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(action.done, { model.completeFeedbackAction(note.id, action.id, it) })
-                            Text(action.text, Modifier.weight(1f))
-                        }
-                        Text(action.practice.label, style = MaterialTheme.typography.bodySmall)
-                        if (pageIndex < 0) Text("The original page was deleted; feedback is retained.", style = MaterialTheme.typography.bodySmall)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                            TextButton({ model.openAt(note.id, pageIndex); onDismiss() }, enabled = pageIndex >= 0) { Text("Source page") }
-                            TextButton({
-                                if (practiceAvailable) model.openResponseAttempt(note.id, attempt.id)
-                                else model.newResponseAttempt(note.id, action.practice.mode, actionId = action.id)
-                                onDismiss()
-                            }) { Text(if (practiceAvailable) "Resume practice" else "Practise") }
-                            TextButton({ removeNote = note.id; removeAction = action.id }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Remove") }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (removeAction != null) AlertDialog(onDismissRequest = { removeAction = null }, title = { Text("Remove feedback action?") },
-        text = { Text("The original comment and any practice pages are kept.") },
-        confirmButton = { TextButton({ model.removeFeedbackAction(removeNote!!, removeAction!!); removeAction = null }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Remove") } },
-        dismissButton = { TextButton({ removeAction = null }) { Text("Cancel") } })
 }
