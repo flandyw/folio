@@ -21,7 +21,7 @@ internal object MistakeTypedResponse {
             width = 640f, size = 26f, layer = PageLayers.initialActive(page.layers))
     }
 
-    fun words(text: String): Int = text.trim().takeIf(String::isNotEmpty)?.split(Regex("\\s+"))?.size ?: 0
+    fun words(text: String): Int = text.trim().takeIf(String::isNotEmpty)?.split(Regex("[\\s\\p{Z}]+"))?.size ?: 0
 }
 
 /** Text plus selection, independent of Compose so the typing bar's edits stay testable. */

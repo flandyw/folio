@@ -125,6 +125,11 @@ class StudyTimerRulesTest {
         assertTrue(focalPlanMatchesQuery("vectors maths", "Specialist", "Maths", "Lines and vectors"))
         assertFalse(focalPlanMatchesQuery("vectors chemistry", "Specialist", "Maths", "Lines and vectors"))
         assertTrue(focalPlanMatchesQuery("   ", "anything"))
+        listOf("vectors\u00a0maths", "VECTORS\u202fmaths", " vectors\u2003 \tmaths ").forEach {
+            assertTrue(it, focalPlanMatchesQuery(it, "Specialist", "Maths", "Lines and vectors"))
+        }
+        assertFalse(focalPlanMatchesQuery("vectors\u00a0chemistry", "Specialist", "Maths", "Lines and vectors"))
+        assertTrue(focalPlanMatchesQuery("\u00a0\u2003", "anything"))
     }
 
     @Test fun planWhenLabels() {

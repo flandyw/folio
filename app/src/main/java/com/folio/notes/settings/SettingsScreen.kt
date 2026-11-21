@@ -205,7 +205,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
     }
 }
 
-private enum class SettingsPage(val title: String, val summary: String, val icon: ImageVector) {
+internal enum class SettingsPage(val title: String, val summary: String, val icon: ImageVector) {
     APPEARANCE("Appearance", "Theme, colours, interface font, size and sidebar", FolioIcons.Palette),
     PEN("Pen & touch", "Finger drawing, palm rejection, pencil, shapes and scribble", FolioIcons.Handwriting),
     EDITOR("Editor", "Toolbar, starting tool, zoom, text and keyboard", FolioIcons.Pen),
@@ -221,7 +221,7 @@ private enum class SettingsPage(val title: String, val summary: String, val icon
  * What search can find. A title here is the title of the row or group on its page, which is how a
  * result scrolls to it (`Modifier.settingsTarget`), so keep the two in step.
  */
-private object SettingsIndex {
+internal object SettingsIndex {
     class Hit(val page: SettingsPage, val title: String, val keywords: String)
 
     private val all = listOf(
@@ -271,7 +271,7 @@ private object SettingsIndex {
 
     /** Every word typed must appear in the title, keywords or page name. */
     fun search(query: String): List<Hit> {
-        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val words = query.trim().lowercase().split(Regex("[\\s\\p{Z}]+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
         return all.filter { hit ->
             val haystack = "${hit.title} ${hit.keywords} ${hit.page.title}".lowercase()

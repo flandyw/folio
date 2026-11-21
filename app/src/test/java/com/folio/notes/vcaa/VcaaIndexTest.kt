@@ -58,4 +58,18 @@ class VcaaIndexTest {
         ]}]}""")
         assertEquals(listOf("guide.pdf", "report.pdf", "extra.pdf"), parsed.single().reports.map { it.second })
     }
+
+    @Test fun unicodeSpacesSeparateSearchWords() {
+        val studies = listOf("Specialist Mathematics", "Biology", "Mathematical Methods")
+        listOf("specialist mathematics", "MATHEMATICS specialist", " specialist  math ").forEach {
+            assertEquals(it, listOf("Specialist Mathematics"), VcaaIndex.matchingStudies(studies, it))
+        }
+        assertEquals(studies, VcaaIndex.matchingStudies(studies, "  "))
+        listOf("chemistry 2023", "2023 CHEMISTRY", "chemistry \n2023").forEach {
+            assertEquals(it, listOf(chemistry), index.search(it, null, null, null))
+        }
+        assertEquals(listOf(chemistry), index.search("chemistry 2023", null, 2023, null, provider = "VCAA NHT", reportsOnly = true))
+        assertTrue(index.search("chemistry 2024", null, null, null).isEmpty())
+        assertEquals(listOf(biology, older, undated), index.search("biology exam", null, null, null))
+    }
 }

@@ -145,7 +145,7 @@ internal fun focalPlanInScope(slots: List<FocalStudyInterval>, scope: PlanScope,
 
 /** Every word of [query] must appear in the title, subject, notes or topics, in any order. */
 internal fun focalPlanMatchesQuery(query: String, vararg fields: String): Boolean {
-    val words = query.trim().lowercase().split(Regex("\\s+")).filter(String::isNotBlank)
+    val words = query.trim().lowercase().split(Regex("[\\s\\p{Z}]+")).filter(String::isNotBlank)
     if (words.isEmpty()) return true
     val haystack = fields.joinToString(" ").lowercase()
     return words.all { it in haystack }

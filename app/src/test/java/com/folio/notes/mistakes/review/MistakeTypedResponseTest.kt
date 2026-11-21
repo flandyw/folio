@@ -111,5 +111,9 @@ class MistakeTypedResponseTest {
         assertEquals(TypedEdit("- x", 3), TypingBar.toggleList(TypedEdit("x", 1)))
         assertEquals(TypedEdit("x", 1), TypingBar.toggleList(TypedEdit("- x", 3)))
         assertEquals(3, MistakeTypedResponse.words(" one two\nthree "))
+        assertEquals(2, MistakeTypedResponse.words("one\u00a0two"))
+        assertEquals(4, MistakeTypedResponse.words("\u2003one\u202ftwo \u00a0\tthree\n\nfour\u00a0"))
+        assertEquals(0, MistakeTypedResponse.words("\u00a0\u202f\u2003 \t\n"))
+        assertEquals(0, MistakeTypedResponse.words(""))
     }
 }

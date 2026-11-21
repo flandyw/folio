@@ -31,4 +31,15 @@ class EditorCommandSearchTest {
         assertEquals(listOf(command), matchingEditorCommands(listOf(command), "delete"))
         assertFalse(called)
     }
+
+    @Test fun unicodeSpacesSplitWordsAndSurroundShortcutPlus() {
+        listOf("Ctrl + Z", "ctrl +z", "undo ctrl z").forEach {
+            assertEquals(it, listOf(undo), matchingEditorCommands(commands, it))
+        }
+        val result = matchingEditorCommands(commands, "copy first")
+        assertEquals(listOf(paste), result)
+        assertFalse(result.single().enabled)
+        assertEquals(commands, matchingEditorCommands(commands, "  "))
+        assertTrue(matchingEditorCommands(commands, "undo paste").isEmpty())
+    }
 }

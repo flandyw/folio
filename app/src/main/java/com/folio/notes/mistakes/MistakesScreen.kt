@@ -229,7 +229,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val librarySort = MistakeLibrarySort.parse(sort)
     val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules, librarySort) {
         val q = debouncedQuery.trim().lowercase()
-        val words = q.split(Regex("\\s+"))
+        val words = q.split(Regex("[\\s\\p{Z}]+"))
         // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
         val dueSet = due.toSet()
         mistakes.filter { m ->
