@@ -137,7 +137,7 @@ class VcaaIndex(exams: List<VcaaExam>) {
         availability: VcaaAvailability = VcaaAvailability.ALL,
         owned: Map<String, Notebook> = emptyMap(), sort: VcaaSort = VcaaSort.NEWEST,
     ): List<VcaaExam> {
-        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val words = query.trim().lowercase().split(Regex("[\\s\\p{Z}]+")).filter { it.isNotEmpty() }
         val hits = ArrayList<Int>()
         for (i in exams.indices) {
             val exam = exams[i]
@@ -179,7 +179,7 @@ class VcaaIndex(exams: List<VcaaExam>) {
 
     companion object {
         fun matchingStudies(studies: List<String>, query: String): List<String> {
-            val words = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val words = query.trim().split(Regex("[\\s\\p{Z}]+")).filter { it.isNotEmpty() }
             return studies.filter { name -> words.all { name.contains(it, ignoreCase = true) } }
         }
 

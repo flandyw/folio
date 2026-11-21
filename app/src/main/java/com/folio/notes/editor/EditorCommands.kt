@@ -5,8 +5,8 @@ internal data class EditorCommand(val title: String, val keys: String = "", val 
 
 /** Every word may match the action, its shortcut or the explanation of why it is unavailable. */
 internal fun matchingEditorCommands(commands: List<EditorCommand>, query: String): List<EditorCommand> {
-    val plus = Regex("\\s*\\+\\s*")
-    val words = query.replace(plus, "+").trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val plus = Regex("[\\s\\p{Z}]*\\+[\\s\\p{Z}]*")
+    val words = query.replace(plus, "+").trim().split(Regex("[\\s\\p{Z}]+")).filter { it.isNotBlank() }
     return commands.filter { command ->
         val text = "${command.title} ${command.keys} ${command.reason}".replace(plus, "+")
         words.all { text.contains(it, ignoreCase = true) }

@@ -6,7 +6,7 @@ enum class PageFilter(val label: String) { ALL("All pages"), BOOKMARKED("Bookmar
 fun NotePage.displayTitle(index: Int): String = title.ifBlank { "Page ${index + 1}" }
 
 fun organizePages(pages: List<NotePage>, query: String = "", filter: PageFilter = PageFilter.ALL): List<IndexedValue<NotePage>> {
-    val words = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val words = query.trim().split(Regex("[\\s\\p{Z}]+")).filter { it.isNotBlank() }
     return pages.withIndex().filter { (index, page) ->
         (filter != PageFilter.BOOKMARKED || page.bookmarked) &&
             (filter != PageFilter.REDO || page.redoFlag) &&
