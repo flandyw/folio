@@ -40,21 +40,6 @@ internal class MarkingController(private val runtime: FolioRuntime) {
         }
     }
 
-    fun placeInFreeSpace(action: MarkingAction, color: Int): Boolean {
-        with(runtime) {
-            val page = _state.value.page ?: return false
-            if (!page.loaded) return false
-            val box = when (action) {
-                is MarkingAction.Comment -> Marking.commentBox(action.text, 0f, 0f, page, color)
-                is MarkingAction.Mark -> Marking.markBox(action.label, 0f, 0f, color)
-                else -> return false
-            }
-            val slot = Marking.freeSlot(page, box.width, Marking.estimateHeight(box), InkRenderer::textHeight) ?: return false
-            applyMarking(action, slot, color)
-            return true
-        }
-    }
-
     fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? {
         with(runtime) {
             val page = _state.value.page ?: return null
