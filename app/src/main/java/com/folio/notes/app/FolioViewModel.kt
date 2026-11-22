@@ -204,7 +204,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float, scale: Float = 1f): Boolean = runtime.moveStickyToPage(sourceId, targetId, box, x, y, scale)
     fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle? = null): Unit = runtime.restyleSelection(strokes, color, widthScale, opacity, style)
     fun applyMarking(action: MarkingAction, at: InkPoint, color: Int): Unit = runtime.applyMarking(action, at, color)
-    fun placeInFreeSpace(action: MarkingAction, color: Int): Boolean = runtime.placeInFreeSpace(action, color)
     fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? = runtime.placeFeedbackNote(at, handwritten, color)
     fun awardMark(pageId: String, zone: MarkZone, value: Int, color: Int): Unit = runtime.awardMark(pageId, zone, value, color)
     fun clearMark(pageId: String, zone: MarkZone): Unit = runtime.clearMark(pageId, zone)

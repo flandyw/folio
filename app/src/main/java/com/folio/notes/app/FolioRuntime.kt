@@ -416,8 +416,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun applyMarking(action: MarkingAction, at: InkPoint, color: Int): Unit = markingController.applyMarking(action, at, color)
 
-    fun placeInFreeSpace(action: MarkingAction, color: Int): Boolean = markingController.placeInFreeSpace(action, color)
-
     fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? = markingController.placeFeedbackNote(at, handwritten, color)
 
     fun awardMark(pageId: String, zone: MarkZone, value: Int, color: Int): Unit = markingController.awardMark(pageId, zone, value, color)
