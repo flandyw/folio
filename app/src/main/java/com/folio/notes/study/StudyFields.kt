@@ -63,11 +63,12 @@ internal fun ReflectionFields(notes: String, onNotes: (String) -> Unit, confiden
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
     Text("How confident do you feel? (optional)" + if (confidence > 0) " · ${CONFIDENCE_LABELS[confidence - 1]}" else "",
         style = MaterialTheme.typography.labelMedium)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+    // Wraps on a narrow pane or with large text; each chip keeps its own touch target.
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         (1..5).forEach { score ->
             FilterChip(selected = confidence == score, onClick = { onConfidence(if (confidence == score) 0 else score) },
-                label = { Text("$score", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
-                modifier = Modifier.weight(1f).semantics { contentDescription = "Confidence $score of 5, ${CONFIDENCE_LABELS[score - 1]}" })
+                label = { Text("$score", Modifier.widthIn(min = 24.dp), textAlign = TextAlign.Center) },
+                modifier = Modifier.semantics { contentDescription = "Confidence $score of 5, ${CONFIDENCE_LABELS[score - 1]}" })
         }
     }
 }

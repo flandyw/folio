@@ -22,6 +22,13 @@ internal fun formatStudyMinutes(minutes: Long): String {
     return if (h == 0L) "$m min" else if (m == 0L) "$h h" else "$h h $m min"
 }
 
+/**
+ * Minutes typed to log past study: a plain unsigned whole number from 1 to 1,440 (a day), or null.
+ * Spaces around it are ignored; signs, decimals, separators and other digits are refused, never repaired.
+ */
+internal fun studyManualMinutes(text: String): Int? =
+    text.trim().takeIf { it.isNotEmpty() && it.all { c -> c in '0'..'9' } }?.toIntOrNull()?.takeIf { it in 1..1_440 }
+
 /** Whole minutes for a duration, rounded to the nearest minute (30 s rounds up). */
 internal fun studyRoundedMinutes(millis: Long): Long = (millis.coerceAtLeast(0L) + 30_000L) / 60_000L
 
@@ -131,16 +138,16 @@ internal fun focalLastSevenDaysDailyAverageMinutes(entries: List<FocalStudyEntry
 /** The plan list's time filters. */
 internal enum class PlanScope(val label: String) { ALL("All"), TODAY("Today"), OVERDUE("Overdue"), UPCOMING("Upcoming") }
 
-/** A plan is overdue once its last block has ended without it being started. */
+/** A plan is overdue once its last block has ended (at or before [now]) without it being started. */
 internal fun focalPlanOverdue(slots: List<FocalStudyInterval>, now: Long): Boolean =
-    slots.lastOrNull()?.endAt?.let { it < now } == true
+    slots.lastOrNull()?.endAt?.let { it <= now } == true
 
 internal fun focalPlanInScope(slots: List<FocalStudyInterval>, scope: PlanScope, now: Long, dayStart: Long, dayEnd: Long): Boolean =
     when (scope) {
         PlanScope.ALL -> true
         PlanScope.TODAY -> slots.any { it.startAt < dayEnd && (it.endAt ?: it.startAt) > dayStart }
         PlanScope.OVERDUE -> focalPlanOverdue(slots, now)
-        PlanScope.UPCOMING -> slots.any { (it.endAt ?: it.startAt) >= now }
+        PlanScope.UPCOMING -> slots.any { (it.endAt ?: it.startAt) > now }
     }
 
 /** Every word of [query] must appear in the title, subject, notes or topics, in any order. */

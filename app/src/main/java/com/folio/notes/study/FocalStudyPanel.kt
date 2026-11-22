@@ -24,6 +24,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -113,6 +116,7 @@ internal fun FocalStudyContent(
     // A history row asks the timeline to show its day.
     var timelineDay by rememberSaveable { mutableStateOf<Long?>(null) }
     val listState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var now by remember { mutableLongStateOf(manager.now()) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -283,14 +287,14 @@ internal fun FocalStudyContent(
             FolioExpand(manualLog) {
                 Surface(shape = FolioShapes.extraLarge, color = cardColor) {
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                        val minutes = manualMinutes.toIntOrNull()
-                        val valid = minutes != null && minutes in 1..1_440
+                        val minutes = studyManualMinutes(manualMinutes)
+                        val valid = minutes != null
                         Text("Log past study", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                         Text("Saved as finished study ending now" + (subjectName(subjectId)?.let { ", under $it." } ?: ", without a subject.") +
                             if (dedicated) " To place it earlier in the day, drag across the timeline instead." else "",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         fun savePastStudy() {
-                            val logged = manualMinutes.toIntOrNull()?.takeIf { it in 1..1_440 } ?: return
+                            val logged = studyManualMinutes(manualMinutes) ?: return
                             notice = if (manager.logManual(selectedNote, subjectId, logged, notes, confidence.takeIf { it > 0 }))
                                 "Logged ${formatStudyMinutes(logged.toLong())}" + (subjectName(subjectId)?.let { " of $it" } ?: "")
                             else "Couldn't save on this device. Check free storage and try again."
@@ -301,10 +305,12 @@ internal fun FocalStudyContent(
                                 FilterChip(minutes == preset, { manualMinutes = "$preset" }, { Text(formatStudyMinutes(preset.toLong())) })
                             }
                         }
-                        OutlinedTextField(manualMinutes, { manualMinutes = it.filter(Char::isDigit).take(4) },
+                        // Kept as typed: "1.5" or "-5" is explained, never quietly turned into 15 or 5 minutes.
+                        val invalid = manualMinutes.isNotBlank() && !valid
+                        OutlinedTextField(manualMinutes, { manualMinutes = it },
                             Modifier.fillMaxWidth(), label = { Text("Minutes studied") }, singleLine = true,
-                            isError = minutes != null && !valid,
-                            supportingText = { Text(if (minutes != null && !valid) "Enter 1 to 1,440 minutes (up to a day)."
+                            isError = invalid,
+                            supportingText = { Text(if (invalid) "Enter whole minutes from 1 to 1,440 (up to a day), digits only."
                                 else minutes?.let { formatStudyMinutes(it.toLong()) } ?: "Or type any length, up to a day.") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { savePastStudy() }))
@@ -481,7 +487,7 @@ internal fun FocalStudyContent(
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Planned study${if (planned.isNotEmpty()) " · ${planned.size}" else ""}",
-                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        modifier = Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                     if (state.userId != null && state.configured) TextButton({ manager.retry() }, enabled = !state.syncing) {
                         Text(if (state.syncing) "Refreshing…" else "Refresh")
                     }
@@ -501,7 +507,8 @@ internal fun FocalStudyContent(
                 if (planned.size > 3 || filtering) {
                     OutlinedTextField(planSearch, { planSearch = it; plannedLimit = 5 }, Modifier.fillMaxWidth(),
                         label = { Text("Search title, subject or topics") }, singleLine = true,
-                        trailingIcon = if (planSearch.isNotEmpty()) { { IconButton({ planSearch = "" }) { Icon(FolioIcons.Close, "Clear search") } } } else null)
+                        trailingIcon = if (planSearch.isNotEmpty()) { { IconButton({ planSearch = "" }) { Icon(FolioIcons.Close, "Clear search") } } } else null,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         PlanScope.entries.forEach { option ->
                             val count = scopeCounts[option] ?: 0
@@ -530,7 +537,7 @@ internal fun FocalStudyContent(
         }
         item(key = "history-heading") {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
-                Text(if (dedicated) "Session history" else "Recent sessions", style = MaterialTheme.typography.titleMedium)
+                Text(if (dedicated) "Session history" else "Recent sessions", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 if (dedicated && history.isNotEmpty()) Text("Tap a session to see it on the timeline.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -545,7 +552,9 @@ internal fun FocalStudyContent(
             }
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 OutlinedTextField(historySearch, { historySearch = it }, label = { Text("Search history") },
-                    placeholder = { Text("Title or subject") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    placeholder = { Text("Title or subject") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = if (historySearch.isNotEmpty()) { { IconButton({ historySearch = "" }) { Icon(FolioIcons.Close, "Clear history search") } } } else null,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     OutlinedButton({ pickDate(historyFrom) { historyFrom = it } }, modifier = Modifier.weight(1f)) {
                         Text("From: " + (historyFrom?.let { LocalDate.ofEpochDay(it).toString() } ?: "Any"))
@@ -570,7 +579,7 @@ internal fun FocalStudyContent(
         historyDays.forEach { day ->
             item(key = "day:${day.date}") {
                 Row(Modifier.fillMaxWidth().padding(top = FolioSpacing.dp4), verticalAlignment = Alignment.CenterVertically) {
-                    Text(studyDayLabel(day.date, todayDate), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+                    Text(studyDayLabel(day.date, todayDate), Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (day.studyMinutes > 0) Text(formatStudyMinutes(day.studyMinutes), style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -762,7 +771,8 @@ private fun HistoryCard(entry: FocalStudyEntry, subject: String?, color: Color, 
                 }
             }
             Text(formatStudyMinutes(focalHistoryMinutes(entry)), style = MaterialTheme.typography.titleMedium)
-            onDelete?.let { IconButton(it) { Icon(FolioIcons.Delete, "Delete session", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            onDelete?.let { IconButton(it) { Icon(FolioIcons.Delete,
+                "Delete session ${entry.title.ifBlank { "Untitled session" }}, ${time.format(Date(entry.startedAt))}", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }
         }
     }
 }
