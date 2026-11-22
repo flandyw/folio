@@ -3,8 +3,6 @@ package com.folio.notes.app
 import com.folio.notes.FolioApplication
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.VceSubject
-import com.folio.notes.marking.FeedbackAction
-import com.folio.notes.marking.FeedbackPractice
 import com.folio.notes.marking.LongResponse
 import com.folio.notes.marking.ResponseAttempt
 import com.folio.notes.marking.ResponseMode
@@ -132,29 +130,6 @@ internal class NotebookWorkflowService(private val runtime: FolioRuntime) {
                     reportError("Couldn't create this attempt: ${e.message.orEmpty()}")
                 } finally { copyingResponses.remove(noteId) }
             }
-        }
-    }
-
-    fun addFeedbackAction(noteId: String, pageId: String, text: String, practice: FeedbackPractice, sourceTextId: String? = null) {
-        with(runtime) {
-            val note = _state.value.notes.notebook(noteId) ?: return
-            if (text.isBlank() || note.pages.none { it.id == pageId }) return
-            val action = FeedbackAction(pageId = pageId, text = text.trim(), practice = practice, sourceTextId = sourceTextId)
-            updateNote(note.copy(feedbackActions = note.feedbackActions + action))
-        }
-    }
-
-    fun completeFeedbackAction(noteId: String, actionId: String, done: Boolean) {
-        with(runtime) {
-            val note = _state.value.notes.notebook(noteId) ?: return
-            updateNote(note.copy(feedbackActions = note.feedbackActions.map { if (it.id == actionId) it.copy(done = done) else it }))
-        }
-    }
-
-    fun removeFeedbackAction(noteId: String, actionId: String) {
-        with(runtime) {
-            val note = _state.value.notes.notebook(noteId) ?: return
-            updateNote(note.copy(feedbackActions = note.feedbackActions.filterNot { it.id == actionId }))
         }
     }
 

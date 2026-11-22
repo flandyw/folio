@@ -16,7 +16,6 @@ import com.folio.notes.exam.ExamTagType
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.export.PageExportRequest
-import com.folio.notes.marking.FeedbackPractice
 import com.folio.notes.marking.LongResponse
 import com.folio.notes.marking.MarkZone
 import com.folio.notes.marking.MarkingAction
@@ -92,9 +91,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun renameResponseAttempt(noteId: String, attemptId: String, title: String): Unit = runtime.renameResponseAttempt(noteId, attemptId, title)
     fun newResponseAttempt(noteId: String, mode: ResponseMode, parentId: String? = null,
         actionId: String? = null, copyForMarking: Boolean = false): Unit = runtime.newResponseAttempt(noteId, mode, parentId, actionId, copyForMarking)
-    fun addFeedbackAction(noteId: String, pageId: String, text: String, practice: FeedbackPractice, sourceTextId: String? = null): Unit = runtime.addFeedbackAction(noteId, pageId, text, practice, sourceTextId)
-    fun completeFeedbackAction(noteId: String, actionId: String, done: Boolean): Unit = runtime.completeFeedbackAction(noteId, actionId, done)
-    fun removeFeedbackAction(noteId: String, actionId: String): Unit = runtime.removeFeedbackAction(noteId, actionId)
     fun openResponseAttempt(noteId: String, attemptId: String, beside: Boolean = false): Unit = runtime.openResponseAttempt(noteId, attemptId, beside)
     suspend fun createMistakePractice(user: String, mistake: ExamTrackMistake, openWhenReady: Boolean = true): LocalMistakeReviewAttempt = runtime.createMistakePractice(user, mistake, openWhenReady)
     internal suspend fun openMusicScore(score: MusicScore, pdf: java.io.File): String? = runtime.openMusicScore(score, pdf)

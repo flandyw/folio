@@ -24,7 +24,6 @@ import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.exam.ExamTimerState
 import com.folio.notes.export.PageExportRequest
-import com.folio.notes.marking.FeedbackPractice
 import com.folio.notes.marking.LongResponse
 import com.folio.notes.marking.MarkZone
 import com.folio.notes.marking.MarkingAction
@@ -210,12 +209,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun newResponseAttempt(noteId: String, mode: ResponseMode, parentId: String? = null,
         actionId: String? = null, copyForMarking: Boolean = false): Unit = notebookWorkflowService.newResponseAttempt(noteId, mode, parentId, actionId, copyForMarking)
-
-    fun addFeedbackAction(noteId: String, pageId: String, text: String, practice: FeedbackPractice, sourceTextId: String? = null): Unit = notebookWorkflowService.addFeedbackAction(noteId, pageId, text, practice, sourceTextId)
-
-    fun completeFeedbackAction(noteId: String, actionId: String, done: Boolean): Unit = notebookWorkflowService.completeFeedbackAction(noteId, actionId, done)
-
-    fun removeFeedbackAction(noteId: String, actionId: String): Unit = notebookWorkflowService.removeFeedbackAction(noteId, actionId)
 
     fun openResponseAttempt(noteId: String, attemptId: String, beside: Boolean = false): Unit = notebookWorkflowService.openResponseAttempt(noteId, attemptId, beside)
 
