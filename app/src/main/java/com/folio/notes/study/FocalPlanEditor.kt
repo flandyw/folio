@@ -15,6 +15,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.folio.notes.input.guardUiTouches
@@ -132,14 +134,16 @@ internal fun FocalPlanEditor(entry: FocalStudyEntry, subjects: List<FocalSubject
                         }
                         listOf(true, false).forEach { start ->
                             val stamp = if (start) slot.startAt else requireNotNull(slot.endAt)
-                            Text(if (start) "Start" else "End", style = MaterialTheme.typography.labelSmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                                OutlinedButton({ pick(index, start, true) }, Modifier.weight(1f)) {
-                                    Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(stamp)))
-                                }
-                                OutlinedButton({ pick(index, start, false) }) {
-                                    Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(stamp)))
-                                }
+                            val edge = if (start) "Start" else "End"
+                            val dateText = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(stamp))
+                            val timeText = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(stamp))
+                            Text(edge, style = MaterialTheme.typography.labelSmall)
+                            // Whole buttons wrap on a narrow pane or with large text rather than squeezing the date.
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+                                OutlinedButton({ pick(index, start, true) },
+                                    Modifier.semantics { contentDescription = "Block ${index + 1} $edge date, $dateText" }) { Text(dateText) }
+                                OutlinedButton({ pick(index, start, false) },
+                                    Modifier.semantics { contentDescription = "Block ${index + 1} $edge time, $timeText" }) { Text(timeText) }
                             }
                         }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -169,9 +173,8 @@ internal fun FocalPlanEditor(entry: FocalStudyEntry, subjects: List<FocalSubject
                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Button(::save, enabled = problems.isEmpty() && !stale,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes()) { Text("Save plan") }
-            if (onDelete != null || onDuplicate != null) Row {
+            if (onDelete != null || onDuplicate != null) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 onDuplicate?.let { TextButton(it) { Text("Duplicate") } }
-                Spacer(Modifier.weight(1f))
                 onDelete?.let { TextButton({ confirmDelete = true },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete plan") } }
             }

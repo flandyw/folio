@@ -125,6 +125,24 @@ day streak, plan scope/search filters, plan "when" labels and per-block plan pro
   resets tools when the day changes, and lets result messages fade. Split and
   "Repeat" keep a plan's notes and topics.
 
+- Log past study keeps the minutes exactly as typed and accepts only a plain whole
+  number from 1 to 1,440 (`studyManualMinutes`; spaces around it are ignored). "1.5",
+  "-5", "1,000" or an overlong number are explained inline, and Save and keyboard Done
+  share that check, so nothing is quietly turned into a different duration.
+- A plan ends at its last block's end: at that instant it counts as overdue, not
+  upcoming (a break between blocks is still upcoming).
+- Plan and history search use the keyboard's Search key (it closes the keyboard and
+  keeps the query). History search has its own clear button that keeps the date range.
+- Section and day titles are accessibility headings; history delete buttons and plan
+  editor date/time buttons name their session or block. Confidence chips, plan block
+  date/time buttons and the plan editor's Duplicate/Delete wrap on narrow panes.
+
+Device checks for the above (narrow split pane and largest font, TalkBack on): paste
+"1.5" and "-5" into Minutes studied and confirm the error and that Save and Done do
+nothing; clear history search with a date range set and confirm the dates stay;
+press Search in both search fields; confirm headings, delete names and block button
+names are read out and nothing is clipped or squeezed.
+
 Device checks: start/pause/change subject while online and offline and confirm Focal
 shows the new subject with the same time; leave the Study page running and confirm
 the screen stays on, then pause and confirm it can sleep; delete a history session

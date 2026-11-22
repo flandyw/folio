@@ -142,6 +142,45 @@ class StudyTimerRulesTest {
         assertNull(focalPlanWhen(emptyList(), now, zone))
     }
 
+    @Test fun planEndBoundariesAreConsistent() {
+        val dayStart = at(21, 0)
+        val dayEnd = at(22, 0)
+        val single = listOf(FocalStudyInterval(at(21, 9), at(21, 10)))
+        // At the exact end the plan is over: overdue, not upcoming, never "Starts in 1 min".
+        assertTrue(focalPlanOverdue(single, at(21, 10)))
+        assertTrue(focalPlanInScope(single, PlanScope.OVERDUE, at(21, 10), dayStart, dayEnd))
+        assertFalse(focalPlanInScope(single, PlanScope.UPCOMING, at(21, 10), dayStart, dayEnd))
+        assertEquals("Overdue · ended 10:00", focalPlanWhen(single, at(21, 10), zone, Locale.UK))
+        // A millisecond before the end it is still running; at the exact start it is running too.
+        assertFalse(focalPlanOverdue(single, at(21, 10) - 1))
+        assertTrue(focalPlanInScope(single, PlanScope.UPCOMING, at(21, 10) - 1, dayStart, dayEnd))
+        assertEquals("Scheduled now", focalPlanWhen(single, at(21, 10) - 1, zone, Locale.UK))
+        assertEquals("Scheduled now", focalPlanWhen(single, at(21, 9), zone, Locale.UK))
+        assertEquals("Starts in 1 min", focalPlanWhen(single, at(21, 9) - 30_000L, zone, Locale.UK))
+
+        val split = listOf(FocalStudyInterval(at(21, 9), at(21, 10)), FocalStudyInterval(at(21, 10, 30), at(21, 11)))
+        // The end of the first block is a break, not the end of the plan.
+        assertFalse(focalPlanOverdue(split, at(21, 10)))
+        assertTrue(focalPlanInScope(split, PlanScope.UPCOMING, at(21, 10), dayStart, dayEnd))
+        assertEquals("Starts in 30 min", focalPlanWhen(split, at(21, 10), zone, Locale.UK))
+        assertEquals("Scheduled now", focalPlanWhen(split, at(21, 10, 30), zone, Locale.UK))
+        assertTrue(focalPlanOverdue(split, at(21, 11)))
+        assertFalse(focalPlanInScope(split, PlanScope.UPCOMING, at(21, 11), dayStart, dayEnd))
+        assertEquals("Overdue · ended 11:00", focalPlanWhen(split, at(21, 11), zone, Locale.UK))
+    }
+
+    @Test fun manualMinutesAcceptOnlyPlainWholeMinutesUpToADay() {
+        assertEquals(1, studyManualMinutes("1"))
+        assertEquals(45, studyManualMinutes("45"))
+        assertEquals(1_440, studyManualMinutes("1440"))
+        assertEquals(30, studyManualMinutes("0030"))
+        // Surrounding spaces (including non-breaking ones) are ignored; inner ones are not.
+        assertEquals(90, studyManualMinutes("  90\t"))
+        assertEquals(90, studyManualMinutes("\u00a090\u2003"))
+        listOf("", "   ", "0", "1441", "9999", "99999999999999999999", "-5", "+5", "1.5", "1,5", "1,000", "1 5", "1_0",
+            "15m", "abc", "١٥", "１５").forEach { assertNull(it, studyManualMinutes(it)) }
+    }
+
     @Test fun planBlockProblemsPointAtTheBlockToFix() {
         val ok = listOf(FocalStudyInterval(at(21, 9), at(21, 10)), FocalStudyInterval(at(21, 10), at(21, 11)))
         assertTrue(focalPlanSlotProblems(ok).isEmpty())
