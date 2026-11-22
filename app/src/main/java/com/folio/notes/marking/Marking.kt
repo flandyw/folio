@@ -58,11 +58,7 @@ object Marking {
     /** Pen colours that read as "not the student's writing": red, blue, green, purple. */
     val COLORS: List<Int> = listOf(0xFFC62828.toInt(), 0xFF1565C0.toInt(), 0xFF2E7D32.toInt(), 0xFF6A1B9A.toInt())
     fun colorName(color: Int): String = when (color) { COLORS[0] -> "red"; COLORS[1] -> "blue"; COLORS[2] -> "green"; COLORS[3] -> "purple"; else -> "custom" }
-    val MARK_LABELS: List<String> = listOf("✓", "½", "✗", "+1", "+2", "+3", "+4")
-    val ROOM_AMOUNTS: List<Pair<String, Float>> = listOf("Small" to 160f, "Medium" to 320f, "Large" to 560f)
 
-    const val MAX_COMMENTS = 24
-    const val MAX_COMMENT_LENGTH = 90
     /** A grown page stops here, so a stray repeat never builds a bitmap too tall to render. */
     const val MAX_PAGE_HEIGHT = 5000f
 
@@ -73,20 +69,6 @@ object Marking {
     private const val LINE_HEIGHT = 1.22f
     private const val CELL = 12f
     private const val EDGE = 14f
-    private const val SEPARATOR = '\u001F'
-
-    // ---- Comment bank ---------------------------------------------------------------------------
-
-    /** The bank with [text] added at the front; blank, duplicate or over-full input leaves it as it was. */
-    fun withComment(bank: List<String>, text: String): List<String> {
-        val clean = cleanComment(text)
-        if (clean.isEmpty() || clean in bank) return bank
-        return (listOf(clean) + bank).take(MAX_COMMENTS)
-    }
-
-    fun cleanComment(text: String): String =
-        text.replace(SEPARATOR, ' ').replace(whitespace, " ").trim().take(MAX_COMMENT_LENGTH)
-    private val whitespace = Regex("\\s+")
 
     // ---- Content builders -----------------------------------------------------------------------
 
