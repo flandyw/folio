@@ -15,31 +15,6 @@ import kotlinx.coroutines.*
 
 /** Editor commands over the shared document engine; no independent notebook content. */
 internal class MarkingController(private val runtime: FolioRuntime) {
-    fun applyMarking(action: MarkingAction, at: InkPoint, color: Int) {
-        with(runtime) {
-            val page = _state.value.page ?: return
-            if (!page.loaded) return
-            when (action) {
-                is MarkingAction.Comment -> texts(page.id, page.texts + Marking.commentBox(action.text, at.x, at.y, page, color))
-                is MarkingAction.Mark -> texts(page.id, page.texts + Marking.markBox(action.label, at.x - 14f, at.y - 20f, color))
-                is MarkingAction.Note -> placeFeedbackNote(at, action.handwritten, color)
-                MarkingAction.Flag -> dropFlag(page, at, color)
-                is MarkingAction.MakeRoom -> makeRoom(page, at.y, action.amount)
-                is MarkingAction.RemoveRoom -> {
-                    val shift = Marking.removeRoom(page, at.y, action.amount, InkRenderer::textHeight)
-                    if (shift == null) reportError("Choose an empty gap large enough for this amount. Nothing was removed.")
-                    else {
-                        // Save shifted content before shortening the index: interruption leaves spare paper.
-                        replacePage(page.copy(strokes = shift.strokes, texts = shift.texts, images = shift.images))
-                        val note = _state.value.active ?: return
-                        val fresh = findPageContent(page.id) ?: return
-                        updateNote(note.withPage(fresh.copy(height = shift.height)))
-                    }
-                }
-            }
-        }
-    }
-
     fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? {
         with(runtime) {
             val page = _state.value.page ?: return null

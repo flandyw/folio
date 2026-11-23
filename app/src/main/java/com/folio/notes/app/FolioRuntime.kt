@@ -26,7 +26,6 @@ import com.folio.notes.exam.ExamTimerState
 import com.folio.notes.export.PageExportRequest
 import com.folio.notes.marking.LongResponse
 import com.folio.notes.marking.MarkZone
-import com.folio.notes.marking.MarkingAction
 import com.folio.notes.marking.MarkingController
 import com.folio.notes.marking.NotePlan
 import com.folio.notes.marking.ResponseMode
@@ -413,8 +412,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle? = null): Unit = editorSelectionController.restyleSelection(strokes, color, widthScale, opacity, style)
 
     // ---- Marking & feedback ---------------------------------------------------------------------
-
-    fun applyMarking(action: MarkingAction, at: InkPoint, color: Int): Unit = markingController.applyMarking(action, at, color)
 
     fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? = markingController.placeFeedbackNote(at, handwritten, color)
 
