@@ -24,9 +24,8 @@ choosing the numbers that were always stored.
   `LowLatencyInk` keeps one transparent `SurfaceView` per window (`setZOrderOnTop`) and draws each new piece
   of the stroke into an `androidx.graphics` `CanvasFrontBufferedRenderer` front buffer. The layer starts only
   for a stylus `Tool.PEN` ballpoint (`draft.style.isBrush` is false) that begins on the page: `inkOpacity` at
-  least 0.99, `rulerEdge == 0`, not read-only, and `InkView.frontBuffer` still true. No host sets
-  `frontBuffer` false. The mistake-review exam sheet filters the printed paper and leaves the paperless ink
-  view on the default, so the overlay can run there in the selected ink colour. Highlighter, eraser, laser,
+  least 0.99, `rulerEdge == 0`, and not read-only. The mistake-review exam sheet filters only the printed paper,
+  so the overlay can run on its paperless ink view in the selected ink colour. Highlighter, eraser, laser,
   finger ink, translucent pen, fountain, pencil, marker, calligraphy, a ruler-locked stroke and a stroke that
   starts on a sticky note stay on the page path. Below API 29, when `attach` throws, or while the surface is
   not ready, the page draws the stroke alone. There is no error UI.

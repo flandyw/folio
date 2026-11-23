@@ -10,7 +10,6 @@ How it behaves is in [pen feel](pen-feel.md). This file is the on-device procedu
 
 - Android 10 / API 29 or newer. `minSdk` is 26, and both the Settings switch and the pen Behaviour switch are hidden below API 29.
 - `AppPrefs.LOW_LATENCY_INK` (`input.lowLatencyInk`) is true. The default is true, so a fresh install is on.
-- `InkView.frontBuffer` is true. It defaults to true and no screen sets it false. The mistake-review sheet filters the printed paper only.
 - The tool is the pen, the contact is a stylus, and the landing point is on the page. A stroke that starts on a sticky note stays on the page path. Opacity is at least 0.99, the stroke is ballpoint (`StrokeStyle.isBrush` is false), the stroke is not locked to the ruler, and the view is not read-only.
 
 The page draws the same stroke underneath. Samples, pressure, undo and the journal come only from that page stroke. The layer is wiped about 48 ms after lift, or immediately on `cancel`. The overlay tail is the platform prediction clipped to 28 screen pixels. The short two-sample guess, used while the predictor has nothing yet, is drawn on the page canvas only.
