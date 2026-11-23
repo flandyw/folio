@@ -18,7 +18,6 @@ import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.export.PageExportRequest
 import com.folio.notes.marking.LongResponse
 import com.folio.notes.marking.MarkZone
-import com.folio.notes.marking.NotePlan
 import com.folio.notes.marking.ResponseMode
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.LocalMistakeReviewAttempt
@@ -202,7 +201,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun moveSelectionToPage(sourceId: String, targetId: String, selection: CanvasSelection, at: InkPoint? = null, centred: Boolean = at != null): Unit = runtime.moveSelectionToPage(sourceId, targetId, selection, at, centred)
     fun moveStickyToPage(sourceId: String, targetId: String, box: TextBox, x: Float, y: Float, scale: Float = 1f): Boolean = runtime.moveStickyToPage(sourceId, targetId, box, x, y, scale)
     fun restyleSelection(strokes: List<Stroke>, color: Int?, widthScale: Float?, opacity: Float?, style: StrokeStyle? = null): Unit = runtime.restyleSelection(strokes, color, widthScale, opacity, style)
-    fun placeFeedbackNote(at: InkPoint, handwritten: Boolean, color: Int): NotePlan? = runtime.placeFeedbackNote(at, handwritten, color)
     fun awardMark(pageId: String, zone: MarkZone, value: Int, color: Int): Unit = runtime.awardMark(pageId, zone, value, color)
     fun clearMark(pageId: String, zone: MarkZone): Unit = runtime.clearMark(pageId, zone)
     suspend fun pagesForSearch(notebookId: String): List<NotePage> = runtime.pagesForSearch(notebookId)
