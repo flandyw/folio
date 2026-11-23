@@ -104,7 +104,7 @@ private fun paperLabel(name: String) = name.lowercase().replace(Regex("\\b[a-z]"
             item(key = "results") {
                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     Text("Your results", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         MenuChip("Subject", resultSubjects.find { it == resultSubject } ?: ALL_SUBJECTS, resultSubjects, { resultSubject = it })
                         MenuChip("Sort", resultSort, GradesSort.entries.map { it.label }, { resultSort = it })
                     }

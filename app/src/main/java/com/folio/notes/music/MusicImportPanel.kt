@@ -5,12 +5,12 @@ import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +20,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,9 +65,10 @@ import kotlinx.coroutines.withContext
     LaunchedEffect(instruments.size) { if (instruments.size > initialParts) listState.animateScrollToItem(instruments.size) }
     fun preview(page: Int) { previewPage = page.coerceIn(0, source.pages - 1) }
     Dialog(onDismissRequest = { if (!busy) model.dismissReview(source.id) },
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !busy, dismissOnClickOutside = false)) {
+        // Edge to edge like FolioPanel, so the column's safe-drawing/IME padding lifts it above the keyboard.
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !busy, dismissOnClickOutside = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().guardUiTouches(), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+            Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 Row(Modifier.fillMaxWidth().padding(start = FolioSpacing.dp24, end = FolioSpacing.dp8, top = FolioSpacing.dp8, bottom = FolioSpacing.dp8),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -101,7 +106,9 @@ import kotlinx.coroutines.withContext
                                     }
                                 }
                                 if (source.pages > 2) Slider(previewPage.toFloat(), { preview(it.roundToIntSafe()) }, valueRange = 0f..(source.pages - 1).toFloat(),
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8).semanticsLabel("PDF preview page"))
+                                    steps = source.pages - 2,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8).semanticsLabel("PDF preview page")
+                                        .semantics { stateDescription = "Page ${previewPage + 1} of ${source.pages}" })
                                 // A filmstrip of every page, so a range can be built by tapping pages rather
                                 // than counting them: the active part's pages read as included.
                                 instruments.getOrNull(activePart)?.let {
@@ -158,14 +165,17 @@ import kotlinx.coroutines.withContext
                                     border = if (on) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f)) else null) {
                                     Column(Modifier.padding(start = FolioSpacing.dp4, end = FolioSpacing.dp12, top = FolioSpacing.dp4, bottom = FolioSpacing.dp12),
                                         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
-                                        // The whole header toggles the part, not just the checkbox.
-                                        Row(Modifier.clickable(enabled = !busy) { checked = checked.toMutableList().also { it[index] = !on }; if (!on) activePart = index },
-                                            verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(on, { value -> checked = checked.toMutableList().also { it[index] = value }; if (value) activePart = index }, enabled = !busy, modifier = Modifier.semanticsLabel("Include ${instruments[index].ifBlank { "custom part" }}"))
-                                            Column(Modifier.weight(1f)) {
-                                                Text(instruments[index].ifBlank { "Custom part" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Text(parsed[index].getOrNull()?.let { "Pages ${ranges[index]} · ${it.size} ${if (it.size == 1) "page" else "pages"}" } ?: "Choose pages",
-                                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        // The header (checkbox, name and pages) toggles the part; Show stays its own action.
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                                                .toggleable(on, enabled = !busy, role = Role.Checkbox) { value -> checked = checked.toMutableList().also { it[index] = value }; if (value) activePart = index },
+                                                verticalAlignment = Alignment.CenterVertically) {
+                                                Checkbox(on, null, enabled = !busy)
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(instruments[index].ifBlank { "Custom part" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    Text(parsed[index].getOrNull()?.let { "Pages ${ranges[index]} · ${it.size} ${if (it.size == 1) "page" else "pages"}" } ?: "Choose pages",
+                                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
                                             }
                                             TextButton({
                                                 if (!busy && parsed[index].isSuccess) { activePart = index; parsed[index].getOrNull()?.firstOrNull()?.let(::preview) }
@@ -276,9 +286,13 @@ import kotlinx.coroutines.withContext
     Surface(onClick = onClick, enabled = enabled, shape = FolioShapes.medium,
         color = if (included) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         border = BorderStroke(if (previewed) 2.dp else 1.dp, if (previewed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.size(52.dp, 68.dp)) {
-        Box(contentAlignment = Alignment.Center) {
-            if (image != null) Image(image, "PDF page ${index + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        modifier = Modifier.size(52.dp, 68.dp).semantics {
+            contentDescription = "PDF page ${index + 1}"
+            stateDescription = (if (included) "In this part" else "Not in this part") + if (previewed) ", in preview" else ""
+        }) {
+        // The tile itself announces the page; its picture and number badge would only repeat it.
+        Box(Modifier.clearAndSetSemantics { }, contentAlignment = Alignment.Center) {
+            if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .85f),
                 modifier = Modifier.align(Alignment.BottomEnd).padding(FolioSpacing.dp2)) {
                 Text("${index + 1}", Modifier.padding(horizontal = FolioSpacing.dp4), style = MaterialTheme.typography.labelSmall)

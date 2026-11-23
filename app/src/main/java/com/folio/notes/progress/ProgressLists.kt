@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -206,8 +208,9 @@ private const val FORM_ADD = -1
                         Text("Import Focal progression", modifier = Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                         Text("Paste a Focal list with version, name, and exams. Each exam has subject, provider, examYear, paper, marks and optional phase.", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(importText, { importText = it }, Modifier.fillMaxWidth(), label = { Text("Progression JSON") }, minLines = 4)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(replaceSubjects, { replaceSubjects = it }); Text("Replace listed subjects; keep other subjects", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(replaceSubjects, role = Role.Checkbox) { replaceSubjects = it },
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(replaceSubjects, null); Text("Replace listed subjects; keep other subjects", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton({ importOpen = false; importText = "" }) { Text("Cancel") }

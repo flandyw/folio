@@ -1,6 +1,7 @@
 package com.folio.notes.export
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import com.folio.notes.ui.FolioSpacing
 
 /**
@@ -24,7 +26,7 @@ import com.folio.notes.ui.FolioSpacing
     onSelect: (PdfExportMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
+    Column(modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
         Text("PDF quality", style = MaterialTheme.typography.titleSmall)
         PdfModeRow(
             selected = selected == PdfExportMode.PRESERVE,
@@ -43,11 +45,11 @@ import com.folio.notes.ui.FolioSpacing
 
 @Composable private fun PdfModeRow(selected: Boolean, onClick: () -> Unit, title: String, subtitle: String) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = FolioSpacing.dp6),
+        Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton, onClick = onClick).padding(vertical = FolioSpacing.dp6),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = null)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
