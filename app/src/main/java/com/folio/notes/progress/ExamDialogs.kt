@@ -118,7 +118,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
         val id = source.optString("id").ifBlank { UUID.randomUUID().toString() }
         val raw = JSONObject(source.toString()).put("id", id).put("subject", subject.trim())
             .put("provider", provider.trim().ifBlank { "Other" }).put("examYear", y).put("paper", paper.trim())
-            .putPaperType(paperType ?: PaperType.parse(paper))
+            .putPaperType(paperType)
             .put("title", "${provider.trim().ifBlank { "Other" }} $y ${subject.trim()}")
             .put("completedAt", if (date == source.optString("completedAt").take(10)) source.getString("completedAt") else date)
             .put("rawScore", earned).put("rawMax", total).put("comment", comment.trim())

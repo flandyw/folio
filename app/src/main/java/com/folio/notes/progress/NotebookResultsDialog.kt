@@ -31,7 +31,8 @@ import org.json.JSONObject
 private data class ResultDraft(val id: String, val source: String, val notebookId: String?, val include: Boolean,
     val title: String, val subject: String, val provider: String, val year: String, val paper: String,
     val score: String, val max: String, val date: String, val paperTypeLabel: String) {
-    val paperType get() = PaperType.entries.find { it.label == paperTypeLabel } ?: PaperType.parse(paper)
+    private val explicitPaperType get() = PaperType.entries.find { it.label == paperTypeLabel }
+    val paperType get() = explicitPaperType ?: PaperType.parse(paper)
     val facts get() = ResultFacts(subject.trim(), provider.trim(), title.trim(), year.trim().toIntOrNull(), paper.trim(),
         score.trim().toDoubleOrNull(), max.trim().toDoubleOrNull(), runCatching { LocalDate.parse(date.trim()) }.getOrNull(), notebookId, paperType)
 
@@ -53,7 +54,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
         val original = JSONObject(source)
         // Always a plain YYYY-MM-DD: Focal's web app cannot read a full timestamp here.
         return original.put("title", title.trim()).put("subject", subject.trim()).put("provider", provider.trim())
-            .put("examYear", year.trim().toInt()).put("paper", paper.trim()).putPaperType(paperType)
+            .put("examYear", year.trim().toInt()).put("paper", paper.trim()).putPaperType(explicitPaperType)
             .put("completedAt", date.trim())
             .put("rawScore", score.trim().toDouble()).put("rawMax", max.trim().toDouble())
     }

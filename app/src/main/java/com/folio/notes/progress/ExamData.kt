@@ -155,7 +155,7 @@ data class OfficialExam(val study: OfficialStudy, val resource: ExamResource) {
             (type == null || it.paperType == type) }.maxByOrNull { it.completedAt }
     }
     fun draft(): JSONObject = JSONObject().put("subject", subject).put("provider", provider)
-        .put("examYear", year).put("paper", paper).putPaperType(PaperType.parse(paper)).put("rawMax", knownExamMarks(subject, paper) ?: 100)
+        .put("examYear", year).put("paper", paper).put("rawMax", knownExamMarks(subject, paper) ?: 100)
 }
 
 fun knownExamMarks(subject: String, paper: String): Int? {
@@ -245,7 +245,7 @@ fun notebookExam(note: Notebook, a: ExamAttempt): LoggedExam? {
     val raw = JSONObject().put("id", a.id).put("subject", subject).put("provider", note.exam.company)
         .put("title", focalExamName(note.exam.company, year, subject).ifBlank { note.title })
         .put("examYear", year)
-        .put("paper", note.exam.type?.label ?: "Exam").putPaperType(PaperType.parse(note.exam.type?.label.orEmpty()))
+        .put("paper", note.exam.type?.label ?: "Exam")
         .put("completedAt", day.toString())
         .put("rawScore", a.score).put("rawMax", max).put("createdAt", isoTime(a.date))
         .put("updatedAt", isoTime(a.date)).put("referenceId", JSONObject.NULL).put("folioNotebookId", note.id)
