@@ -84,6 +84,7 @@ internal fun formatSyncedAt(iso: String?): String {
 fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: FolioState,
     finger: Boolean, haptics: Boolean, shapes: Boolean, onBack: () -> Unit,
     onSettings: () -> Unit, onExport: () -> Unit,
+    onOpenReviewNotebook: (String, Int) -> Unit, onOpenSavedResponse: (String) -> Unit,
     onReviewMode: (Boolean) -> Unit = {}, onAccount: () -> Unit = {},
     onShareLongPress: (() -> Unit)? = null,
 ) {
@@ -278,7 +279,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         // between opening the editor and selecting its corresponding question.
         model.addAttempt(attempt)
         val note = folio.state.value.notes.first { it.id == attempt.practiceNotebookId }
-        folio.openAt(note.id, note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0))
+        onOpenReviewNotebook(note.id, note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0))
         return attempt
     }
     fun start(mistake: ExamTrackMistake) {
@@ -475,7 +476,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     }
     viewingAttempt?.let { previous ->
         PreviousAttemptDialog(listOf(previous), folio, closeLabel = "Back to question",
-            onOpenPage = { id -> viewingAttempt = null; folio.open(id); onBack() }) { viewingAttempt = null }
+            onOpenPage = { id -> viewingAttempt = null; onOpenSavedResponse(id) }) { viewingAttempt = null }
     }
     fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
     /** Deletes one card from a list row's long-press menu — same flow as the detail screen. */
@@ -533,7 +534,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                             model.addAttempt(attempt)
                             model.beginPracticeStudy()
                             val idx = note.pages.indexOfFirst { it.id == attempt.practicePageId }.coerceAtLeast(0)
-                            folio.openAt(note.id, idx)
+                            onOpenReviewNotebook(note.id, idx)
                             reviewQueue = if (selected in dueSet) practiceQueue(reviewCandidates, sessionLimit, selected, shuffle).map { it.id }
                                 else listOf(attempt.mistakeId)
                             sessionTotal = reviewQueue.size; sessionCompleted = 0; showSummary = false; sessionWeek = null; sessionInitialXP = practiceProgress.xp
@@ -689,7 +690,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 folio = folio,
                                 model = model,
                                 scope = scope,
-                                onOpenNotebook = { id -> folio.open(id); onBack() },
+                                onOpenNotebook = onOpenSavedResponse,
                                 onShowMessage = ::showTransient,
                             )
                         } else if (state.userId == null) {

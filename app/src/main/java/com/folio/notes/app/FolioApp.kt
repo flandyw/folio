@@ -115,6 +115,7 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
     val mistakes = if (focalEnabled) androidx.lifecycle.viewmodel.compose.viewModel<MistakesViewModel>() else null
     var focalRoute by rememberSaveable { mutableStateOf<FocalSection?>(null) }
     val focalSection = focalRoute.takeIf { focalEnabled }
+    var reviewNotebookId by rememberSaveable { mutableStateOf<String?>(null) }
     var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
     var showMusic by rememberSaveable { mutableStateOf(false) }
     // Keep the editor open while the Library temporarily chooses another workspace document.
@@ -520,9 +521,14 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
     LaunchedEffect(showMusic, state.activeId) {
         state.active?.takeIf { it.musicScoreId != null && !showMusic }?.let { model.closeMusicScore(it.id) }
     }
-    val practiceOpen = state.active?.mistakePractice == true
-    LaunchedEffect(practiceOpen, focalSection) {
-        if (practiceOpen && focalSection != FocalSection.MISTAKES && model.state.value.active?.mistakePractice == true) model.close()
+    val practiceOpen = reviewNotebookId != null && reviewNotebookId == state.activeId
+    LaunchedEffect(reviewNotebookId, state.activeId, focalSection) {
+        val reviewId = reviewNotebookId ?: return@LaunchedEffect
+        if (reviewId != model.state.value.activeId) {
+            if (reviewId != state.activeId) reviewNotebookId = null
+        } else if (focalSection != FocalSection.MISTAKES) {
+            model.close()
+        }
     }
     BackHandler(state.active != null && !practiceOpen && !showMusic && !exportBusy && focalSection == null && workspaceLibraryPurpose == null) { model.close() }
     BackHandler(focalSection != null && !exportBusy) { focalRoute = null }
@@ -650,6 +656,15 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
                                                     onBack = { focalRoute = null }, onSettings = onSettings,
                                                     onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
                                                     onReviewMode = { reviewing = it; onReviewMode(it) },
+                                                    onOpenReviewNotebook = { id, page ->
+                                                        reviewNotebookId = id
+                                                        model.openAt(id, page)
+                                                    },
+                                                    onOpenSavedResponse = { id ->
+                                                        reviewNotebookId = null
+                                                        model.open(id)
+                                                        focalRoute = null
+                                                    },
                                                     onAccount = onAccount, onShareLongPress = shareLongPress,
                                                 )
                                                 FocalSection.PROGRESS -> ProgressScreen(state.notes, model, onSettings = onSettings,
