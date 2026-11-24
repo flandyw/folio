@@ -520,7 +520,11 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
     LaunchedEffect(showMusic, state.activeId) {
         state.active?.takeIf { it.musicScoreId != null && !showMusic }?.let { model.closeMusicScore(it.id) }
     }
-    BackHandler(state.active != null && !showMusic && !exportBusy && focalSection == null && workspaceLibraryPurpose == null) { model.close() }
+    val practiceOpen = state.active?.mistakePractice == true
+    LaunchedEffect(practiceOpen, focalSection) {
+        if (practiceOpen && focalSection != FocalSection.MISTAKES && model.state.value.active?.mistakePractice == true) model.close()
+    }
+    BackHandler(state.active != null && !practiceOpen && !showMusic && !exportBusy && focalSection == null && workspaceLibraryPurpose == null) { model.close() }
     BackHandler(focalSection != null && !exportBusy) { focalRoute = null }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale, interfaceFont = interfaceFont) {
@@ -540,7 +544,7 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
             val topGap = (FolioSpacing.dp16 - padding.calculateTopPadding()).coerceAtLeast(0.dp)
             CompositionLocalProvider(LocalDestinationTopGap provides topGap,
-                LocalOpenFocalStudy provides if (focalEnabled) ({ openFocal(FocalSection.STUDY) }) else null,
+                LocalOpenFocalStudy provides if (focalEnabled && !practiceOpen) ({ openFocal(FocalSection.STUDY) }) else null,
                 LocalFocalResult provides if (focalEnabled) ({ note, attempt ->
                     focalReview = note to attempt
                     openFocal(FocalSection.PROGRESS)
@@ -557,7 +561,7 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
                     // the whole screen's entrance animation (including the sidebar).
                     focalSection != null || showMusic -> "library"
                     workspaceLibraryPurpose != null -> "workspace-library"
-                    state.active != null -> "editor"
+                    state.active != null && !practiceOpen -> "editor"
                     else -> "library"
                 }
                 Box(Modifier.fillMaxSize().folioEntrance(screen)) {
@@ -569,7 +573,7 @@ internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
-                        state.active != null && state.active?.musicScoreId == null && focalSection == null && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
+                        state.active != null && !practiceOpen && state.active?.musicScoreId == null && focalSection == null && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
                             onShareLongPress = shareLongPress,
