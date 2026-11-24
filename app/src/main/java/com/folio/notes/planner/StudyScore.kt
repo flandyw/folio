@@ -236,8 +236,10 @@ object StudyScore {
                 if (key !in predictions) predictions[key] = predict(study.studyName, exams, references)
                 predictions[key]?.studyScore?.toDouble()
             } else null
-            val raw = predicted ?: row.optString("raw").trim().toDoubleOrNull() ?: return@mapNotNull null
-            interpolate(raw, study.points)?.let { Result(row.optString("id"), study.code, study.studyName, raw, it) }
+            fun scaledResult(raw: Double?): Result? = raw?.let { score ->
+                interpolate(score, study.points)?.let { Result(row.optString("id"), study.code, study.studyName, score, it) }
+            }
+            scaledResult(predicted) ?: scaledResult(row.optString("raw").trim().toDoubleOrNull())
         }
     }
 

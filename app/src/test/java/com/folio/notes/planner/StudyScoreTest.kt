@@ -37,6 +37,20 @@ class StudyScoreTest {
         assertEquals(listOf(34.5, 34.5, 34.5, 34.5), estimate.primary.map { it.result.raw })
     }
 
+    @Test fun atarGoalKeepsItsBaselineWhenAPredictionCannotBeScaled() {
+        val rows = org.json.JSONArray(listOf("EN", "BI", "CH", "PY").map { code ->
+            org.json.JSONObject().put("id", code).put("code", code).put("raw", "34.5").put("usePrediction", code == "BI")
+        })
+        val saved = org.json.JSONArray().put(org.json.JSONObject().put("year", 2025).put("rows", rows))
+        val goal = org.json.JSONObject().put("kind", "atar").put("target", 90)
+        val exams = listOf(exam("low", "Biology", "Exam", 2024, 0, 120, "2026-08-01"))
+        val prediction = requireNotNull(StudyScore.predict("Biology", exams, references))
+        assertTrue("Expected a prediction below the scaling range, got ${prediction.studyScore}", prediction.studyScore < 20)
+        val baseline = Planner.goalProgress(goal, emptyList(), saved, references, data).current
+        assertNotNull(baseline)
+        assertEquals(baseline, Planner.goalProgress(goal, exams, saved, references, data).current)
+    }
+
     @Test fun scalingInterpolatesAndAveragesYears() {
         val s = StudyScore.scaled(35.0, "Accounting", data)!!
         assertEquals(36.0, s.scaled, 1.5)

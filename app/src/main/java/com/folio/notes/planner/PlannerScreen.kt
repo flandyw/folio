@@ -641,7 +641,9 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
             val ref = studies.find { it.code == row.optString("code") }
-            val predicted = ref?.let { predictions[StudyScore.studyKey(it.studyName)] }
+            val predicted = ref?.let { study ->
+                predictions[StudyScore.studyKey(study.studyName)]?.takeIf { StudyScore.interpolate(it, study.points) != null }
+            }
             PlannerCard {
                 ChoiceField("Study", ref?.studyName.orEmpty(), studies.map { it.studyName }, { name ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
