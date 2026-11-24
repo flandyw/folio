@@ -401,7 +401,7 @@ internal fun FocalStudyContent(
                     StatTileData(FolioIcons.Flame, if (streak == 1) "1 day" else "$streak days", "Streak"),
                     StatTileData(FolioIcons.CalendarCheck, "${scopeCounts[PlanScope.TODAY] ?: 0}", "Planned for today"),
                 ), cardColor)
-                Text("Active study only — pauses, exams and calendar blocks are excluded.",
+                Text("Active study only; pauses, exams, and calendar blocks are excluded.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val problem = state.error?.takeIf { !state.syncing }
                 val action: @Composable RowScope.() -> Unit = {
@@ -484,7 +484,7 @@ internal fun FocalStudyContent(
                     focus != null -> "Finish or discard your current session before starting a plan."
                     examRecording != null -> "Stop the exam timer before starting a plan."
                     anotherRunning -> "Pause or finish your running session before starting a plan."
-                    else -> "Start whenever you’re ready. Only time spent studying is recorded."
+                    else -> "Start whenever you're ready. Only time spent studying is recorded."
                 }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 // Filters only earn their space once there is a list to sift.
                 if (planned.size > 3 || filtering) {

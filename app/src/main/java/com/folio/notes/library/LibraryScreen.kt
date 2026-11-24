@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.semanticsLabel
+
 import com.folio.notes.ui.FolioIcons
 import kotlinx.coroutines.flow.first
 import com.folio.notes.model.countOf
@@ -77,8 +79,6 @@ import com.folio.notes.ui.folioSelected
 import com.folio.notes.ui.folioSpring
 import com.folio.notes.vcaa.VcaaScreen
 import kotlinx.coroutines.launch
-
-fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 /** Library-owned destinations alongside the other peer panes. Tablet files is a place inside the library. */
 enum class LibrarySection { LIBRARY, FILES, VCAA, TRASH }
@@ -635,12 +635,12 @@ enum class LibrarySection { LIBRARY, FILES, VCAA, TRASH }
                                     else -> "Good things start here."
                                 }, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                                 Text(when {
-                                    searchActive || filtersActive -> if (openFolder != null) "Search covers this folder and its subfolders. Try another search or broaden where you look." else "Try another search or reset your filters."
-                                    tag != null -> "Drag notebooks onto the tag to label them."
+                                    searchActive || filtersActive -> if (openFolder != null) "Search covers this folder and its subfolders. Try another query or broaden where you look." else "Try another query or reset your filters."
+                                    tag != null -> "Drag notebooks onto this tag to label them."
                                     openFolder != null -> "Create a notebook or folder here, or drag notebooks in from the library."
-                                    place == LibraryPlace.FAVORITES -> "Choose Add to favorites in a notebook's menu, or drag it onto Favorites."
-                                    place == LibraryPlace.UNFILED -> "Every notebook is in a folder."
-                                    welcoming -> "Create a notebook for handwriting, or import a PDF to annotate. No account is needed."
+                                    place == LibraryPlace.FAVORITES -> "Choose Add to favourites in a notebook's menu, or drag it onto Favourites."
+                                    place == LibraryPlace.UNFILED -> "Every notebook is filed in a folder."
+                                    welcoming -> "Create a notebook for handwriting, or import a PDF to annotate. Works completely offline."
                                     else -> "Create a notebook or import a PDF to get started."
                                 }, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.CenterHorizontally)) {

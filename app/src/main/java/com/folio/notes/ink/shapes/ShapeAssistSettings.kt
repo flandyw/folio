@@ -24,7 +24,7 @@ import com.folio.notes.ink.InkView
 import com.folio.notes.ink.recognition.InkGestureRecognizer
 import com.folio.notes.ink.recognition.InkRecognitionModelStatus
 import com.folio.notes.input.LocalStylusActivity
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Paper
@@ -52,7 +52,7 @@ import kotlin.math.*
         }
         InkRecognitionModelStatus(InkGestureRecognizer.Model.SHAPES, enabled)
         ShapeAssistExample()
-        Text("Pause gently to tidy a shape; small wobbles are fine. Then move the pen to resize or rotate it, and lift to keep it. Undo brings your drawing back.",
+        Text("Pause gently to tidy a shape; small wobbles are fine. Move the pen to resize or rotate, then lift to keep it. Undo restores your freehand drawing.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (enabled) {
             Text("Hold speed", style = MaterialTheme.typography.labelLarge)
@@ -67,7 +67,7 @@ import kotlin.math.*
                 modifier = Modifier.semanticsLabel("Shape hold delay"))
             ShapeAssistOptionControls(options, { prefs.edit().putString(AppPrefs.SHAPE_ASSIST_OPTIONS, it.encode()).apply() })
         }
-        Text("Already drawn a diagram? Lasso it and choose Tidy up shapes. You can preview the result even with hold-to-shape off.",
+        Text("Already drew a diagram? Lasso it and choose Tidy up shapes to preview and clean it, even with hold-to-shape off.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton({ practice = !practice }, shapes = ButtonDefaults.shapes()) { Text(if (practice) "Hide practice area" else "Try it here") }
         if (practice) ShapeAssistPractice(enabled, delay, options)
@@ -82,13 +82,13 @@ import kotlin.math.*
         FilterChip(options.closed, { onChange(options.copy(closed = !options.closed)) }, label = { Text("Closed shapes") })
         FilterChip(options.curves, { onChange(options.copy(curves = !options.curves)) }, label = { Text("Curves & brackets") })
     }
-    Text("Closed shapes include circles, ovals, boxes, rounded boxes, irregular triangles, polygons of up to eight sides, stars and hearts. Arrows can have a curved shaft. Curves & brackets are arcs, square brackets and curly braces.",
+    Text("Closed shapes include circles, ovals, boxes, rounded boxes, irregular triangles, polygons up to eight sides, stars, and hearts. Arrows can have curved shafts. Curves & brackets cover arcs, square brackets, and curly braces.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    ShapeAssistSwitch("Perfect circles & squares", "Make nearly round ovals and nearly square boxes exact. Keep long ovals and rectangles.",
+    ShapeAssistSwitch("Perfect circles & squares", "Snap nearly round ovals and nearly square boxes to exact geometry. Elongated shapes keep their proportions.",
         options.perfect, options.closed) { onChange(options.copy(perfect = it)) }
-    ShapeAssistSwitch("Equal-sided polygons", "Regular triangles, pentagons, hexagons, octagons, stars and pentagrams, at the angle you drew them.",
+    ShapeAssistSwitch("Equal-sided polygons", "Snap triangles, pentagons, hexagons, octagons, stars, and pentagrams to equal sides at the angle you drew them.",
         options.regular, options.closed) { onChange(options.copy(regular = it)) }
-    ShapeAssistSwitch("Straighten highlighter", "Hold an underline steady to straighten it. Keeps its colour, width and transparency.",
+    ShapeAssistSwitch("Straighten highlighter", "Hold an underline steady to straighten it while keeping its colour, width, and opacity.",
         options.highlighter, options.lines) { onChange(options.copy(highlighter = it)) }
 }
 

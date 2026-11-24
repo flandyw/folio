@@ -11,7 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.EditorPaperState
 import com.folio.notes.editor.toolbar.FolioPopover
@@ -62,8 +62,8 @@ import com.folio.notes.ui.FolioSpacing
                                 Paper.MATH_GRID -> "Fine grid with a bold line every five squares"
                                 Paper.GRAPH -> "Fine grid with centred axes"
                                 Paper.MC_SHEET -> "25 multiple-choice questions with options A–E"
-                                Paper.TIAN_GRID -> "田字格 — one character per square, dashed cross"
-                                Paper.MI_GRID -> "米字格 — cross plus diagonals per square"
+                                Paper.TIAN_GRID -> "田字格: one character per square, dashed cross"
+                                Paper.MI_GRID -> "米字格: cross and diagonals per square"
                                 else -> null
                             }
                             if (hint != null) Text(hint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

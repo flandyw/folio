@@ -5,7 +5,7 @@ Scope: this pass leaves every file touched by the latest ten commits unchanged
 The work is in other exam, music, split-chooser, backup-exclusion and tablet-file
 flows. It introduces no dependencies or storage-format changes.
 
-## Recording marks — `exam/ScoreDialog.kt`
+## Recording marks: `exam/ScoreDialog.kt`
 
 1. Turning off **Timed sitting** omits the hidden duration from the recorded mark.
 2. An unchanged timer measurement keeps its exact seconds instead of truncating to whole minutes.
@@ -15,7 +15,7 @@ flows. It introduces no dependencies or storage-format changes.
 6. An invalid score above the total no longer shows a misleading percentage preview.
 7. Record actions wrap on narrow panels instead of sharing one overflowing row.
 
-## Exam details — `exam/ExamDetailsPanel.kt`
+## Exam details: `exam/ExamDetailsPanel.kt`
 
 8. Incomplete years are explained and blocked instead of being saved as tiny year numbers.
 9. Invalid units are explained and blocked instead of silently clamping them to 1 or 4.
@@ -26,7 +26,7 @@ flows. It introduces no dependencies or storage-format changes.
 14. Deleting a recorded mark asks for confirmation and explains that pages are kept.
 15. Back and Close protect unsaved details; **Keep editing** leaves the panel visible.
 
-## Batch exam details — `exam/BatchExamTagsPanel.kt`
+## Batch exam details: `exam/BatchExamTagsPanel.kt`
 
 16. An opted-in invalid year cannot be applied across notebooks; blank still intentionally clears it.
 17. Year suggestions use this year and the preceding two, replacing fixed 2022/2021 suggestions.
@@ -34,13 +34,13 @@ flows. It introduces no dependencies or storage-format changes.
 19. Tapping the selected company suggestion clears it, matching the single-notebook editor.
 20. The whole section header toggles its checkbox, including its checkbox accessibility role.
 
-## Exam timer — `exam/TimingPanel.kt`
+## Exam timer: `exam/TimingPanel.kt`
 
 21. Blank, zero and out-of-range custom times are explained and cannot start a substituted/clamped duration, via either button or keyboard.
 22. Stopping a live timer asks for confirmation and explains that elapsed writing time is kept.
 23. Timer/stopwatch tabs scroll horizontally when their status labels do not fit.
 
-## Music import — `music/MusicImportPanel.kt`
+## Music import: `music/MusicImportPanel.kt`
 
 24. Busy import disables filmstrip edits and part switching through **Show**, keeping the submitted selection stable.
 25. A newly added custom part becomes the filmstrip's active part.
@@ -50,7 +50,7 @@ flows. It introduces no dependencies or storage-format changes.
 29. A selected part with an empty title explains why it cannot be added.
 30. A selected part with no pages explains why it cannot be added; filmstrip taps cannot silently replace malformed typed ranges.
 
-## Music pickers — `music/MusicPanels.kt`
+## Music pickers: `music/MusicPanels.kt`
 
 31. Score-detail drafts are keyed by score identity, preventing one score's fields from carrying into another.
 32. A blank score title explains the disabled Save action.
@@ -60,18 +60,18 @@ flows. It introduces no dependencies or storage-format changes.
 36. Set-membership toggles use current stored membership, preventing rapid taps from replaying a stale checkbox state in either picker.
 37. Choosing the current folder closes the picker without unnecessarily writing the music index, including **No folder**.
 
-## Split chooser — `workspace/WorkspacePicker.kt`, `workspace/SplitChooser.kt`
+## Split chooser: `workspace/WorkspacePicker.kt`, `workspace/SplitChooser.kt`
 
 38. Split search uses the Library's metadata and page-name search, retaining hidden-document exclusions.
 39. Back clears a chooser search before leaving the flow.
 40. Search on the keyboard dismisses the keyboard so the results can be browsed.
 
-## Backup exclusions — `backup/BackupExclusionsPanel.kt`
+## Backup exclusions: `backup/BackupExclusionsPanel.kt`
 
 41. Search uses the Library's all-word search across notebook metadata and page names.
 42. **Exclude shown** / **Include shown** act on the displayed results only and disable when there is nothing to change.
 
-## Tablet files — `library/files/DeviceExplorer.kt`
+## Tablet files: `library/files/DeviceExplorer.kt`
 
 43. File search matches every word in any order, including whitespace pasted from other apps.
 44. Every route back to Locations clears the now-hidden folder query.

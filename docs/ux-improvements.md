@@ -74,7 +74,7 @@ Small rules that make the app do the obvious thing. None changes the storage for
 ### Second pass
 
 - **Last edited** follows content only: starring, pinning, moving, tagging, recolouring, renaming or removing a folder no longer changes a notebook's date, its place in the sort or *Continue working*.
-- A notebook made in a tag or Favorites view joins that view, and those empty states offer to create one. Tapping Library while on the Library clears search and filters. *Continue working* steps aside during a search.
+- A notebook made in a tag or Favourites view joins that view, and those empty states offer to create one. Tapping Library while on the Library clears search and filters. *Continue working* steps aside during a search.
 - Moving notebooks reports where they went, with Undo. Bulk actions end Select mode. Duplicating and restoring confirm, and Undo of a Trash move waits for that move to finish.
 - Year and company filters list everything, companies by use. Mistake, command and move-panel searches match every word in any order.
 - Confirmations use a short snackbar (`reportNotice`); errors keep the long one. One imported PDF opens without a count, and a batch walks to each unanswered duplicate, which can be skipped.

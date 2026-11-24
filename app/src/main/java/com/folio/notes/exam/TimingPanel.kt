@@ -118,7 +118,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                         val minutes = timer.finalWarningSeconds / 60
                         Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                "Final $minutes ${if (minutes == 1) "minute" else "minutes"} — start wrapping up",
+                                "Final $minutes ${if (minutes == 1) "minute" else "minutes"}: start wrapping up",
                                 modifier = Modifier.padding(FolioSpacing.dp16),
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 style = MaterialTheme.typography.titleMedium
@@ -144,10 +144,10 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                             )
                             Text(
                                 when {
-                                    timer.paused && timer.autoParked -> "Stopped on its own — resume, or just keep writing"
-                                    timer.paused -> "Paused — resume, or just keep writing"
+                                    timer.paused && timer.autoParked -> "Stopped automatically. Resume, or keep writing"
+                                    timer.paused -> "Paused. Resume, or keep writing"
                                     active -> "The clock is running"
-                                    else -> "No pens yet — read the paper"
+                                    else -> "No pens yet. Read the paper"
                                 },
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )

@@ -1,172 +1,37 @@
-# Focal session-check reliability
+# Focal sync and session reliability
 
 ## Progress and Planner sync (15 November 2026)
 
-`ExamProgressManager` (exam log, mistakes, SACs, checklist, goals, events, timetable) was the slow engine:
-poll-only, one RPC per queued change, and its lock was held across every request.
+`ExamProgressManager` (exam log, mistakes, SACs, checklist, goals, events, timetable) was upgraded from poll-only single-RPC sync to batched, live-updating sync:
 
-- **One request for the outbox.** Queued changes go to `sync_apply_changes` in batches of 50; the reply's
-  receipts and stale answers are folded in by pure `ProgressCache.settle`. If Focal refuses a batch for its
-  content (HTTP 4xx other than 401/403/408/429, `focalChangeRefused`), its changes are retried singly so one
-  bad record cannot hold back the rest; transport, auth and server failures stop the pass for a later retry.
-- **Saving never waits for the network.** The lock is taken only while the cache changes. A form saved
-  during a pass is written at once; if its row was on the wire, the newer edit takes the receipt's sequence
-  as its `expectedSeq` and is published by the follow-up pass instead of colliding with its own predecessor.
-- **No dropped requests.** `sync()` during a running pass queues exactly one more pass.
-- **Live updates.** While Progress or Planner is visible, `keepFresh()` subscribes to `sync_log` inserts
-  (`watchFocalFeed`, now the one Realtime watcher for Study, Mistakes and Progress) and keeps the 30 s poll
-  as a fallback for a missed socket event.
-- **A pending edit is never overwritten by the log.** `ProgressCache.absorb` keeps the local row while its
-  change is queued (previously a snapshot or an echo could replace it until the next read).
-- Planner now lists every conflict with *Use Focal's* / *Keep mine*; before, an event or timetable conflict
-  could only be resolved from Progress and blocked further edits of that row.
+- **Batched outbox:** Queued changes send to `sync_apply_changes` in batches of 50, folded via pure `ProgressCache.settle`. Content refusals (HTTP 4xx except 401/403/408/429) retry individually so one bad row never blocks the queue; transport, auth, and 5xx errors pause for later retry.
+- **Non-blocking saves:** The lock holds only during cache updates. Edits saved mid-sync adopt the receipt's sequence as `expectedSeq` for the follow-up pass instead of self-colliding. Calling `sync()` mid-pass queues exactly one follow-up pass.
+- **Realtime + fallback:** While Progress or Planner is visible, `keepFresh()` subscribes to `sync_log` inserts via shared `watchFocalFeed` (also used by Study and Mistakes) with a 30-second fallback poll.
+- **Pending protection & conflicts:** `ProgressCache.absorb` preserves local rows with queued edits, and Planner exposes *Use Focal's* / *Keep mine* conflict resolution directly (including events and timetable rows).
 
-`ProgressSyncTest` covers batch replies, an edit made mid-flight, collisions, own echoes and snapshots.
-Not device-verified: check a burst of edits offline then online, an edit made in Focal while Planner is
-open (should appear within a second or two), and editing the same SAC list twice in quick succession.
+Covered by `ProgressSyncTest` (batch receipts, mid-flight edits, collisions, echoes, snapshots). Device check: burst edits offline then online, edit in Focal while Planner is open (arrives within 1–2 s), and edit the same SAC list twice quickly.
 
 ## Account recovery hardening (16 October 2026)
 
-Focal's ordinary sign-out used Supabase's default **global** scope, revoking other
-sessions, including Folio's. It now uses `scope: "local"`. Focal also restores the
-account through Auth session events instead of racing them with a network-only
-`getUser` call. Its UI distinguishes restoration, reconnection and a rejected
-login; expired credentials offer sign-in directly while account-owned outboxes
-remain intact. Both outbox lanes pin the account before RPCs, refresh once on a
-401, and keep auth failures on hold without spending write retries.
+- Focal's sign-out now uses `scope: "local"` instead of Supabase's global default so signing out of Focal does not revoke Folio's session.
+- Folio owns a single serialised refresh loop in `ExamTrackSessionLifecycle` with SDK 3.0.3's automatic session management disabled (SDK 3.0.3 deletes sessions on *any* non-5xx refresh error, including 408/429). Folio retries transport, rate-limit, and 5xx errors with bounded backoff, and prompts **Sign in again** only on HTTP 400/401/422.
+- RPCs and attachment downloads share this owner, retry 401 once after refresh, and surface a second rejection as a sync error without spinning.
+- Token rotation serialises with sign-in/sign-out, commits independently of screen cancellation, and retries persisting a rotated token before resuming sync. Encrypted storage path, Keystore alias, and format stay unchanged; unreadable files are preserved rather than wiped.
+- Study, Mistakes, Progress, and the shared account panel show unified states: **Sign in again** (revoked session, cached offline data preserved), **Reconnecting** (transient refresh error), and explicit sign-out (hides account while keeping durable caches/outboxes).
 
-Folio now owns one serialized refresh loop in `ExamTrackSessionLifecycle`, with
-the SDK's automatic loading/saving/refreshing disabled. SDK 3.0.3 treats every
-non-5xx refresh response as a reason to delete the session, including temporary
-408/429 refusals. Folio retries transport, rate-limit and server failures with
-bounded backoff, and requests sign-in for refresh HTTP 400/401/422. RPCs and
-attachment downloads share that owner and retry a 401 once after refresh. A
-second rejection is shown as a sync error without repeated token exchanges.
+## Earlier investigation (11 October 2026)
 
-The lifecycle serializes token rotation with sign-in/sign-out. It commits rotated
-tokens independently of screen cancellation, and if storage fails, retries saving
-the same new token before allowing sync to continue. The encrypted file path,
-Keystore alias and file format stay unchanged. Reads accept unknown JSON fields;
-an unreadable file is kept, and a temporary read error retries restoration instead
-of silently deleting the login.
+Investigated recurring *"Checking Focal for session changes failed"* errors that recovered after sign-out/sign-in:
 
-Study, Mistakes, Progress and the shared account panel consume the same account
-state. A revoked session retains its cached owner for offline work but is shown
-as **Sign in again**, with a badged account button and a direct login form. A
-transient refresh failure shows **Reconnecting**, and recovery resumes sync.
-Explicit sign-out hides the account and keeps its durable caches/outboxes.
-
-The loopback check now covers restart/update restoration, rate-limited refresh,
-concurrent 401s sharing an exchange, failed storage of a rotated token, revoked
-credentials, reauthentication, temporary/unreadable storage, and sign-out during
-an in-flight refresh. The earlier investigation below records the previous design.
-
-Verification on 16 October: `python3 tools/focal-sync-smoke.py` and
-`node tools/focal-study-smoke.cjs` passed after `:app:prepareBackupSmoke`.
-`./build.sh -p` built, signature-verified and published **4.4.9-exp.2**
-(version code 4490002). Focal's `bun run check`, web build and desktop frontend
-build passed, with five existing lint warnings. A local browser check using a
-dummy endpoint confirmed that the expired-session notice opens the account login
-form. No Android device was attached; real account/update/sleep/reconnect checks
-remain manual.
-
-Investigated 11 October 2026 after repeated “Checking Focal for session changes failed”
-messages, with the generic server/account advice, recovering after sign-out/sign-in.
-
-## What that message checks
-
-`FocalStudyManager` calls the configured Supabase project's `sync_read_changes` RPC
-directly through `SupabaseSyncRemote`. The Focal web/desktop frontend is not an
-intermediate server. The SQL implementation and migrations belong to `~/focal`.
-Study, Mistakes, Progress and attachment storage use the same process-wide
-`FocalSupabaseConnection`, encrypted session and account. There is no second Folio
-client competing to rotate the same saved refresh token.
-
-An ordinary frontend deployment or APK update preserves the login. Changing the
-Supabase project, signing keys, session policies, credentials or RPC contract can
-affect it. Sign-out/sign-in replaces the session, so recovery that way suggests
-token trouble, but the old generic message cannot establish the actual HTTP error.
-
-## Confirmed client problems and changes
-
-- SDK 3.0.3's `currentUserOrNull()` returns null during `RefreshFailure`, while the
-  SDK is still retrying. Study treated that null as an expired account. The shared
-  RPC boundary now waits up to 15 seconds for a usable, unexpired session; a real
-  sign-out or different account fails immediately. It does not launch a competing
-  refresh exchange. Mistakes no longer performs a redundant immediate-user check;
-  authenticated attachment downloads use the same recovery guard.
-- Restoring an expired saved session exposes its identity before network refresh.
-  Sync now waits for token recovery rather than sending that expired token.
-- Auth/foreground `collectLatest` previously owned the sync RPC, so changing either
-  could cancel an in-flight pull or publication. A separate worker now owns Study
-  sync, and a conflated channel combines wakeups. Realtime subscriptions follow
-  account/foreground changes, rather than restarting on every token refresh.
-- Study's sign-in/sign-up/sign-out now cancels the owned startup-refresh job,
-  matching the existing Mistakes account actions, so an old restore cannot race
-  the replacement login.
-- A transient feed read previously failed visibly on its first attempt. Reads now
-  retry transport errors and HTTP 408/429/5xx twice, after 750/1500 ms. Permanent
-  refusals and cancellation do not retry. Writes retain their existing durable
-  mutation/receipt handling.
-- Every idle Study sync previously read sessions twice and subjects separately.
-  Sessions and custom subjects now consume one feed pass; confirmation runs only
-  when there were local sessions to publish. Both existing cursor fields are
-  checkpointed together, starting at the older cursor on the first shared pass.
-  Background polling skips accounts with no pending session work.
-- Study and Progress now distinguish HTTP authentication, permissions, missing backend,
-  rate limits, server failures, request timeouts and transport failures. SDK 3.0.3
-  wraps some network failures in `HttpRequestException` without keeping the cause;
-  that previously produced the misleading server/account advice. Raw SDK messages,
-  request headers, tokens and payloads are never shown by this formatter.
-
-## Focal and Supabase surfaces checked
-
-Focal's web/desktop clients use the same account-pinned feed and session mutation
-RPCs. Its desktop session storage serializes operations; the browser and desktop
-builds avoid creating two clients. Its command outbox already holds authentication
-failures and resumes on token refresh. No Focal frontend change was needed.
-
-The migration chain defines authenticated execute grants, owner checks, RLS,
-`sync_log` Realtime publication and indexes on `(user_id, seq)` and
-`(user_id, entity, row_id, seq desc)`. Account-pinned RPC overloads were added in
-migration 0013; old overloads remain for compatibility. A migration can still
-cause errors if deployed incorrectly, but frontend deployment alone does not
-change these functions.
-
-Using Folio's configured public key, the live Auth settings endpoint returned 200.
-The live account-pinned and legacy `sync_read_changes` / `sync_apply_changes` RPCs
-were resolved and denied anonymous execution with SQLSTATE 42501, as expected.
-These probes wrote no user data. This verifies endpoint/key acceptance and RPC
-availability, not authenticated permissions, complete migration parity or latency.
-
-No Supabase management token or attached Android device was available. The CLI
-reported `AccessTokenRequiredError`. Dashboard browser access was unavailable due
-to the host's AppArmor browser restriction. Authenticated server logs, active
-session policies, signing-key history and query timings therefore remain unchecked.
-In particular, check whether **single session per user** is enabled when Folio and
-Focal should remain signed in together; that policy can invalidate the other login.
-Also inspect inactivity/time-box limits and refresh failures before changing them.
-See [Supabase session policies](https://supabase.com/docs/guides/auth/sessions) and
-[database timeouts](https://supabase.com/docs/guides/database/postgres/timeouts).
+- `FocalStudyManager` calls Supabase's `sync_read_changes` RPC directly via `SupabaseSyncRemote` over the single process-wide `FocalSupabaseConnection` (no competing Folio clients). Normal frontend deploys or APK updates preserve logins.
+- **Client fixes applied:**
+  - Wait up to 15 s for an unexpired session during SDK `RefreshFailure` instead of treating `currentUserOrNull() == null` as an expired account; wait for token recovery before syncing restored expired sessions.
+  - Move Study sync to a dedicated worker with a conflated wakeup channel so auth/foreground `collectLatest` no longer cancels in-flight RPCs; tie Realtime subscriptions to account/foreground state rather than token refreshes; cancel startup refresh on explicit sign-in/out.
+  - Retry transient feed reads (transport, 408/429/5xx) twice at 750 ms / 1500 ms; fold sessions and custom subjects into one feed pass; skip background polling for accounts with no pending work.
+  - Classify HTTP auth, permission, missing backend, rate-limit, 5xx, timeout, and transport errors accurately without exposing raw SDK internals, headers, or tokens.
+- **Supabase notes:** Verify whether **single session per user** is enabled in [Supabase session policies](https://supabase.com/docs/guides/auth/sessions) if Folio and Focal must stay signed in concurrently, and review [Postgres timeouts](https://supabase.com/docs/guides/database/postgres/timeouts).
 
 ## Verification
 
-The canonical signed/published build is `./build.sh -p`. The existing
-`node tools/focal-study-smoke.cjs` checks timer intervals and restore behavior.
-`python3 tools/focal-sync-smoke.py` compiles the actual shared RPC/error sources against cached
-SDK 3.0.3 and uses a loopback HTTP server: transient/permanent failures, expired
-session recovery, `RefreshFailure` recovery, account mismatch, sign-out,
-cancellation and safe error classification. Focal's `bun run check` checks its
-unchanged frontend types and lint.
-
-These checks passed, and `./build.sh -p` built, signature-verified and published
-Folio **4.0.7-exp.1** (version code 4070001). Focal's check completed with five
-warnings in unchanged code. The tablet scenarios below remain manual checks.
-
-On the tablet, leave Folio signed in across token expiry and sleep/wake; disconnect
-and restore Wi-Fi; use Focal concurrently; retry from Study and Mistakes; and sign
-out while refresh is pending, then sign in to the same and a different account.
-Verify local timers/reviews remain saved, reconnect without repeated manual login,
-custom subjects still arrive/delete, and old-account work never uploads to the new
-account. If a failure persists, record the new specific HTTP/status wording and
-timestamp to match it to Supabase Auth/PostgREST logs.
+- **Automated:** `python3 tools/focal-sync-smoke.py` (loopback HTTP test of transient/permanent errors, expired sessions, rate-limited refresh, concurrent 401s, rotation write failures, revoked sessions, and sign-out races), `node tools/focal-study-smoke.cjs`, `ProgressSyncTest`, and `./build.sh -p`.
+- **On device:** Leave Folio signed in across token expiry and sleep/wake; toggle Wi-Fi; edit concurrently in Focal; retry from Study and Mistakes; sign out during a pending refresh; and switch accounts (confirming old-account queued work never uploads to the new account). Record exact error text and timestamps to correlate with Supabase logs if issues recur.

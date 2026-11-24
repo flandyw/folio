@@ -71,8 +71,8 @@ import com.folio.notes.ui.FolioSpacing
                 val newFolderFocus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { newFolderFocus.requestFocus() }
                 OutlinedTextField(newFolder, { newFolder = it; createFailed = false }, Modifier.fillMaxWidth().focusRequester(newFolderFocus), singleLine = true, label = { Text("New folder name") }, isError = (nameError != null && newFolder.isNotEmpty()) || createFailed,
-                    supportingText = { Text(if (createFailed) "Could not create the folder. Your notebooks have not moved. Try again."
-                        else nameError?.takeIf { newFolder.isNotEmpty() } ?: "Create at the top level and move the selected notebooks into it.") },
+                    supportingText = { Text(if (createFailed) "Couldn't create the folder. Your notebooks haven't moved. Try again."
+                        else nameError?.takeIf { newFolder.isNotEmpty() } ?: "Creates a top-level folder and moves the selected notebooks into it.") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { createAndMove() }))
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {

@@ -336,7 +336,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         if (working) return
         val remaining = reviewQueue.filterNot { it == current.mistakeId }
         if (remaining.isEmpty()) {
-            showTransient("Only one card in this session — rate it to finish.")
+            showTransient("Only one card in this session; rate it to finish.")
             return
         }
         actionMessage = null
@@ -352,7 +352,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     val attempt = openReview(next, user)
                     reviewQueue = remaining + current.mistakeId
                     activeReview = attempt.reviewId
-                    showTransient("Skipped for now — your page is kept and the card moves to the end.")
+                    showTransient("Skipped for now. Your page is kept and the card moves to the end.")
                 }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) {
@@ -466,7 +466,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) {
                     model.showPracticeStudyQuestion(active, card, reviewFrame.context)
-                    showTransient("Could not save the review. Your page is kept — please retry.")
+                    showTransient("Couldn't save the review. Your page is kept; please retry.")
                     working = false
                 }
             }

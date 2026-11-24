@@ -38,13 +38,13 @@ data class NotebookTemplate(
         )
         /** One character per square on tian (田) grid paper, with a dashed cross in each box. */
         fun hanziTian() = NotebookTemplate(
-            id = "hanzi-tian", title = "Hanzi · tian grid", description = "田字格 practice — one character per square, 10 pages",
+            id = "hanzi-tian", title = "Hanzi · tian grid", description = "田字格 practice: one character per square, 10 pages",
             pages = 10, paper = Paper.TIAN_GRID,
             tags = { _, _ -> ExamTags(type = ExamType.NOTES) }
         )
         /** One character per square on mi (米) grid paper, with cross and diagonals in each box. */
         fun hanziMi() = NotebookTemplate(
-            id = "hanzi-mi", title = "Hanzi · mi grid", description = "米字格 practice — cross plus diagonals per square, 10 pages",
+            id = "hanzi-mi", title = "Hanzi · mi grid", description = "米字格 practice: cross and diagonals per square, 10 pages",
             pages = 10, paper = Paper.MI_GRID,
             tags = { _, _ -> ExamTags(type = ExamType.NOTES) }
         )

@@ -103,7 +103,7 @@ import com.folio.notes.input.StylusShortcutEffect
 import com.folio.notes.input.StylusShortcutManager
 import com.folio.notes.input.StylusShortcuts
 import com.folio.notes.input.guardUiTouches
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.marking.LongResponseAttemptsPanel
 import com.folio.notes.marking.LongResponseBar
 import com.folio.notes.marking.MarkAreaHint

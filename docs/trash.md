@@ -1,25 +1,27 @@
+# Trash
 
-## Trash
+Deleting a notebook (including via multi-select) moves the entire notebook directory into **Trash**. Open Trash from the Library heading or the tablet navigation rail. You can restore individual notebooks or choose **Restore all**; **Delete forever** and **Empty Trash** require confirmation.
 
-Notebook deletion (including multi-select) moves the complete notebook into **Trash**. Open Trash
-from the Library heading or the tablet navigation rail. Restore individual notebooks or choose
-**Restore all**; **Delete forever** and **Empty Trash** require confirmation. Items stay indefinitely.
-Restoration keeps the original folder if it still exists, otherwise the notebook returns to the
-Library root. Removing a folder still keeps its notebooks and moves them to the parent folder.
-Tablet files are original external files, so their existing permanent-delete flow is unchanged.
+## Rules
 
-Trash is device-local, outside library backups, workspace pickers, study and progress. Complete
-notebook directories move atomically from `files/notebooks/<id>` to `files/trash/notebooks/<id>`;
-`trashed-at` records the deletion time. The serialized document writer drains earlier edits and
-checkpoints the final notebook index before the move, preserving PDFs, images, page journals,
-undo/redo and grouped history without a notebook format change. Pending compaction references are
-cleared so housekeeping cannot recreate a moved notebook. Failed moves remain in the writer's
-Retry save queue. Permanent deletion detaches the directory under `.purge-<uuid>` before cleanup,
-which resumes when Trash is next loaded after an interruption. Music score cleanup and automatic
-removal of empty mistake-practice notebooks bypass Trash.
+- Trashed notebooks stay indefinitely until restored or permanently deleted.
+- Restoring returns a notebook to its original folder if it still exists, or to the Library root otherwise. Removing a folder moves its notebooks to the parent folder instead of trashing them.
+- External tablet files keep their separate permanent-delete flow.
+- Trash is device-local and excluded from library backups, workspace pickers, Study, and Progress.
+- Music score cleanup and automatic removal of empty mistake-practice notebooks bypass Trash.
 
-Automated filesystem checks: `./gradlew :app:testDebugUnitTest --tests '*NotebookTrashTest'`.
-On a device, write on a PDF and a notebook with grouped edits, delete them, restart Folio, restore
-them, and verify pages, ink, images and Undo/Redo. Also test bulk deletion/restoration, restoring
-after the original folder is removed, and confirmed permanent deletion. Verify that active-library
-backups omit Trash and that Trash remains accessible in portrait and landscape.
+## Storage mechanics
+
+Complete notebook directories move atomically from `files/notebooks/<id>` to `files/trash/notebooks/<id>`, with `trashed-at` recording the deletion timestamp.
+
+Before moving, the serialised document writer drains earlier edits and checkpoints the final notebook index, preserving PDFs, images, page journals, undo/redo, and grouped history with no format change. Pending compaction references are cleared so housekeeping cannot recreate a moved notebook, and failed moves remain in the writer's **Retry save** queue.
+
+Permanent deletion detaches the directory under `.purge-<uuid>` before removal; if interrupted, cleanup resumes the next time Trash loads.
+
+## Verification
+
+- **Automated:** `./gradlew :app:testDebugUnitTest --tests '*NotebookTrashTest'`
+- **On device:**
+  - Write on a PDF notebook and a notebook with grouped edits, delete both, restart Folio, restore them, and confirm pages, ink, images, and undo/redo survive.
+  - Test bulk delete/restore, restoring after removing the original folder, and confirmed permanent deletion.
+  - Confirm active-library backups omit Trash and Trash stays accessible in portrait and landscape.

@@ -53,9 +53,9 @@ internal fun ReclassifyDialog(model: FolioViewModel, onManageAi: () -> Unit, onD
                         Column(Modifier.weight(1f)) {
                             Text("Reclassify notebooks", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
                             Text(when {
-                                run.running -> "Keeps going if you close this"
-                                run.ready -> "Review the suggestions. Nothing changes until you apply them."
-                                else -> "Choose the notebooks to check"
+                                run.running -> "Continues in the background if you close this"
+                                run.ready -> "Review each suggestion. Nothing changes until you apply."
+                                else -> "Choose notebooks to check"
                             }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(onDismiss, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Close, "Close") }
@@ -106,7 +106,7 @@ private fun Choose(model: FolioViewModel, onManageAi: () -> Unit, notes: List<co
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 12.dp)) {
             if (notes.isEmpty()) item {
-                Text("Your library has no notebooks yet. Close this and create or import one in Library.", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Your library has no notebooks yet. Create or import one in Library first.", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (shown.isEmpty()) item {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("No notebooks match “${query.trim()}”.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -157,7 +157,7 @@ private fun Review(run: ReclassifyState, reclassifier: LibraryReclassifier, modi
             }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (run.proposals.isEmpty()) item { Text("Everything already matches what Folio would suggest.", Modifier.padding(8.dp)) }
+            if (run.proposals.isEmpty()) item { Text("All checked notebooks already match Folio's suggestions.", Modifier.padding(8.dp)) }
             items(run.proposals, key = { it.noteId }) { proposal ->
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
                     Column(Modifier.padding(vertical = 4.dp)) {

@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.semanticsLabel
+
 import com.folio.notes.ui.FolioIcons
 import com.folio.notes.app.NameDialog
 import androidx.compose.foundation.Image
