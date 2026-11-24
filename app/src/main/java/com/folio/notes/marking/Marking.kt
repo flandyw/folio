@@ -12,23 +12,6 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
-/** What an armed marking tool does at the spot the page is next tapped. */
-sealed interface MarkingAction {
-    data class Comment(val text: String) : MarkingAction
-    data class Mark(val label: String) : MarkingAction
-    /** A numbered ring on the page plus its matching line on the feedback sheet. */
-    data object Flag : MarkingAction
-    /**
-     * A note anchored to the tapped point: a dot and leader line to a box in the nearest clear space.
-     * [handwritten] makes the box a small white writing panel to write or revise a sentence in with the
-     * pen; otherwise it opens a typed text box.
-     */
-    data class Note(val handwritten: Boolean) : MarkingAction
-    /** Everything below the tap moves down by [amount] page units. */
-    data class MakeRoom(val amount: Float) : MarkingAction
-    data class RemoveRoom(val amount: Float) : MarkingAction
-}
-
 /** What a make-room shift produced; [height] is unchanged on an infinite canvas. */
 data class RoomShift(
     val strokes: List<Stroke>, val texts: List<TextBox>, val images: List<PageImage>,
@@ -71,12 +54,6 @@ object Marking {
     private const val EDGE = 14f
 
     // ---- Content builders -----------------------------------------------------------------------
-
-    fun commentBox(text: String, x: Float, y: Float, page: NotePage, color: Int): TextBox {
-        val room = if (page.infinite) TextBox.DEFAULT_WIDTH else page.width - x - EDGE
-        return TextBox(x = x, y = y, width = room.coerceIn(TextBox.MIN_WIDTH, TextBox.DEFAULT_WIDTH),
-            text = text, size = COMMENT_SIZE, color = color)
-    }
 
     fun markBox(label: String, x: Float, y: Float, color: Int, size: Float = MARK_SIZE) =
         TextBox(x = x, y = y, width = if (size < MARK_SIZE) 60f else 110f, text = label, size = size, color = color, bold = true)
