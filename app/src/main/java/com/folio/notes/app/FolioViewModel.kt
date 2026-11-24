@@ -12,7 +12,6 @@ import com.folio.notes.editor.EditorPageMutations
 import com.folio.notes.editor.EnginePageMutations
 import com.folio.notes.exam.ExamAttempt
 import com.folio.notes.exam.ExamFilter
-import com.folio.notes.exam.ExamTagType
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.export.PageExportRequest
@@ -125,9 +124,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun setCover(note: Notebook, cover: Int): Unit = runtime.setCover(note, cover)
     fun setPageCover(note: Notebook, pageCover: Boolean): Unit = runtime.setPageCover(note, pageCover)
     fun updateExamTags(noteId: String, tags: ExamTags): Unit = runtime.updateExamTags(noteId, tags)
-    fun toggleExamTag(noteId: String, tag: ExamTagType): Unit = runtime.toggleExamTag(noteId, tag)
     fun setExamFilter(filter: ExamFilter): Unit = runtime.setExamFilter(filter)
-    fun toggleRedoFlag(): Unit = runtime.toggleRedoFlag()
     fun recordAttempt(noteId: String, attempt: ExamAttempt, responseAttemptId: String? = null): Unit = runtime.recordAttempt(noteId, attempt, responseAttemptId)
     fun deleteAttempt(noteId: String, attemptId: String): Unit = runtime.deleteAttempt(noteId, attemptId)
     fun updateAttempt(noteId: String, attempt: ExamAttempt): Unit = runtime.updateAttempt(noteId, attempt)
