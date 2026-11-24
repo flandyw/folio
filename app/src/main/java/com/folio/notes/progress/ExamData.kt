@@ -37,14 +37,17 @@ enum class PaperType(val wire: String, val label: String) {
     EXAM_1("exam1", "Exam 1"), EXAM_2("exam2", "Exam 2"), COMBINED("combined", "Combined");
 
     companion object {
-        private val combined = Regex("\\bcombined\\b|\\b1\\s*(?:&|and|\\+|/)\\s*2\\b", RegexOption.IGNORE_CASE)
-        private val numbered = Regex("\\b[12]\\b")
+        private const val paperPrefix = "(?:(?:exam(?:ination)?|paper)\\s*)?"
+        private val combined = Regex("\\bcombined\\b|\\b${paperPrefix}1\\s*(?:&|and|\\+|/)\\s*${paperPrefix}2\\b", RegexOption.IGNORE_CASE)
+        private val numbered = Regex("\\b${paperPrefix}([12])\\b", RegexOption.IGNORE_CASE)
         fun fromWire(value: String) = entries.find { it.wire == value }
-        fun parse(paper: String): PaperType? = when {
-            combined.containsMatchIn(paper) -> COMBINED
-            numbered.find(paper)?.value == "1" -> EXAM_1
-            numbered.find(paper)?.value == "2" -> EXAM_2
-            else -> null
+        fun parse(paper: String): PaperType? {
+            if (combined.containsMatchIn(paper)) return COMBINED
+            return when (numbered.find(paper)?.groupValues?.get(1)) {
+                "1" -> EXAM_1
+                "2" -> EXAM_2
+                else -> null
+            }
         }
     }
 }

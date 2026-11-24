@@ -70,4 +70,11 @@ class StudyScoreTest {
         assertEquals(listOf(0, 1), prediction.components.take(2).map { it.evidenceCount })
         assertEquals(null, StudyScore.predict("Mathematical Methods", listOf(withType("combined")), references))
     }
+
+    @Test fun compactPaperNamesMatchTheNumberedMathsDistribution() {
+        val compact = exam("a", "Mathematical Methods", "Exam2", 2024, 60, 80, "2026-08-01")
+        val prediction = requireNotNull(StudyScore.predict("Mathematical Methods", listOf(compact), references))
+        assertEquals(listOf(0, 1), prediction.components.take(2).map { it.evidenceCount })
+        assertNull(StudyScore.predict("Mathematical Methods", listOf(compact.copy(paper = "Exam1 & Exam2")), references))
+    }
 }
