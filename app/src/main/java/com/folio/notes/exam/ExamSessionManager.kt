@@ -103,7 +103,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
                 notebookSittings.save(previous, paused, state.lastTimedSeconds)
             }
             // Switching between notebooks is still studying; only leaving the pages altogether parks.
-            if (id == null) focalStudy?.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true, now = now)
+            if (id == null) focalStudy?.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true)
             timerNotebookId = id
             restoreNotebookTimer()
         }
@@ -241,7 +241,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     fun autoPauseTimer(now: Long = runtime.timerNow()) {
         with(runtime) {
             // The study session first: leaving the editor may already have cleared the active notebook.
-            focalStudy?.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true, now = now)
+            focalStudy?.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true)
             if (_state.value.active == null) return
             val current = _state.value.timer
             if (current.running) {
@@ -257,7 +257,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
 
     fun pauseForUpdate(now: Long = runtime.timerNow()) {
         with(runtime) {
-            focalStudy?.parkFocus(FocalFocus.PARK_UPDATE, now = now)
+            focalStudy?.parkFocus(FocalFocus.PARK_UPDATE)
             val current = _state.value.timer
             if (_state.value.active != null && current.running) {
                 val parked = current.pause(now, auto = true)
@@ -273,7 +273,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     fun startTimer(preset: ExamTimerPreset, now: Long = runtime.timerNow()) {
         with(runtime) {
             if (_state.value.active == null) return
-            focalStudy?.parkFocus(FocalFocus.PARK_EXAM, now = now)
+            focalStudy?.parkFocus(FocalFocus.PARK_EXAM)
             val started = ExamTimerState().start(preset, now)
             lastTimerActivityAt = now
             saveSitting(started, lastSeen = now)
