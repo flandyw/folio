@@ -601,7 +601,6 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                     if (state.userId != null && detail == null) IconButton({ showPacing = true }) {
                         Icon(FolioIcons.Tune, "Practice routine & pacing")
                     }
-                    FocalAccountButton(onAccount, trouble = state.userId != null && isSyncTrouble(state.status))
                 }
             },
             snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = toolbarClearance)) }
@@ -694,7 +693,9 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                 onShowMessage = ::showTransient,
                             )
                         } else if (state.userId == null) {
-                            fullWidthItem { FocalAccountContent(model) }
+                            fullWidthItem {
+                                OutlinedButton(onAccount, shapes = ButtonDefaults.shapes()) { Text("Connect Focal") }
+                            }
                             fullWidthItem { OfflineNoteCard() }
                         } else {
                             if (showSyncBanner) fullWidthItem { SyncBanner() }

@@ -81,21 +81,20 @@ import kotlinx.coroutines.launch
 fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 /** Library-owned destinations alongside the other peer panes. Tablet files is a place inside the library. */
-enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
+enum class LibrarySection { LIBRARY, FILES, VCAA, TRASH }
 
 @Composable fun LibraryScreen(
     state: FolioState, model: FolioViewModel,
     onNew: () -> Unit, onImport: () -> Unit, onImportArchive: () -> Unit,
-    onSettings: () -> Unit, onMistakes: () -> Unit = {}, snackbar: SnackbarHostState? = null,
-    showMistakes: Boolean = false, onLibrary: () -> Unit = {},
-    showStudy: Boolean = false, onStudy: () -> Unit = {},
+    onSettings: () -> Unit, snackbar: SnackbarHostState? = null,
+    onLibrary: () -> Unit = {},
+    onFocal: (() -> Unit)? = null,
+    focalContent: (@Composable (onReviewMode: (Boolean) -> Unit) -> Unit)? = null,
     showMusic: Boolean = false, onMusic: () -> Unit = {},
-    studyContent: @Composable () -> Unit = {},
     musicContent: @Composable (onReaderMode: (Boolean) -> Unit) -> Unit = {},
     onOpenNotebook: (String) -> Unit = model::open,
     selectionCaption: String? = null, onCancelSelection: () -> Unit = {},
     selectionControls: @Composable ColumnScope.() -> Unit = {},
-    mistakesContent: @Composable (onReviewMode: (Boolean) -> Unit) -> Unit = {},
     // Extra top space for panes with no top bar of their own (full screen has no status bar inset).
     onQuickNote: () -> Unit = onNew,
     onQuickCanvas: () -> Unit = onNew,
@@ -110,8 +109,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
     val hiddenNav by rememberPref(libraryPrefs, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
     var examDetails by remember { mutableStateOf<Notebook?>(null) }
     var pendingMark by remember { mutableStateOf<Notebook?>(null) }
-    // A mark just recorded for Focal, awaiting confirmation in the save review.
-    var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
+    val focalResult = com.folio.notes.app.LocalFocalResult.current
     var query by rememberSaveable { mutableStateOf("") }
     // Debounced query drives the O(N) filter so typing never blocks the text field.
     var debouncedQuery by rememberSaveable { mutableStateOf("") }
@@ -141,22 +139,16 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
     LaunchedEffect(libraryGridState) {
         snapshotFlow { libraryGridState.isScrollInProgress }.collect { if (it) focusManager.clearFocus() }
     }
-    var reviewMode by remember { mutableStateOf(false) }
+    var reviewMode by remember(focalContent != null) { mutableStateOf(false) }
     var musicReading by remember { mutableStateOf(false) }
     val destinationState = rememberSaveableStateHolder()
     // Mistakes review and the music reader take the whole window, like the editor does.
-    val showNavigation = (showStudy || !showMistakes || !reviewMode) && !(showMusic && musicReading)
-    // Study, Mistakes and Music are peer panes of the shelf; any of them hides the notebook shelf.
-    val otherPane = showMistakes || showStudy || showMusic
+    val showNavigation = !reviewMode && !(showMusic && musicReading)
+    val otherPane = focalContent != null || showMusic
     val pickingNotebook = selectionCaption != null
-    // Progress, VCAA and Trash have their own panes; Library and Files share the shelf.
-    val libraryPeer = section == LibrarySection.PROGRESS || section == LibrarySection.PLANNER || section == LibrarySection.VCAA || section == LibrarySection.TRASH
+    val libraryPeer = section == LibrarySection.VCAA || section == LibrarySection.TRASH
     fun navShown(item: SidebarItem) = SidebarItem.shown(item, hiddenNav, when (item) {
-        SidebarItem.MISTAKES -> showMistakes
-        SidebarItem.STUDY -> showStudy
         SidebarItem.MUSIC -> showMusic
-        SidebarItem.PROGRESS -> !otherPane && section == LibrarySection.PROGRESS
-        SidebarItem.PLANNER -> !otherPane && section == LibrarySection.PLANNER
         SidebarItem.VCAA -> !otherPane && section == LibrarySection.VCAA
     })
     // Picking a notebook for the workspace browses folders but never reorganizes them.
@@ -345,7 +337,7 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { debouncedQuery = query; focusManager.clearFocus() }))
     }
     // Never put the library's palm guard above the native handwriting surface.
-    BoxWithConstraints(Modifier.fillMaxSize().notebookDragHost(libraryDrag).then(if (!showMistakes && !showMusic) Modifier.guardUiTouches() else Modifier)) {
+    BoxWithConstraints(Modifier.fillMaxSize().notebookDragHost(libraryDrag).then(if (focalContent == null && !showMusic) Modifier.guardUiTouches() else Modifier)) {
         val wide = maxWidth >= 840.dp
         val coverWidth = if (maxWidth >= 600.dp) 168.dp else 140.dp
         // One navigation column: the full sidebar, or an icon rail when it is folded (the default on a portrait tablet).
@@ -355,17 +347,14 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
         // The heading holds the search box only where the title keeps room beside it.
         val roomy = shelfWidth >= 720.dp
         val onShelf = !otherPane && (pickingNotebook || !libraryPeer)
-        fun peer(target: LibrarySection) = NavDestination(when (target) { LibrarySection.PROGRESS -> "Progress"; LibrarySection.PLANNER -> "Planner"; LibrarySection.VCAA -> "VCAA"; else -> "Trash" },
-            when (target) { LibrarySection.PROGRESS -> FolioIcons.Insights; LibrarySection.PLANNER -> FolioIcons.CalendarCheck; LibrarySection.VCAA -> FolioIcons.Book; else -> FolioIcons.Delete },
+        fun peer(target: LibrarySection) = NavDestination(if (target == LibrarySection.VCAA) "VCAA" else "Trash",
+            if (target == LibrarySection.VCAA) FolioIcons.Book else FolioIcons.Delete,
             !otherPane && section == target) { if (target == LibrarySection.TRASH) showTrash() else { section = target; onLibrary() } }
         // The sidebar, the rail and the bottom bar all show this one list.
         val destinations = buildList {
             add(NavDestination("Library", FolioIcons.Pages, onShelf) { libraryHome() })
             if (!pickingNotebook) {
-                if (navShown(SidebarItem.MISTAKES)) add(NavDestination("Mistakes", FolioIcons.School, showMistakes, onMistakes))
-                if (navShown(SidebarItem.STUDY)) add(NavDestination("Study", FolioIcons.Timer, showStudy, onStudy))
-                if (navShown(SidebarItem.PROGRESS)) add(peer(LibrarySection.PROGRESS))
-                if (navShown(SidebarItem.PLANNER)) add(peer(LibrarySection.PLANNER))
+                if (onFocal != null) add(NavDestination("Focal", FolioIcons.School, focalContent != null, onFocal))
                 if (navShown(SidebarItem.VCAA)) add(peer(LibrarySection.VCAA))
                 if (navShown(SidebarItem.MUSIC)) add(NavDestination("Music", FolioIcons.Music, showMusic, onMusic))
             }
@@ -408,17 +397,12 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                     Spacer(Modifier.weight(1f))
                     footer.forEach { RailItem(it.label, it.icon, it.selected, it.onClick) }
                 }
-                if (showStudy) Box(Modifier.weight(1f).fillMaxHeight()) {
-                    destinationState.SaveableStateProvider("study") { studyContent() }
+                if (focalContent != null) Box(Modifier.weight(1f).fillMaxHeight()) {
+                    focalContent { reviewMode = it }
                 }
-                if (showMusic && !showStudy && !showMistakes) Box(Modifier.weight(1f).fillMaxHeight()) {
+                if (showMusic && focalContent == null) Box(Modifier.weight(1f).fillMaxHeight()) {
                     destinationState.SaveableStateProvider("music") {
                         musicContent { musicReading = it }
-                    }
-                }
-                if (showMistakes && !showStudy) Box(Modifier.weight(1f).fillMaxHeight()) {
-                    destinationState.SaveableStateProvider("mistakes") {
-                        mistakesContent { reviewMode = it }
                     }
                 }
                 if (onShelf) Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -774,13 +758,6 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                 if (!otherPane && !pickingNotebook && section == LibrarySection.VCAA) {
                     VcaaScreen(state, model, openFolder?.id, openFolder?.name, Modifier.weight(1f).fillMaxHeight())
                 }
-                if (!otherPane && !pickingNotebook && section == LibrarySection.PLANNER) {
-                    PlannerScreen(state.notes, Modifier.weight(1f).fillMaxHeight(), onSettings, onMistakes, onStudy)
-                }
-                if (!otherPane && !pickingNotebook && section == LibrarySection.PROGRESS) {
-                    ProgressScreen(state.notes, model, Modifier.weight(1f).fillMaxHeight(),
-                        onSettings, onMistakes, onStudy, onOpenNotebook)
-                }
         }
         // M3e short navigation bar on a phone; the wide layout keeps its sidebar or rail instead.
         if (!wide && showNavigation && !pickingNotebook && !selecting && destinations.size > 1) ShortNavigationBar(modifier = Modifier.guardUiTouches()) {
@@ -800,7 +777,9 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
             onRecordMark = { attempt -> model.recordAttempt(note.id, attempt) },
             onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
             suggestedSeconds = state.lastTimedSeconds,
-            onRecordAndSave = if (!note.countsAsExam) null else { attempt -> model.recordAttempt(note.id, attempt); focalReview = live to attempt }
+            onRecordAndSave = if (focalResult == null || !note.countsAsExam) null else { attempt ->
+                model.recordAttempt(note.id, attempt); examDetails = null; focalResult(live, attempt)
+            }
         )
     }
     pendingMark?.let { note ->
@@ -813,16 +792,13 @@ enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }
                 model.recordAttempt(live.id, ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed))
                 pendingMark = null
             },
-            onRecordAndSave = if (!live.countsAsExam) null else { score, total, seconds, timed ->
+            onRecordAndSave = if (focalResult == null || !live.countsAsExam) null else { score, total, seconds, timed ->
                 val attempt = ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed)
                 model.recordAttempt(live.id, attempt)
                 pendingMark = null
-                focalReview = live to attempt
+                focalResult(live, attempt)
             }
         )
-    }
-    focalReview?.let { (reviewed, attempt) ->
-        ExamRecordReview(reviewed, attempt) { focalReview = null }
     }
     notebookTags?.let { ids -> NotebookTagsPanel(state.notes.filter { it.id in ids }, NotebookTags.normalize(state.notes.flatMap { it.tags }, Int.MAX_VALUE), { notebookTags = null }) { add, remove -> model.updateNotebookTags(ids, add, remove); notebookTags = null } }
     if (bulkMove) LibraryMovePanel("Move ${countOf(selection.size, "notebook")}", state.folders,

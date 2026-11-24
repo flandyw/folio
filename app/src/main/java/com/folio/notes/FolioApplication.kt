@@ -15,6 +15,8 @@ import com.folio.notes.storage.NoteRepository
 import com.folio.notes.study.FocalStudyManager
 import com.folio.notes.update.FolioUpdates
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 
 class FolioApplication : Application() {
@@ -30,19 +32,25 @@ class FolioApplication : Application() {
     val penHaptics by lazy { PenHapticsManager(this) }
     /** Continuous in-pen writing feedback, on with the same setting and lifetime as [penHaptics]. */
     val penFeedback by lazy { PenWritingFeedback(this) }
+    private val mutableFocalEnabled = MutableStateFlow(AppPrefs.DEFAULT_FOCAL_INTEGRATION)
+    internal val focalEnabled = mutableFocalEnabled.asStateFlow()
+
     val focalStudy by lazy { FocalStudyManager(this) }
     val focalProgress by lazy { ExamProgressManager(this) }
 
     /** Held for the process lifetime: SharedPreferences keeps its listeners weakly. */
-    private val inkLookListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+    private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == null || key == AppPrefs.INK_TAPER) InkTaper.configure(AppPrefs.inkTaper(prefs.getFloat(AppPrefs.INK_TAPER, 0f)))
+        if (key == null || key == AppPrefs.FOCAL_INTEGRATION) {
+            mutableFocalEnabled.value = prefs.getBoolean(AppPrefs.FOCAL_INTEGRATION, AppPrefs.DEFAULT_FOCAL_INTEGRATION)
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         getSharedPreferences("preferences", 0).let {
-            InkTaper.configure(AppPrefs.inkTaper(it.getFloat(AppPrefs.INK_TAPER, 0f)))
-            it.registerOnSharedPreferenceChangeListener(inkLookListener)
+            preferenceListener.onSharedPreferenceChanged(it, null)
+            it.registerOnSharedPreferenceChangeListener(preferenceListener)
         }
         LibraryAutoBackup.ensureScheduled(this)
     }

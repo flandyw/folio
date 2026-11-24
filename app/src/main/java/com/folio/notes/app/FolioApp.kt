@@ -63,6 +63,12 @@ import com.folio.notes.model.Paper
 import com.folio.notes.model.hiddenFromLibrary
 import com.folio.notes.music.MusicScreen
 import com.folio.notes.pdf.PdfImportDialog
+import com.folio.notes.exam.ExamAttempt
+import com.folio.notes.planner.PlannerScreen
+import com.folio.notes.progress.ExamRecordReview
+import com.folio.notes.progress.ProgressScreen
+import com.folio.notes.study.FocalAccountButton
+import com.folio.notes.ui.FolioSectionTabs
 import com.folio.notes.settings.LocalOpenBackupSettings
 import com.folio.notes.settings.LocalOpenWritingFollowSettings
 import com.folio.notes.settings.SettingsScreen
@@ -91,18 +97,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+private enum class FocalSection(val label: String, val icon: ImageVector) {
+    STUDY("Study", FolioIcons.Timer), MISTAKES("Mistakes", FolioIcons.School),
+    PROGRESS("Progress", FolioIcons.Insights), PLANNER("Planner", FolioIcons.CalendarCheck)
+}
+
+internal val LocalOpenFocalStudy = staticCompositionLocalOf<(() -> Unit)?> { null }
+internal val LocalFocalResult = staticCompositionLocalOf<((Notebook, ExamAttempt) -> Unit)?> { null }
+
 @Composable fun FolioApp(model: FolioViewModel, shortcutRequest: Int) {
     val library: LibraryViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val state by library.state.collectAsStateWithLifecycle()
-    val mistakes: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    var showMistakes by rememberSaveable { mutableStateOf(false) }
-    var showStudy by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("preferences", 0) }
+    val app = context.applicationContext as FolioApplication
+    val focalEnabled by app.focalEnabled.collectAsStateWithLifecycle()
+    val mistakes = if (focalEnabled) androidx.lifecycle.viewmodel.compose.viewModel<MistakesViewModel>() else null
+    var focalRoute by rememberSaveable { mutableStateOf<FocalSection?>(null) }
+    val focalSection = focalRoute.takeIf { focalEnabled }
+    var focalReview by remember { mutableStateOf<Pair<Notebook, ExamAttempt>?>(null) }
     var showMusic by rememberSaveable { mutableStateOf(false) }
     // Keep the editor open while the Library temporarily chooses another workspace document.
     var workspaceLibraryPurpose by rememberSaveable { mutableStateOf<PickerPurpose?>(null) }
     var focalAccountOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(focalEnabled) {
+        if (!focalEnabled) { focalRoute = null; focalReview = null; focalAccountOpen = false }
+    }
+    fun openFocal(section: FocalSection) {
+        workspaceLibraryPurpose = null
+        showMusic = false
+        focalRoute = section
+    }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner, mistakes) {
+    if (mistakes != null) LaunchedEffect(lifecycleOwner, mistakes) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 kotlinx.coroutines.delay(30_000)
@@ -110,17 +137,18 @@ import java.io.File
             }
         }
     }
-    DisposableEffect(lifecycleOwner, mistakes) {
+    if (mistakes != null) DisposableEffect(lifecycleOwner, mistakes) {
+        val study = app.focalStudy
+        fun foreground(value: Boolean) { mistakes.setForeground(value); study.setForeground(value) }
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) mistakes.requestSync()
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) mistakes.setForeground(true)
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) mistakes.setForeground(false)
+            if (event == Lifecycle.Event.ON_RESUME) { mistakes.requestSync(); study.retry() }
+            if (event == Lifecycle.Event.ON_START) foreground(true)
+            if (event == Lifecycle.Event.ON_STOP) foreground(false)
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        mistakes.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-        onDispose { mistakes.setForeground(false); lifecycleOwner.lifecycle.removeObserver(observer) }
+        foreground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose { foreground(false); lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val context = LocalContext.current
     val chatGpt = remember(context.applicationContext) { (context.applicationContext as FolioApplication).chatGpt }
     DisposableEffect(lifecycleOwner, chatGpt) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -131,7 +159,6 @@ import java.io.File
         chatGpt.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         onDispose { chatGpt.setForeground(false); lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val prefs = remember { context.getSharedPreferences("preferences", 0) }
     var themeMode by rememberSaveable { mutableStateOf(ThemeMode.of(prefs.getString(ThemeMode.PREF_KEY, null))) }
     var themePalette by rememberSaveable {
         mutableStateOf(
@@ -203,14 +230,14 @@ import java.io.File
     }
     LaunchedEffect(experimentalUpdates) { updates.sourceChanged(experimentalUpdates) }
     val snackbar = remember { SnackbarHostState() }
-    val focalState by (context.applicationContext as FolioApplication).focalStudy.state.collectAsStateWithLifecycle()
-    // Not saveable on purpose: the counter lives in the manager and restarts at zero with the
-    // process, so a restored higher value would swallow every later notice.
-    var shownRemoteNoticeId by remember { mutableLongStateOf(focalState.remoteNoticeId) }
-    LaunchedEffect(focalState.remoteNoticeId) {
-        if (focalState.remoteNoticeId > shownRemoteNoticeId) focalState.remoteNotice?.let {
-            shownRemoteNoticeId = focalState.remoteNoticeId
-            snackbar.showSnackbar(it, duration = SnackbarDuration.Short)
+    if (focalEnabled) {
+        val focalState by app.focalStudy.state.collectAsStateWithLifecycle()
+        var shownRemoteNoticeId by remember { mutableLongStateOf(focalState.remoteNoticeId) }
+        LaunchedEffect(focalSection != null, focalState.remoteNoticeId) {
+            if (focalSection != null && focalState.remoteNoticeId > shownRemoteNoticeId) focalState.remoteNotice?.let {
+                shownRemoteNoticeId = focalState.remoteNoticeId
+                snackbar.showSnackbar(it, duration = SnackbarDuration.Short)
+            }
         }
     }
     val exporter = remember { NoteExporter(model.repository) }
@@ -493,8 +520,8 @@ import java.io.File
     LaunchedEffect(showMusic, state.activeId) {
         state.active?.takeIf { it.musicScoreId != null && !showMusic }?.let { model.closeMusicScore(it.id) }
     }
-    BackHandler(state.active != null && !showMusic && !exportBusy && !showMistakes && !showStudy && workspaceLibraryPurpose == null) { model.close() }
-    BackHandler(showStudy && !exportBusy) { showStudy = false }
+    BackHandler(state.active != null && !showMusic && !exportBusy && focalSection == null && workspaceLibraryPurpose == null) { model.close() }
+    BackHandler(focalSection != null && !exportBusy) { focalRoute = null }
     BackHandler(workspaceLibraryPurpose != null && !exportBusy) { workspaceLibraryPurpose = null }
     FolioTheme(mode = themeMode, palette = themePalette, amoled = amoled, accent = accentState.accent, textScale = uiTextScale, interfaceFont = interfaceFont) {
         // The shared library/mistakes shell owns safe edges; nested app bars consume them.
@@ -513,17 +540,22 @@ import java.io.File
             // their own (the library shelf, progress, the sidebar logo) get a minimum gap instead.
             val topGap = (FolioSpacing.dp16 - padding.calculateTopPadding()).coerceAtLeast(0.dp)
             CompositionLocalProvider(LocalDestinationTopGap provides topGap,
+                LocalOpenFocalStudy provides if (focalEnabled) ({ openFocal(FocalSection.STUDY) }) else null,
+                LocalFocalResult provides if (focalEnabled) ({ note, attempt ->
+                    focalReview = note to attempt
+                    openFocal(FocalSection.PROGRESS)
+                }) else null,
                 LocalOpenWritingFollowSettings provides { settingsStartWithFollow = true; settings = true },
                 LocalOpenBackupSettings provides { settingsStartWithBackup = true; settings = true }) {
             Box(Modifier.fillMaxSize().padding(padding).then(
-                if (showMusic || showMistakes || showStudy || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
+                if (showMusic || focalSection != null || workspaceLibraryPurpose != null || state.active == null) Modifier.consumeWindowInsets(padding) else Modifier
             )) {
                 val screen = when {
                     state.loading -> "loading"
                     state.loadFailed -> "failed"
                     // Sidebar destinations share one shell; switching panes must not replay
                     // the whole screen's entrance animation (including the sidebar).
-                    showStudy || showMistakes || showMusic -> "library"
+                    focalSection != null || showMusic -> "library"
                     workspaceLibraryPurpose != null -> "workspace-library"
                     state.active != null -> "editor"
                     else -> "library"
@@ -537,32 +569,28 @@ import java.io.File
                             Text("Your stored files have been kept. Retry to open them.")
                             Button(model::loadLibrary, shapes = ButtonDefaults.shapes()) { Text("Retry") }
                         }
-                        state.active != null && state.active?.musicScoreId == null && !showMistakes && !showStudy && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
+                        state.active != null && state.active?.musicScoreId == null && focalSection == null && !showMusic && workspaceLibraryPurpose == null -> WorkspaceScreen(
                             state, model, finger, haptics, shapeRecognition,
                             onSettings = { settings = true }, onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
                             onShareLongPress = shareLongPress,
                             onChatGpt = { chatGptOpen = true },
                             onBrowseLibrary = { purpose ->
                                 workspaceLibraryPurpose = purpose
-                                showMistakes = false
+                                focalRoute = null
                             },
                         )
                         else -> LibraryScreen(
                             state.copy(notes = remember(state.notes) { state.notes.filterNot { it.hiddenFromLibrary } }), model,
                             snackbar = snackbar,
                             onShareNotebook = ::shareWholeNotebook,
-                            onMistakes = { workspaceLibraryPurpose = null; showStudy = false; showMusic = false; showMistakes = true },
-                            showStudy = showStudy,
-                            onStudy = { workspaceLibraryPurpose = null; showMistakes = false; showMusic = false; showStudy = true },
+                            onFocal = if (focalEnabled) ({ if (focalSection == null) openFocal(FocalSection.STUDY) }) else null,
                             showMusic = showMusic,
-                            onMusic = { workspaceLibraryPurpose = null; showMistakes = false; showStudy = false; showMusic = true },
+                            onMusic = { workspaceLibraryPurpose = null; focalRoute = null; showMusic = true },
                             musicContent = { onReaderMode ->
                                 MusicScreen(model, state, finger, haptics, shapeRecognition, onReaderMode = onReaderMode, onSettings = { settings = true }, onBack = { showMusic = false })
                             },
-                            studyContent = { StudyTimerScreen(state.notes.filterNot { it.hiddenFromLibrary }, state.timer,
-                                onAccount = { focalAccountOpen = true }) },
                             onQuickCanvas = {
-                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
+                                workspaceLibraryPurpose = null; focalRoute = null; showMusic = false
                                 model.create("Canvas · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     Paper.DOTS, infinite = true,
@@ -570,19 +598,18 @@ import java.io.File
                                     folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders, state.folderId))
                             },
                             onQuickNote = {
-                                workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false
+                                workspaceLibraryPurpose = null; focalRoute = null; showMusic = false
                                 model.create("Quick note · ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",
                                     AppPrefs.defaultCover(prefs.getInt(AppPrefs.DEFAULT_COVER, AppPrefs.DEFAULT_COVER_INDEX)),
                                     AppPrefs.defaultPaper(prefs.getString(AppPrefs.DEFAULT_PAPER, null)),
                                     pageCover = prefs.getBoolean(AppPrefs.DEFAULT_PAGE_COVER, AppPrefs.DEFAULT_PAGE_COVER_ENABLED),
                                     folderId = AppPrefs.quickFolderId(prefs.getString(AppPrefs.QUICK_FOLDER, null), state.folders, state.folderId))
                             },
-                            onNew = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; newNote = true },
-                            onImport = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },
-                            onImportArchive = { workspaceLibraryPurpose = null; showStudy = false; showMistakes = false; showMusic = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
+                            onNew = { workspaceLibraryPurpose = null; focalRoute = null; showMusic = false; newNote = true },
+                            onImport = { workspaceLibraryPurpose = null; focalRoute = null; showMusic = false; pdfPicker.launch(arrayOf("application/pdf")) },
+                            onImportArchive = { workspaceLibraryPurpose = null; focalRoute = null; showMusic = false; archivePicker.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) },
                             onSettings = { settings = true },
-                            showMistakes = showMistakes,
-                            onLibrary = { showStudy = false; showMistakes = false; showMusic = false; if (workspaceLibraryPurpose == null) model.close() },
+                            onLibrary = { focalRoute = null; showMusic = false; if (workspaceLibraryPurpose == null) model.close() },
                             onOpenNotebook = { id ->
                                 model.open(id)
                                 workspaceLibraryPurpose = null
@@ -595,13 +622,39 @@ import java.io.File
                                         onOpenNotebook = { id -> model.open(id); workspaceLibraryPurpose = null })
                                 }
                             },
-                            mistakesContent = { onReviewMode ->
-                                MistakesScreen(
-                                    mistakes, model, state, finger, haptics, shapeRecognition,
-                                    onBack = { showMistakes = false }, onSettings = { settings = true },
-                                    onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true }, onReviewMode = onReviewMode,
-                                    onAccount = { focalAccountOpen = true }, onShareLongPress = shareLongPress,
-                                )
+                            focalContent = if (focalSection == null) null else { onReviewMode ->
+                                var reviewing by remember { mutableStateOf(false) }
+                                val sectionState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+                                val onAccount = { focalAccountOpen = true }
+                                val onMistakes = { openFocal(FocalSection.MISTAKES) }
+                                val onStudy = { openFocal(FocalSection.STUDY) }
+                                val onSettings = { settings = true }
+                                Column(Modifier.fillMaxSize()) {
+                                    if (focalSection != FocalSection.MISTAKES || !reviewing) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            FolioSectionTabs(FocalSection.entries.map { it.label to it.icon }, focalSection.label,
+                                                { label -> openFocal(FocalSection.entries.first { it.label == label }) }, Modifier.weight(1f))
+                                            FocalAccountButton(onAccount)
+                                        }
+                                    }
+                                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                                        sectionState.SaveableStateProvider(focalSection.name) {
+                                            when (focalSection) {
+                                                FocalSection.STUDY -> StudyTimerScreen(state.notes.filterNot { it.hiddenFromLibrary }, state.timer, onAccount)
+                                                FocalSection.MISTAKES -> MistakesScreen(
+                                                    requireNotNull(mistakes), model, state, finger, haptics, shapeRecognition,
+                                                    onBack = { focalRoute = null }, onSettings = onSettings,
+                                                    onExport = { if (model.exportSelection != null) pageExportDialog = true else exportMenu = true },
+                                                    onReviewMode = { reviewing = it; onReviewMode(it) },
+                                                    onAccount = onAccount, onShareLongPress = shareLongPress,
+                                                )
+                                                FocalSection.PROGRESS -> ProgressScreen(state.notes, model, onSettings = onSettings,
+                                                    onMistakes = onMistakes, onOpenNotebook = { id -> focalRoute = null; model.open(id) })
+                                                FocalSection.PLANNER -> PlannerScreen(state.notes, onSettings = onSettings, onMistakes = onMistakes, onStudy = onStudy)
+                                            }
+                                        }
+                                    }
+                                }
                             },
                         )
                     }
@@ -649,7 +702,6 @@ import java.io.File
                     updateBusy = updateState.busy,
                     updateContent = { UpdateStatus(updateState, updates::download, ::installUpdate, updates::discard) },
                     onBack = { settings = false },
-                    onFocal = { settings = false; focalAccountOpen = true },
                     aiContent = { com.folio.notes.chatgpt.AiSettingsContent(chatGpt) },
                     aiRequest = settingsAiRequest,
                     onReclassify = { reclassifyOpen = true },
@@ -673,15 +725,10 @@ import java.io.File
             onExcluded = model::setBackupExcluded,
             onDismiss = { backupExclusionsOpen = false }
         )
-        if (focalAccountOpen) FocalAccountPanel(
-            onDismiss = { focalAccountOpen = false },
-            onMistakes = if (showMistakes && !settings) null else {
-                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showStudy = false; showMusic = false; showMistakes = true }
-            },
-            onStudy = if (showStudy && !settings) null else {
-                { workspaceLibraryPurpose = null; focalAccountOpen = false; settings = false; showMistakes = false; showMusic = false; showStudy = true }
-            },
-        )
+        if (focalSection != null && focalAccountOpen) FocalAccountPanel { focalAccountOpen = false }
+        if (focalSection == FocalSection.PROGRESS) focalReview?.let { (note, attempt) ->
+            ExamRecordReview(note, attempt) { focalReview = null }
+        }
         if (reclassifyOpen) com.folio.notes.library.ReclassifyDialog(model, onManageAi = openAiSettings) { reclassifyOpen = false }
         if (chatGptOpen) ChatGptPanel(
             manager = chatGpt,

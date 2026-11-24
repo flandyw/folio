@@ -19,6 +19,8 @@ import com.folio.notes.sync.watchFocalFeed
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -77,7 +79,11 @@ class ExamProgressManager(context: Context) {
             catch (_: Exception) { _state.update { it.copy(catalogError = "Could not load the offline VCAA catalogue.") } }
         }
         scope.launch {
-            auth.account.collect { account ->
+            combine(auth.account, auth.lifecycle.enabled) { account, enabled -> account to enabled }.collect { (account, enabled) ->
+                if (!enabled) {
+                    syncJob?.cancel()
+                    return@collect
+                }
                 if (account.status != FocalAccountStatus.RESTORING) switchAccount(account.user?.id)
                 when (account.status) {
                     FocalAccountStatus.CONNECTED -> sync()
@@ -187,16 +193,18 @@ class ExamProgressManager(context: Context) {
 
     /** Pulls Focal's changes, then publishes local ones. A request made while a pass is running is not dropped: it runs another pass after it. */
     @Synchronized fun sync() {
-        if (_state.value.userId == null || _state.value.loading) return
+        if (!auth.lifecycle.enabled.value || _state.value.userId == null || _state.value.loading) return
         if (syncJob?.isActive == true) { rerun = true; return }
         rerun = false
         syncJob = scope.launch { runSync() }.also { job -> job.invokeOnCompletion { if (it == null && rerun) sync() } }
     }
 
     /** For a visible screen: Focal's changes arrive as they are made, with a slow poll in case a socket event is missed. */
-    suspend fun keepFresh(): Unit = coroutineScope {
-        _state.value.userId?.let { user -> launch { watchFocalFeed(client, "folio-progress-$user", SYNCED_ENTITIES, ::sync) } }
-        while (isActive) { sync(); delay(30_000) }
+    suspend fun keepFresh(): Unit = auth.lifecycle.enabled.collectLatest { enabled ->
+        if (enabled) coroutineScope {
+            _state.value.userId?.let { user -> launch { watchFocalFeed(client, "folio-progress-$user", SYNCED_ENTITIES, ::sync) } }
+            while (isActive) { sync(); delay(30_000) }
+        }
     }
 
     private suspend fun runSync() {

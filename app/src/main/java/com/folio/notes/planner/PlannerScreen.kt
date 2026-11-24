@@ -58,7 +58,6 @@ import com.folio.notes.progress.notebookExams
 import com.folio.notes.progress.objects
 import com.folio.notes.progress.strings
 import com.folio.notes.study.FocalScreenHeading
-import com.folio.notes.study.FocalAccountPanel
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioPanel
@@ -93,7 +92,6 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val lifecycle = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableStateOf(TABS[0].first) }
-    var showAccount by rememberSaveable { mutableStateOf(false) }
     val enabled = !state.loading && state.readable
     LaunchedEffect(lifecycle, state.userId) {
         lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { manager.keepFresh() }
@@ -118,7 +116,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     Column(modifier.fillMaxSize()) {
         val (statusIcon, status) = state.syncStatus()
         FocalScreenHeading("Planner", statusIcon, status, state.syncing, canSync = state.userId != null && !state.loading, onSync = manager::sync,
-            onAccount = { showAccount = true }, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty())) {
+            trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty())) {
             IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Tune, "Settings") }
         }
         FolioSectionTabs(TABS, tab, { tab = it })
@@ -147,7 +145,6 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             }
         }
     }
-    if (showAccount) FocalAccountPanel({ showAccount = false }, onMistakes, onStudy)
 }
 
 // ---- Shared form chrome -----------------------------------------------------------------------

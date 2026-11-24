@@ -155,9 +155,12 @@ internal fun FocalSyncButton(syncing: Boolean, onSync: () -> Unit) {
 
 /** Signed-in sync state for the account panel header; null when signed out. */
 @Composable
-internal fun FocalAccountSyncAction(model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
+internal fun FocalAccountSyncAction(model: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel(), onSync: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
-    if (state.userId != null && !state.needsSignIn) FocalSyncButton(state.status == "Syncing…") { model.requestSync(force = true) }
+    if (state.userId != null && !state.needsSignIn) FocalSyncButton(state.status == "Syncing…") {
+        model.requestSync(force = true)
+        onSync()
+    }
 }
 
 @Composable
