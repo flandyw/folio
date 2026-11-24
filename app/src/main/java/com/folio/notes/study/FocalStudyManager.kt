@@ -609,6 +609,8 @@ class FocalStudyManager(context: Context) {
         val started = timer.startedAt ?: return
         if (!timer.active) return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
+        if (!lifecycle.enabled.value && (existing == null ||
+                (existing.paused == timer.paused && existing.examPhase == timer.phase.name.lowercase()))) return
         if (existing?.completed == true || existing?.deleted == true) return
         // A heartbeat is not a resume/pause button. Let the shared-state collector
         // reconcile a remote pause before another checkpoint can undo it.

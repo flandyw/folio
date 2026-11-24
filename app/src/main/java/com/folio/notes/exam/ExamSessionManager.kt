@@ -82,7 +82,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             lastTimerActivityAt = now
             _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds) }
             if (clamped.active) _state.value.active?.let { note ->
-                focalStudy?.recordExamProgress(note, clamped, now, force = true)
+                existingFocalSitting()?.recordExamProgress(note, clamped, now, force = true)
             }
         }
     }
@@ -96,7 +96,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
                 if (paused != current) {
                     saveSitting(paused)
                     _state.value.notes.find { it.id == previous }?.let { note ->
-                        focalStudy?.recordExamProgress(note, paused, now, force = true)
+                        existingFocalSitting()?.recordExamProgress(note, paused, now, force = true)
                     }
                 }
                 val state = _state.value
@@ -118,7 +118,9 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             if (timer.phase == ExamTimerPhase.DONE) {
                 if (force) existingFocalSitting()?.finishExam(note, timer, now, phaseAt)
                 else focalStudy?.finishExam(note, timer, now, phaseAt)
-            } else if (timer.active) focalStudy?.recordExamProgress(note, timer, now, force, phaseAt)
+            } else if (timer.active) {
+                (if (force) existingFocalSitting() else focalStudy)?.recordExamProgress(note, timer, now, force, phaseAt)
+            }
         }
     }
 
