@@ -265,9 +265,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun companionPage(index: Int): Unit = workspaceManager.companionPage(index)
 
-    fun searchCompanionPdf(query: String): Unit = workspaceManager.searchCompanionPdf(query)
 
-    fun clearCompanionPdfSearch(): Unit = workspaceManager.clearCompanionPdfSearch()
 
     fun updateCompanionViewport(viewport: WorkspaceViewport): Unit = workspaceManager.updateCompanionViewport(viewport)
 
@@ -467,7 +465,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal fun historyState(): Unit = documentEngine.historyState()
     fun retrySave(): Unit = documentWriteCoordinator.retrySave()
     fun searchPdf(query: String): Unit = workspaceManager.searchPdf(query)
-    fun clearPdfSearch(): Unit = workspaceManager.clearPdfSearch()
     internal var pdfInspectionJob: Job?
         get() = backupService.pdfInspectionJob
         set(value) { backupService.pdfInspectionJob = value }
