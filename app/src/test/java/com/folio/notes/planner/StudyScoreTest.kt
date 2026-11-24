@@ -28,6 +28,15 @@ class StudyScoreTest {
         assertNull(StudyScore.estimateAtar(noEnglish, 2025, data))
     }
 
+    @Test fun liveAtarKeepsManualScoresWhenPredictionEvidenceIsMissing() {
+        val rows = listOf("EN", "BI", "CH", "PY").map { code ->
+            org.json.JSONObject().put("id", code).put("code", code).put("raw", "34.5").put("usePrediction", code == "EN")
+        }
+        val scenario = org.json.JSONObject().put("year", 2025).put("rows", org.json.JSONArray(rows))
+        val estimate = requireNotNull(StudyScore.liveAtar(scenario, data, emptyList(), emptyList()))
+        assertEquals(listOf(34.5, 34.5, 34.5, 34.5), estimate.primary.map { it.result.raw })
+    }
+
     @Test fun scalingInterpolatesAndAveragesYears() {
         val s = StudyScore.scaled(35.0, "Accounting", data)!!
         assertEquals(36.0, s.scaled, 1.5)

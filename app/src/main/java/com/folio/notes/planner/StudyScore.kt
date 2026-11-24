@@ -231,12 +231,12 @@ object StudyScore {
         val predictions = mutableMapOf<String, Prediction?>()
         return rows.mapNotNull { row ->
             val study = studies[row.optString("code")] ?: return@mapNotNull null
-            val raw = (if (row.optBoolean("usePrediction")) {
+            val predicted = if (row.optBoolean("usePrediction")) {
                 val key = studyKey(study.studyName)
                 if (key !in predictions) predictions[key] = predict(study.studyName, exams, references)
                 predictions[key]?.studyScore?.toDouble()
-            } else row.optString("raw").trim().toDoubleOrNull()?.takeIf { it in 20.0..50.0 && it % 1 == 0.0 })
-                ?: return@mapNotNull null
+            } else null
+            val raw = predicted ?: row.optString("raw").trim().toDoubleOrNull() ?: return@mapNotNull null
             interpolate(raw, study.points)?.let { Result(row.optString("id"), study.code, study.studyName, raw, it) }
         }
     }

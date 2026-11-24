@@ -637,7 +637,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
     }
     val estimate = remember(results, year) { StudyScore.estimateAtar(results, year, data) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Choose a Focal prediction or enter a whole raw score from 20 to 50.")
+        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Choose a Focal prediction or enter a raw score from 20 to 50.")
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
             val ref = studies.find { it.code == row.optString("code") }
@@ -647,9 +647,9 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
                 if (ref != null) Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(row.optBoolean("usePrediction"), modifier = Modifier.semantics { contentDescription = "Use predicted score for ${ref?.studyName.orEmpty()} ($predicted)" }, onCheckedChange = { on -> update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("usePrediction", on) else r }) })
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (predicted == null) "Use predicted score (no evidence yet)" else "Use predicted score ($predicted)")
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (predicted == null) "Use predicted score when available" else "Use predicted score ($predicted)")
                 }
-                if (!row.optBoolean("usePrediction")) Field("Raw study score", row.optString("raw"), number = true) { v ->
+                if (!row.optBoolean("usePrediction") || predicted == null) Field("Raw study score", row.optString("raw"), number = true) { v ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("raw", v) else r }) }
                 TextButton({ update(rows.filterIndexed { i, _ -> i != index }) }) { Text("Remove") }
             }
@@ -665,7 +665,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
             PlannerCard {
                 val top = maxOf(1.0, e.primary.maxOfOrNull { it.contribution } ?: 1.0)
                 e.primary.forEach { com.folio.notes.progress.MeterRow(it.result.studyName, "%.1f".format(it.contribution), (it.contribution / top).toFloat(),
-                    supporting = "${it.role} · raw ${"%.0f".format(it.result.raw)}") }
+                    supporting = "${it.role} · raw ${it.result.raw.toString().removeSuffix(".0")}") }
                 e.increments.forEach { com.folio.notes.progress.MeterRow(it.result.studyName, "+%.2f".format(it.contribution), (it.contribution / top).toFloat(),
                     MaterialTheme.colorScheme.tertiary, "Increment (10%)") }
                 Button({ scope.launch { save(listOf(JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("year", year).put("rows", JSONArray(rows))
