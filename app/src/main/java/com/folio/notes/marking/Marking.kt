@@ -36,7 +36,6 @@ object Marking {
     const val MAX_PAGE_HEIGHT = 5000f
 
     private const val MARK_SIZE = 34f
-    private const val LINE_HEIGHT = 1.22f
 
     // ---- Content builders -----------------------------------------------------------------------
 
