@@ -5,7 +5,6 @@ import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.PageImage
 import com.folio.notes.model.Stroke
-import com.folio.notes.model.TextAlignMode
 import com.folio.notes.model.TextBox
 import com.folio.notes.model.Tool
 import kotlin.math.ceil
@@ -26,8 +25,7 @@ data class PageMarks(val pageIndex: Int, val title: String, val marks: Float, va
 /**
  * Marking and feedback on ordinary page content. Comments, marks and flags are plain [TextBox]es and
  * ink strokes, so they move, restyle, erase, export and back up like anything else and the storage
- * format never changes. The only convention is the feedback sheet, found by its title, whose
- * numbered lines are the single source of truth for the next flag number.
+ * format never changes.
  *
  * Pure geometry and parsing — no Android imports.
  */
@@ -47,8 +45,6 @@ object Marking {
 
     private const val COMMENT_SIZE = 22f
     private const val MARK_SIZE = 34f
-    private const val FLAG_RADIUS = 22f
-    private const val FLAG_SIZE = 24f
     private const val LINE_HEIGHT = 1.22f
     private const val CELL = 12f
     private const val EDGE = 14f
@@ -58,49 +54,11 @@ object Marking {
     fun markBox(label: String, x: Float, y: Float, color: Int, size: Float = MARK_SIZE) =
         TextBox(x = x, y = y, width = if (size < MARK_SIZE) 60f else 110f, text = label, size = size, color = color, bold = true)
 
-    /** A ring with its number centred inside, centred on ([cx], [cy]). */
-    fun flag(number: Int, cx: Float, cy: Float, color: Int): Pair<Stroke, TextBox> {
-        val ring = Stroke(Tool.ELLIPSE, color, 2.4f,
-            listOf(InkPoint(cx - FLAG_RADIUS, cy - FLAG_RADIUS), InkPoint(cx + FLAG_RADIUS, cy + FLAG_RADIUS)))
-        val label = TextBox(x = cx - FLAG_RADIUS, y = cy - FLAG_SIZE * LINE_HEIGHT / 2f, width = FLAG_RADIUS * 2f,
-            text = number.toString(), size = FLAG_SIZE, color = color, bold = true, align = TextAlignMode.CENTER)
-        return ring to label
-    }
-
     /** Layout-free height guess, good enough to reserve room before the renderer has measured the box. */
     fun estimateHeight(box: TextBox): Float {
         val perLine = max(1f, box.width / (box.size * 0.52f))
         val lines = box.text.split('\n').sumOf { max(1, ceil(it.length / perLine).toInt()) }
         return lines * box.size * LINE_HEIGHT
-    }
-
-    // ---- Feedback sheet -------------------------------------------------------------------------
-
-    fun findSheet(pages: List<NotePage>): NotePage? =
-        pages.firstOrNull { it.title.trim().equals(FEEDBACK_TITLE, ignoreCase = true) }
-
-    private val numbered = Regex("^\\s*(\\d{1,3})\\b")
-
-    /** One past the highest number any line of the sheet starts with. */
-    fun nextFlagNumber(sheet: NotePage?): Int =
-        (sheet?.texts.orEmpty().mapNotNull { numbered.find(it.text)?.groupValues?.get(1)?.toIntOrNull() }.maxOrNull() ?: 0) + 1
-
-    private const val SHEET_TOP = 150f
-    private const val SHEET_ROW = 72f
-
-    fun sheetHeader(): List<TextBox> = listOf(
-        TextBox(x = 40f, y = 40f, width = 520f, text = "Feedback", size = 44f, bold = true, color = DEFAULT_COLOR),
-        TextBox(x = 40f, y = 96f, width = 700f, text = "Numbers match the flags on the pages — write beside each one.",
-            size = 20f, color = 0xFF6B6F6C.toInt())
-    )
-
-    /** The next row on the sheet for flag [number] raised on page [pageNumber]; the sheet grows when full. */
-    fun sheetEntry(number: Int, pageNumber: Int, sheet: NotePage, color: Int): Pair<TextBox, Float> {
-        val bottom = sheet.texts.filter { numbered.containsMatchIn(it.text) }.maxOfOrNull { it.y + SHEET_ROW }
-        val y = max(SHEET_TOP, bottom ?: SHEET_TOP)
-        val needed = y + SHEET_ROW + 40f
-        val height = if (needed > sheet.height) min(MAX_PAGE_HEIGHT, max(needed, sheet.height + 600f)) else sheet.height
-        return TextBox(x = 40f, y = y, width = 180f, text = "$number · p.$pageNumber", size = 26f, bold = true, color = color) to height
     }
 
     // ---- Free space -----------------------------------------------------------------------------
