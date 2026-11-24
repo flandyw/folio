@@ -19,7 +19,6 @@ import com.folio.notes.editor.selection.EditorSelectionController
 import com.folio.notes.exam.ExamAttempt
 import com.folio.notes.exam.ExamFilter
 import com.folio.notes.exam.ExamSessionManager
-import com.folio.notes.exam.ExamTagType
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.exam.ExamTimerState
@@ -283,11 +282,9 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun updateExamTags(noteId: String, tags: ExamTags): Unit = notebookCatalog.updateExamTags(noteId, tags)
 
-    fun toggleExamTag(noteId: String, tag: ExamTagType): Unit = notebookCatalog.toggleExamTag(noteId, tag)
 
     fun setExamFilter(filter: ExamFilter): Unit = notebookCatalog.setExamFilter(filter)
 
-    fun toggleRedoFlag(): Unit = notebookCatalog.toggleRedoFlag()
 
     fun recordAttempt(noteId: String, attempt: ExamAttempt, responseAttemptId: String? = null): Unit = notebookCatalog.recordAttempt(noteId, attempt, responseAttemptId)
 
