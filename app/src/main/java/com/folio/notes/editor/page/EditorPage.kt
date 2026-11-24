@@ -39,7 +39,7 @@ import com.folio.notes.ink.shapes.ShapeAssistOptions
 import com.folio.notes.ink.shapes.ShapeMeasurement
 import com.folio.notes.ink.shapes.ShapeMeasurementTooltip
 import com.folio.notes.input.LocalStylusActivity
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.marking.AreaEntry
 import com.folio.notes.marking.MarkAreaPopover
 import com.folio.notes.marking.MarkChip

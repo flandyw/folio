@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.settings.write

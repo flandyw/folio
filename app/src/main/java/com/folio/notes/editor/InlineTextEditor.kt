@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.folio.notes.editor.toolbar.InkColorDot
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.TextAlignMode
 import com.folio.notes.model.TextBox

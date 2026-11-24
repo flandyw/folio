@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.semanticsLabel
+
 import com.folio.notes.ui.FolioIcons
 import kotlinx.coroutines.flow.first
 import com.folio.notes.model.countOf
@@ -77,8 +79,6 @@ import com.folio.notes.ui.folioSelected
 import com.folio.notes.ui.folioSpring
 import com.folio.notes.vcaa.VcaaScreen
 import kotlinx.coroutines.launch
-
-fun Modifier.semanticsLabel(label: String) = semantics { contentDescription = label }
 
 /** Library-owned destinations alongside the other peer panes. Tablet files is a place inside the library. */
 enum class LibrarySection { LIBRARY, FILES, PROGRESS, PLANNER, VCAA, TRASH }

@@ -55,7 +55,7 @@ import com.folio.notes.ink.pen.PenHapticsManager
 import com.folio.notes.input.StylusShortcut
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.LibraryScreen
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.mistakes.MistakesScreen
 import com.folio.notes.mistakes.MistakesViewModel
 import com.folio.notes.model.Notebook
