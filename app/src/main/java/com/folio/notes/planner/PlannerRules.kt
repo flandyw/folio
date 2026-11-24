@@ -144,6 +144,13 @@ object Planner {
 
     data class Imported(val group: String, val name: String, val check: String?, val type: String?)
 
+    /** The checklist import's Save: null only once [onImport] has durably saved; otherwise the message to show while the draft stays open. */
+    suspend fun importChecklist(subject: String, reply: String, onImport: suspend (String, List<Imported>) -> String?): String? {
+        if (subject.isBlank()) return "Choose a subject."
+        val items = runCatching { parseImport(reply) }.getOrElse { return it.message ?: "That reply is not valid JSON." }
+        return if (items.isEmpty()) "No items found in that reply." else onImport(subject.trim(), items)
+    }
+
     /** Accepts Focal's `{"groups":[{"group","items":[…]}]}`, a flat `{"items":[…]}` or a bare array, with or without a code fence. */
     fun parseImport(raw: String): List<Imported> {
         val start = raw.indexOfFirst { it == '{' || it == '[' }; val end = raw.indexOfLast { it == '}' || it == ']' }

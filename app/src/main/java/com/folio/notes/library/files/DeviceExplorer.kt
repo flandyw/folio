@@ -17,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -25,8 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -38,7 +38,6 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.app.NameDialog
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.libraryLastEditedLabel
-import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.storage.SharedStorageRules
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem
@@ -297,7 +296,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                             ExplorerRow(location.name, if (location.available) "Tap to browse files and subfolders" else "Reconnect to restore access", FolioIcons.FolderOpen,
                                 { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) }, trailing = {
                                     Box {
-                                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Location options") }
+                                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for ${location.name}") }
                                         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Storage location") {
                                             if (Uri.parse(location.tree).scheme == "file") FolioMenuItem({ Text("Storage access settings") }, { menu = false; requestAccess() })
                                             else {
@@ -361,18 +360,19 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                     }
                                 }) {
                             Surface(shape = FolioShapes.large, color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-                                modifier = Modifier.fillMaxWidth().semantics { if (selecting && !file.directory) this.selected = selected }.combinedClickable(enabled = !changing,
-                                    onClickLabel = if (file.directory) "Open ${file.name}" else if (selecting) "Select ${file.name}" else "Open ${file.name}",
+                                // In selection mode a file row is one checkbox target; the Checkbox inside only shows the state.
+                                modifier = Modifier.fillMaxWidth().then(if (selecting && !file.directory) Modifier.toggleable(selected, enabled = !changing, role = Role.Checkbox) { toggle(file) }
+                                    else Modifier.combinedClickable(enabled = !changing,
+                                    onClickLabel = "Open ${file.name}",
                                     onClick = {
                                         when {
-                                            selecting && !file.directory -> toggle(file)
                                             file.directory -> { pathUris = pathUris + file.uri.toString(); pathNames = pathNames + file.name; query = ""; clearSelection() }
                                             (file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual -> importFile = file
                                             else -> launchFile(file)
                                         }
-                                    }, onLongClick = { if (!file.directory) { selecting = true; toggle(file) } })) {
+                                    }, onLongClick = { if (!file.directory) { selecting = true; toggle(file) } }))) {
                                 ListItem(headlineContent = { Text(file.name, maxLines = 2, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    leadingContent = { if (selecting && !file.directory) Checkbox(selected, { toggle(file) }, Modifier.semanticsLabel("Select ${file.name}"), enabled = !changing) else Icon(if (file.directory) FolioIcons.Folder else if (file.pdf) FolioIcons.Pdf else if (file.folio) FolioIcons.Book else FolioIcons.File, null, tint = MaterialTheme.colorScheme.primary) },
+                                    leadingContent = { if (selecting && !file.directory) Checkbox(selected, null, enabled = !changing) else Icon(if (file.directory) FolioIcons.Folder else if (file.pdf) FolioIcons.Pdf else if (file.folio) FolioIcons.Book else FolioIcons.File, null, tint = MaterialTheme.colorScheme.primary) },
                                     trailingContent = { if (!selecting) Box {
                                         IconButton({ menu = true }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for ${file.name}") }
                                         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "File actions") {
