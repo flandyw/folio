@@ -15,7 +15,7 @@ internal sealed interface NotebookDragPayload {
 internal sealed interface NotebookDropDestination {
     val label: String
     data class Folder(val id: String?, override val label: String) : NotebookDropDestination
-    data object Favorites : NotebookDropDestination { override val label = "Favorites" }
+    data object Favorites : NotebookDropDestination { override val label = "Favourites" }
     data class Tag(val tag: String) : NotebookDropDestination { override val label = "Tag · $tag" }
 }
 

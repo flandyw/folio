@@ -53,7 +53,7 @@ enum class ThemePalette(val label: String, val description: String) {
     OCEAN("Ocean", "Cool blues that stay easy on the eyes"),
     PLUM("Plum", "Soft purple on warm surfaces"),
     MONO("Black and white", "Greyscale only, with no colour at all"),
-    DYNAMIC("Wallpaper colors", "Use your Android color palette (Android 12+)");
+    DYNAMIC("Wallpaper colours", "Use your Android colour palette (Android 12+)");
 
     companion object {
         const val PREF_KEY = "themePalette"

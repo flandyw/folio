@@ -44,14 +44,14 @@ import com.folio.notes.ui.FolioSpacing
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 item(key = "header") {
                     Column(Modifier.padding(bottom = if (visible.isEmpty()) 0.dp else FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-                        Text("Select notebooks to exclude from automatic and portable library backups. Changes save immediately. You can still export any notebook individually.", style = MaterialTheme.typography.bodyMedium)
+                        Text("Choose notebooks to skip in automatic and portable library backups. Changes save immediately; individual notebook exports still include everything.", style = MaterialTheme.typography.bodyMedium)
                         if (impact.nothingProtected) Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer,
                             contentColor = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
                             Row(Modifier.padding(FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                                 Icon(FolioIcons.Warning, contentDescription = null)
                                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                                     Text("Every notebook is excluded", style = MaterialTheme.typography.titleSmall)
-                                    Text("Library backups will save none of your notebooks. Include at least one, or export notebooks individually.", style = MaterialTheme.typography.bodySmall)
+                                    Text("Library backups won't include any notebooks. Re-include at least one, or export notebooks individually.", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         } else if (notes.isNotEmpty()) Text(impact.protectedSummary, style = MaterialTheme.typography.titleSmall)

@@ -90,8 +90,8 @@ import java.text.NumberFormat
                     last.cached?.takeIf { it > 0 }?.let { Text("${numbers.format(it)} cached input tokens", style = MaterialTheme.typography.bodySmall) }
                 } ?: Text("The last response did not report token usage.", style = MaterialTheme.typography.bodySmall)
             } else Text("Reported token usage will appear after your first completed response.", style = MaterialTheme.typography.bodyMedium)
-            Text("This covers completed requests reported to Folio during this app session. " + (if (provider.key) "Canceled or failed requests may also be charged to your key. Credits and limits are shown by ${provider.label}."
-                else "Canceled or failed requests may also use your plan. Remaining allowance and reset times are available in ChatGPT settings."),
+            Text("This covers completed requests reported to Folio during this app session. " + (if (provider.key) "Cancelled or failed requests may also be charged to your key. Credits and limits are shown by ${provider.label}."
+                else "Cancelled or failed requests may also use your plan. Remaining allowance and reset times are available in ChatGPT settings."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ChatGptUsageLink(provider)
         }

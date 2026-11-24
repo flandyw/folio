@@ -94,16 +94,16 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     SettingsGroup("Theme") {
         SettingsSegmentedRow("Mode", listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark"), s.themeMode, s.onThemeMode)
         SettingsDivider()
-        SettingsSwitchRow("Pure black dark", "True black backgrounds whenever the dark theme is active.", s.amoled, s.onAmoled)
+        SettingsSwitchRow("Pure black dark", "Use true black backgrounds in dark mode.", s.amoled, s.onAmoled)
     }
-    SettingsGroup("Colours", footer = "Ink colours on the page never change with the theme or accent.") {
+    SettingsGroup("Colours", footer = "Page ink colours never change with the theme or accent.") {
         SettingsChipRow("Palette", ThemePalette.entries.filter { it != ThemePalette.DYNAMIC || s.dynamicAvailable }.map { it to it.label },
             s.themePalette, s.onThemePalette, subtitle = s.themePalette.description)
         SettingsDivider()
         AccentBlock(s.themePalette)
     }
     val interfaceFont by rememberPref(p, InterfaceFont.PREF_KEY) { InterfaceFont.of(it.getString(InterfaceFont.PREF_KEY, null)) }
-    SettingsGroup("Typography", footer = "Changes interface text. Notebook text and handwriting keep their own fonts.") {
+    SettingsGroup("Typography", footer = "Applies to interface text only. Notebook text and handwriting keep their own fonts.") {
         SettingsChipRow("Interface font", InterfaceFont.entries.map { it to it.label }, interfaceFont,
             { font -> p.write { putString(InterfaceFont.PREF_KEY, font.name) } })
     }
@@ -112,13 +112,13 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
         SettingsSliderRow(
             "Text size", percent(scale), scale, AppPrefs.UI_TEXT_SCALE_MIN..AppPrefs.UI_TEXT_SCALE_MAX,
             { p.write { putFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.uiTextScale(it)) } }, steps = 10,
-            subtitle = "Scales Folio's labels on top of your device's font size.",
+            subtitle = "Scales Folio's interface text on top of your system font size.",
             onReset = if (scale != AppPrefs.DEFAULT_UI_TEXT_SCALE) ({ p.write { putFloat(AppPrefs.UI_TEXT_SCALE, AppPrefs.DEFAULT_UI_TEXT_SCALE) } }) else null,
         )
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.UX_LARGE_CONTROLS, AppPrefs.DEFAULT_UX_LARGE_CONTROLS, "Larger controls", "Make editor buttons and selection actions easier to tap.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.UX_LABELS, AppPrefs.DEFAULT_UX_LABELS, "Show tool names", "Label the active tool and pinned presets in the editor.")
+        SettingsPrefSwitch(AppPrefs.UX_LABELS, AppPrefs.DEFAULT_UX_LABELS, "Show tool names", "Show labels beside the active tool and pinned presets in the editor.")
     }
     val hidden by rememberPref(p, SidebarItem.PREF_KEY) { SidebarItem.hidden(it.getString(SidebarItem.PREF_KEY, null)) }
     SettingsGroup("Sidebar", footer = "Library and Settings are always shown.") {
@@ -132,7 +132,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     SettingsGroup("Display") {
         SettingsPrefSwitch(AppPrefs.FULLSCREEN, AppPrefs.DEFAULT_FULLSCREEN, "Fullscreen", "Hide the status bar and gesture pill. Swipe from an edge to reveal them.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON, "Keep screen on", "The display never sleeps while Folio is open.")
+        SettingsPrefSwitch(AppPrefs.KEEP_SCREEN_ON, AppPrefs.DEFAULT_KEEP_SCREEN_ON, "Keep screen on", "Prevent the display from sleeping while Folio is open.")
     }
 }
 
@@ -145,9 +145,9 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     val tinting = palette != ThemePalette.MONO
     SettingsBlock {
         SettingsBlockTitle("Accent colour", when {
-            !tinting -> "Not used by Black and white. Your choice is kept for the other palettes."
-            chosen == null -> "Using the palette's own colours."
-            else -> "Tints buttons, selections and highlights."
+            !tinting -> "Unused by Black and white. Saved for other palettes."
+            chosen == null -> "Using the palette's default colours."
+            else -> "Tints buttons, selections, and highlights."
         })
         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
             AccentPresets.forEach { preset ->
@@ -191,12 +191,12 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     var guide by remember { mutableStateOf(false) }
 
     SettingsGroup("Touch") {
-        SettingsSwitchRow("Draw with a finger", "Off: a finger scrolls and only the stylus writes. On: scroll with two fingers or the hand tool.", s.finger, s.onFinger)
+        SettingsSwitchRow("Draw with a finger", "Off: fingers scroll and only the stylus writes. On: scroll with two fingers or the hand tool.", s.finger, s.onFinger)
         SettingsDivider()
         SettingsSliderRow(
             "Palm rejection", if (palmMs == 0L) "System only" else "$palmMs ms", palmMs.toFloat(), AppPrefs.PALM_MIN_MS.toFloat()..AppPrefs.PALM_MAX_MS.toFloat(),
             { p.write { putLong(AppPrefs.PALM_MS, AppPrefs.palmMs(it.roundToInt().toLong())) } },
-            subtitle = "How long touches stay ignored after the pen leaves. Raise it if your palm leaves marks or moves the page.",
+            subtitle = "How long touches stay ignored after lifting the pen. Raise this if your palm leaves marks or shifts the page.",
             onReset = if (palmMs != AppPrefs.DEFAULT_PALM_MS) ({ p.write { putLong(AppPrefs.PALM_MS, AppPrefs.DEFAULT_PALM_MS) } }) else null,
         )
         SettingsDivider()
@@ -212,26 +212,26 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
                 }
             },
             steps = ((AppPrefs.FAST_PAN_MAX - 1f) * 4).roundToInt() - 1,
-            subtitle = "How far a finger drag or fling moves the page. 1× follows your finger.",
+            subtitle = "How far a finger drag or fling scrolls the page. 1× matches your finger.",
             onReset = if (fastPan) ({ p.write { putBoolean(AppPrefs.FAST_PAN, false) } }) else null,
         )
         SettingsDivider()
         SettingsPrefSwitch(EditorQuickPrefs.MULTI_TOUCH_UNDO, true, "Two-finger tap to undo", "Tap the canvas with two fingers to undo, three to redo.")
         SettingsDivider()
-        SettingsLinkRow("Gestures and shortcuts", "Everything the pen, fingers and keyboard can do.", onClick = { guide = true })
+        SettingsLinkRow("Gestures and shortcuts", "All pen, touch, and keyboard actions.", onClick = { guide = true })
     }
-    SettingsGroup("Pencil", footer = "Double-tap works with a OnePlus or OPPO Pencil. Other styli keep their own system shortcut.") {
+    SettingsGroup("Pencil", footer = "Double-tap supports OnePlus and OPPO Pencils. Other styli keep their system shortcut.") {
         SettingsChipRow("Pencil double-tap", StylusShortcut.entries.map { it to it.label }, s.stylus, s.onStylus, subtitle = s.stylus.description)
         if (s.hapticsSupported) {
             SettingsDivider()
-            SettingsSwitchRow("Double-tap buzz", "Buzz the Pencil on every double tap. Needs Bluetooth.", s.haptics, s.onHaptics)
+            SettingsSwitchRow("Double-tap buzz", "Vibrate the Pencil on each double tap. Requires Bluetooth.", s.haptics, s.onHaptics)
         }
         if (PenWritingFeedback.isSupported()) WritingFeedbackRows()
     }
-    SettingsGroup("Pen", footer = "Smoothing, soft stroke ends, pressure and the eraser's behaviour are in each tool's options in the editor.") {
+    SettingsGroup("Pen", footer = "Smoothing, soft ends, pressure, and eraser options live in each tool's editor popover.") {
         SettingsSegmentedRow("Hold at stroke start", listOf("highlighter" to "Highlighter", "eraser" to "Eraser", "off" to "Off"), startHold,
             { p.write { putString(AppPrefs.PEN_START_HOLD, AppPrefs.penStartHold(it)) } },
-            subtitle = "Rest the pen tip still for half a second, then draw, to borrow this tool for one stroke.")
+            subtitle = "Hold the pen tip still for half a second, then draw, to borrow this tool for one stroke.")
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.HIGHLIGHTER_TILT, AppPrefs.DEFAULT_HIGHLIGHTER_TILT, "Tilt widens the highlighter", "Tilt the stylus for a broader highlight.")
     }
@@ -260,7 +260,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     SettingsDivider()
     SettingsSwitchRow(
         "Buzz while writing",
-        "The Pencil vibrates softly while its tip is down. Needs a licensed HiPaint or StarNote installed and Pencil vibration on in ColorOS. $status",
+        "The Pencil vibrates softly while writing. Requires a licensed HiPaint or StarNote installation and ColorOS Pencil vibration enabled. $status",
         on, { v -> p.write { putBoolean(AppPrefs.WRITING_FEEDBACK, v) } },
     )
     if (!on) return
@@ -289,7 +289,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     val stickyTextSize by rememberPref(p, AppPrefs.STICKY_TEXT_SIZE) { AppPrefs.stickyTextSize(it.getFloat(AppPrefs.STICKY_TEXT_SIZE, AppPrefs.DEFAULT_STICKY_TEXT_SIZE)) }
     val shareShortcut by rememberPref(p, AppPrefs.SHARE_LONG_PRESS) { AppPrefs.shareShortcut(it.getString(AppPrefs.SHARE_LONG_PRESS, null)) }
 
-    SettingsGroup("Toolbar", footer = "Anything you take off the toolbar stays one tap away in the … menu.") {
+    SettingsGroup("Toolbar", footer = "Tools removed from the toolbar stay one tap away in the … menu.") {
         val layout = layouts.layout
         SettingsLinkRow(
             "Tools and order",
@@ -320,7 +320,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.UX_SNAP, AppPrefs.DEFAULT_UX_SNAP, "Snap moved selections", "Align moved selections to the grid and page margins. Hold Shift to move freely.")
     }
-    SettingsGroup("Text", footer = "Sizes for new text boxes and sticky notes. Existing ones keep theirs.") {
+    SettingsGroup("Text", footer = "Default sizes for new text boxes and sticky notes. Existing items keep their sizes.") {
         SettingsSliderRow(
             "Typed text size", "${textSize.roundToInt()} pt", textSize, AppPrefs.TEXT_SIZE_MIN..AppPrefs.TEXT_SIZE_MAX,
             { p.write { putFloat(AppPrefs.TEXT_SIZE_KEY, AppPrefs.textSize(it)) } },
@@ -355,7 +355,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     val change: (FollowPreferences) -> Unit = { FollowPreferenceStore.write(p, it) }
     val text = f.mode == FollowMode.TEXT
 
-    SettingsGroup("Writing follow", footer = "The view stays still while your pen is down; touch down during a glide to stop it. Infinite canvases only follow after you choose Write a response.") {
+    SettingsGroup("Writing follow", footer = "The view pauses while your pen is down; touch down mid-glide to stop it. Infinite canvases follow only after you choose Write a response.") {
         SettingsPrefSwitch("writingFollow", false, "Follow on pages", "Move the view as you write on notebook and PDF pages.")
         SettingsDivider()
         SettingsSegmentedRow("What you write", listOf(FollowMode.TEXT to "Text", FollowMode.MATH to "Maths"), f.mode, { change(f.copy(mode = it)) },
@@ -369,7 +369,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     SettingsGroup("Movement") {
         val feel = FollowFeel.of(f)
         SettingsChipRow<FollowFeel?>("Feel", FollowFeel.entries.map { it to it.label }, feel, { it?.apply(f)?.let(change) },
-            subtitle = if (feel == null) "Custom. Pick one to replace it." else "How soon, how far and how fast the view moves.")
+            subtitle = if (feel == null) "Custom preset. Pick one to replace it." else "Controls how soon, how far, and how fast the view glides.")
         SettingsDivider()
         // (sideways, down). Maths never moves sideways, so it only offers the choices that differ there.
         val moves = if (text) listOf((true to true) to "Sideways and down", (false to true) to "Down only",
@@ -386,12 +386,12 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
         SettingsSwitchRow("Automatic line return", if (text) "Write across the line, then pause near the margin to return."
             else "Text only. In Maths, tap Next line.", f.automaticReturn, { change(f.copy(automaticReturn = it)) }, enabled = text)
         SettingsDivider()
-        SettingsSwitchRow("Learn my line spacing", "Match your handwriting’s line spacing after two natural line breaks.", f.adaptiveSpacing, { change(f.copy(adaptiveSpacing = it)) }, enabled = text)
+        SettingsSwitchRow("Learn my line spacing", "Match your handwriting's line spacing after two natural line breaks.", f.adaptiveSpacing, { change(f.copy(adaptiveSpacing = it)) }, enabled = text)
         SettingsDivider()
         SettingsSliderRow("Line spacing", "${"%.1f".format(f.spacingMm)} mm", f.spacingMm, 4f..24f,
             { change(f.copy(spacing = FollowPreferences.fromMm(it))) }, steps = 19, subtitle = "7 mm resembles ruled paper.", lowLabel = "Closer", highLabel = "Further apart")
     }
-    SettingsGroup("Answer areas", footer = "Select, detect or clear the area on the current page from the editor's Answer areas menu.") {
+    SettingsGroup("Answer areas", footer = "Select, detect, or clear the active area from the editor's Answer areas menu.") {
         SettingsPrefSwitch("follow.autoDetectAnswerAreas", false, "Detect answer areas automatically", "Look for answer lines on the current PDF page while following is on.")
     }
     SettingsGroup {
@@ -415,7 +415,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
 @Composable internal fun LibraryPage(folders: List<Folder>, onReclassify: () -> Unit = {}) {
     val p = rememberPrefs()
     SettingsGroup("Library management", footer = "Suggestions are reviewed field by field before anything changes.") {
-        SettingsLinkRow("Reclassify notebooks", "Find subject, year, source and type again, on the device or with AI", onClick = onReclassify,
+        SettingsLinkRow("Reclassify notebooks", "Re-detect subject, year, source, and type on device or with AI.", onClick = onReclassify,
             leading = FolioIcons.Sparkle)
     }
     val paper by rememberPref(p, AppPrefs.DEFAULT_PAPER) { AppPrefs.defaultPaper(it.getString(AppPrefs.DEFAULT_PAPER, null)) }
@@ -456,7 +456,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
     val palette = rememberCoverPalette()
     var picking by remember { mutableStateOf(false) }
     val full = custom.size >= CoverPalette.MAX
-    SettingsGroup("Your cover colours", footer = "Added colours join every notebook picker. Existing notebooks keep the cover they were given.") {
+    SettingsGroup("Your cover colours", footer = "Added colours appear in every cover picker. Existing notebooks keep their assigned cover.") {
         SettingsBlock {
             if (custom.isEmpty()) SettingsBlockHint("None yet.")
             else {
@@ -469,7 +469,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
                             if (newest) ({ palette.remove(color) }) else ({ }))
                     }
                 }
-                SettingsBlockHint("Tap the newest colour to remove it. Removing from further down would change the covers of notebooks already using those colours.")
+                SettingsBlockHint("Tap the newest colour to remove it. Earlier colours stay locked so existing notebook covers don't shift.")
             }
             OutlinedButton({ picking = true }, enabled = !full, shapes = ButtonDefaults.shapes()) {
                 Text(if (full) "Maximum ${CoverPalette.MAX} colours reached" else "Add a cover colour")
@@ -513,7 +513,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val auto = b.tree != null
     SettingsGroup(
         "Automatic backup",
-        footer = "After saved changes and once a day, Folio copies only what changed and keeps the latest two restore points.",
+        footer = "Runs after saved changes and once daily, copying only what changed and keeping the two latest restore points.",
     ) {
         SettingsLinkRow(
             if (auto) "Backing up to ${b.folderName ?: "the selected folder"}" else "Not set up",
@@ -522,7 +522,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
                 b.lastError != null -> "Issue: ${b.lastError}"
                 b.lastSuccess > 0L -> "Last checked ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(b.lastSuccess))}"
                 auto -> "No automatic backup has completed yet."
-                else -> "Pick a folder, on this device or in a cloud drive, to start."
+                else -> "Pick a local or cloud-drive folder to start."
             },
             trailing = {},
         )
@@ -540,12 +540,12 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         SettingsDivider()
         SettingsLinkRow("Restore from backup folder", "Choose the same folder on any device to restore its latest backup.", onClick = b.onRestoreFromFolder, enabled = !b.busy)
     }
-    SettingsGroup("Library file", footer = "A self-contained file for sharing or moving devices. Restoring adds copies beside your current notebooks.") {
+    SettingsGroup("Library file", footer = "A single archive for sharing or switching devices. Restoring adds copies alongside your current notebooks.") {
         SettingsLinkRow("Save library backup", onClick = b.onSaveLibrary, enabled = !b.busy)
         SettingsDivider()
         SettingsLinkRow("Restore library backup", onClick = b.onRestoreLibrary, enabled = !b.busy)
     }
-    SettingsGroup("Exclusions", footer = "Leave textbooks or other notebooks out of automatic and library backups. Exporting a single notebook still includes everything.") {
+    SettingsGroup("Exclusions", footer = "Skip textbooks or other large notebooks during automatic and library backups. Individual notebook exports still include everything.") {
         SettingsLinkRow("Excluded notebooks", if (b.excludedCount == 0) "None" else "${b.excludedCount} left out", onClick = b.onExclusions, enabled = !b.busy)
     }
 }
@@ -583,7 +583,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             onReset = if (idle != AppPrefs.DEFAULT_TIMER_IDLE_MIN) ({ p.write { putInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN) } }) else null,
         )
     }
-    SettingsGroup("Mistake practice", footer = "Paper and zoom apply to the next question you practise. Pages you have already written keep theirs.") {
+    SettingsGroup("Mistake practice", footer = "Paper and zoom apply to your next practice question. Existing pages keep their setup.") {
         SettingsChipRow("Paper guide", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.MISTAKE_PAPER, it.name) } })
         SettingsDivider()
         SettingsSliderRow("Starting zoom", percent(zoom), zoom, .5f..3f,
@@ -602,7 +602,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         it.getBoolean(AppPrefs.EXPERIMENTAL_UPDATES, AppPrefs.DEFAULT_EXPERIMENTAL_UPDATES)
     }
     SettingsGroup("Accounts") {
-        SettingsLinkRow("Focal account", "One account for study sessions and mistake sync.", onClick = a.onFocal)
+        SettingsLinkRow("Focal account", "One account for study sessions, planner, progress, and mistake sync.", onClick = a.onFocal)
     }
     val context = LocalContext.current
     val version = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown" }
@@ -611,7 +611,7 @@ private fun paperLabel(paper: Paper): String = when (paper) {
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.AUTO_UPDATE, AppPrefs.DEFAULT_AUTO_UPDATE, "Check on launch", "Look for a newer signed version when Folio opens.")
         SettingsDivider()
-        SettingsSwitchRow("Experimental builds", "Get earlier, less stable builds from folio.flandolf.me.",
+        SettingsSwitchRow("Experimental builds", "Receive earlier preview builds from folio.flandolf.me.",
             experimental, { prefs.write { putBoolean(AppPrefs.EXPERIMENTAL_UPDATES, it) } }, enabled = !a.updateBusy)
         SettingsDivider()
         SettingsLinkRow(

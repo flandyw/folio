@@ -54,7 +54,7 @@ import java.util.Date
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = FolioDestinationInset,
             end = FolioDestinationInset, bottom = FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             item {
-                Text("Notebooks stay here until you restore or delete them. Trash is not backed up.",
+                Text("Deleted notebooks stay here until you restore or remove them. Trash isn't included in backups.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state.trash.isNotEmpty()) item {
@@ -113,7 +113,7 @@ import java.util.Date
         AlertDialog(onDismissRequest = { deleting = null }, modifier = Modifier.guardUiTouches(),
             properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
             title = { Text(if (selected.size == 1) "Delete “${selected.single().notebook.title}” forever?" else "Delete ${selected.size} notebooks forever?") },
-            text = { Text("This permanently deletes ${if (selected.size == 1) "the notebook and all its" else "the notebooks and all their"} pages, ink and attached files from this device. You cannot undo this.") },
+            text = { Text("This permanently deletes ${if (selected.size == 1) "the notebook and all its" else "the notebooks and all their"} pages, ink, and attached files from this device. This can't be undone.") },
             dismissButton = { TextButton({ deleting = null }, shapes = ButtonDefaults.shapes()) { Text("Cancel") } },
             confirmButton = {
                 TextButton({ model.deleteTrashedNotebooks(ids); deleting = null }, enabled = enabled && ids.any { it in available },

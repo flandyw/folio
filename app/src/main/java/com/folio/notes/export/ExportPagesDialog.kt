@@ -94,7 +94,7 @@ import com.folio.notes.ui.folioSelected
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)
         ) {
             Text(
-                "Choose which pages to save or share. A PDF keeps them in order; one PNG saves to your gallery, several PNGs make one .zip. Long-press a page to pick only that one.",
+                "Choose pages to save or share. PDFs keep them in order; a single PNG saves to your gallery, and multiple PNGs export as a .zip. Long-press a page to select only that page.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             fun chooseFormat(next: PageExportFormat) {
@@ -124,7 +124,7 @@ import com.folio.notes.ui.folioSelected
             }
             if (format == PageExportFormat.PNG && selected.size > 1) {
                 Text(
-                    "Saving several PNGs makes one .zip file; sharing sends each image separately.",
+                    "Saving multiple PNGs creates a single .zip archive; sharing sends each image separately.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

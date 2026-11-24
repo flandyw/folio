@@ -42,7 +42,7 @@ import kotlinx.coroutines.withContext
 @Composable internal fun MusicImportPanel(review: MusicImportReview, model: MusicViewModel, busy: Boolean, message: String?) {
     val source = review.source
     // The title a part gets until the user writes their own: the PDF's title plus the instrument.
-    fun autoTitle(instrument: String) = if (instrument.isBlank()) source.title else "${source.title} — ${instrument.trim()}"
+    fun autoTitle(instrument: String) = if (instrument.isBlank()) source.title else "${source.title} - ${instrument.trim()}"
     var instruments by rememberSaveable(source.id) { mutableStateOf(review.suggestions.map { it.instrument }.ifEmpty { listOf("") }) }
     var titles by rememberSaveable(source.id) { mutableStateOf(instruments.map(::autoTitle)) }
     var ranges by rememberSaveable(source.id) { mutableStateOf(review.suggestions.map { MusicParts.pageLabel(it.pages) }.ifEmpty { listOf("") }) }
@@ -105,7 +105,7 @@ import kotlinx.coroutines.withContext
                                 // A filmstrip of every page, so a range can be built by tapping pages rather
                                 // than counting them: the active part's pages read as included.
                                 instruments.getOrNull(activePart)?.let {
-                                    Text("Pages of ${it.ifBlank { "Custom part" }} — tap a page to add or remove it.",
+                                    Text("Pages of ${it.ifBlank { "Custom part" }}: tap a page to add or remove it.",
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
@@ -174,7 +174,7 @@ import kotlinx.coroutines.withContext
                                             }
                                         }
                                         review.suggestions.find { it.instrument == instruments[index] && MusicParts.pageLabel(it.pages) == ranges[index] }?.takeIf { it.inferredPages > 0 }?.let {
-                                            Text("${it.inferredPages} unlabelled ${if (it.inferredPages == 1) "page was" else "pages were"} added after the heading — check them in the preview.",
+                                            Text("${it.inferredPages} unlabelled ${if (it.inferredPages == 1) "page was" else "pages were"} added after the heading; check them in the preview.",
                                                 Modifier.padding(start = FolioSpacing.dp12), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                                         }
                                         FolioExpand(on) {

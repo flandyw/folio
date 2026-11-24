@@ -238,7 +238,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                     if (current == null && !fullAccess) Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Text("Browse your whole tablet", style = MaterialTheme.typography.titleMedium)
-                            Text("Enable all files access once to browse internal storage, Downloads and available SD or USB storage.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Enable all files access once to browse internal storage, Downloads, and connected SD or USB storage.", style = MaterialTheme.typography.bodyMedium)
                             Button({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Enable all files access") }
                         }
                     }
@@ -291,7 +291,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                 LaunchedEffect(current, query, sort, pdfOnly, showHiddenFolders) { scroll.scrollToItem(0) }
                 LazyColumn(state = scroll, modifier = Modifier.weight(1f), contentPadding = PaddingValues(FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     if (current == null) {
-                        item { Text("Browse tablet storage or connect a cloud folder. PDFs and Folio notebooks can be copied into your library; other files open in their usual app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        item { Text("Browse tablet storage or connect a cloud folder. Copy PDFs and Folio backups into your library; other files open in their default app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         items(locations, key = { it.tree }) { location ->
                             var menu by remember { mutableStateOf(false) }
                             ExplorerRow(location.name, if (location.available) "Tap to browse files and subfolders" else "Reconnect to restore access", FolioIcons.FolderOpen,
@@ -326,7 +326,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 if (query.isNotBlank() || pdfOnly) "No matching files" else if (hiddenFolders) "No visible files" else "This folder is empty",
                                 if (hiddenFolders) "Turn on Show hidden folders to include dot-prefixed folders."
                                 else if (query.isNotBlank() || pdfOnly) "Try another name or turn off the file filter."
-                                else "Create a folder here, or bring files in using your tablet’s file manager.") {
+                                else "Create a folder here, or add files using your tablet's file manager.") {
                                     if (query.isNotBlank() || pdfOnly) TextButton({ query = ""; pdfOnly = false }, shapes = ButtonDefaults.shapes()) { Text("Show all files") }
                             }
                         }
@@ -416,8 +416,8 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     rename?.let { file -> NameDialog("Rename ${if (file.directory) "folder" else "file"}", "Keep the file extension so other apps can open it.", file.name, "Save", { rename = null }) { name ->
         if (validName(name)) { rename = null; mutate("Renamed") { files.rename(file, name.trim()) } }
     } }
-    delete?.let { file -> ExplorerConfirm("Delete “${file.name}”?", if (file.directory) "This deletes this device folder and its contents. This cannot be undone in Folio." else "This deletes the original file from this location. This cannot be undone in Folio.", "Delete", { delete = null }) { delete = null; mutate("Deleted") { files.delete(file) } } }
-    forget?.let { location -> ExplorerConfirm("Disconnect “${location.name}”?", "It will disappear from Explorer. Files stay on your tablet, and you can connect the folder again.", "Disconnect", { forget = null }) {
+    delete?.let { file -> ExplorerConfirm("Delete “${file.name}”?", if (file.directory) "This deletes the folder and its contents. It can't be undone in Folio." else "This deletes the original file from this location. It can't be undone in Folio.", "Delete", { delete = null }) { delete = null; mutate("Deleted") { files.delete(file) } } }
+    forget?.let { location -> ExplorerConfirm("Disconnect “${location.name}”?", "Removes this shortcut from Files. Your files stay on the device, and you can reconnect anytime.", "Disconnect", { forget = null }) {
         // Other Folio features may hold a grant to the same tree, so don't revoke shared permissions.
         rememberTrees(trees.filterNot { it == location.tree }); forget = null
         if (activeTree == location.tree) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() }
