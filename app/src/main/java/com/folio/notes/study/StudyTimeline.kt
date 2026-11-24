@@ -218,7 +218,7 @@ internal fun StudyTimeline(
 
     val focus = state.visibleFocus
     val blocks = remember(state.entries, state.userId, focus, dayStart, now / 15_000L) {
-        state.visibleEntries.filter { it.kind == "study" || it.kind == "exam" }.flatMap { entry ->
+        state.visibleEntries.filter { it.kind == "study" || it.timedSitting }.flatMap { entry ->
             val spans = spansOf(entry, focus)
             spans.mapIndexedNotNull { index, span ->
                 val start = minuteOf(span.startAt)
@@ -818,6 +818,7 @@ internal fun StudyTimeline(
                                 val restriction = when {
                                     entry.active -> "Stop this timer before reshaping or merging it."
                                     entry.pendingBlocks != null && !entry.synced -> "Block changes are waiting for Focal. They remain on this device until acknowledged."
+                                    entry.timedSitting -> null
                                     !focalCanEditBlocks(entry) && entry.intervals.isNotEmpty() -> "This timer session must sync its recorded intervals before it can be reshaped."
                                     state.userId != null && !entry.synced -> "Waiting for Focal sync. Merge becomes available after this session is acknowledged."
                                     else -> null
@@ -826,7 +827,7 @@ internal fun StudyTimeline(
                                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(listOfNotNull(focalSubjectNames(entry, subjects), "${clock(picked.start)}–${clock(picked.end)}", duration(picked.end - picked.start),
                                     when { picked.tone == Tone.LIVE -> "Studying now"; picked.tone == Tone.PAUSED -> "Paused"; missed(picked) -> "Missed"; picked.tone == Tone.TODO -> "Planned"
-                                        entry.kind == "exam" -> "Exam"; else -> "Done" },
+                                        else -> entry.sittingLabel ?: "Done" },
                                     if (picked.count > 1) "Block ${picked.index + 1} of ${picked.count}" else null).joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                                 val about = if (entry.planned) focalPlanDetails(entry).first else entry.notes

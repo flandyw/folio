@@ -176,6 +176,18 @@ class CalendarTest {
         assertEquals(5, weeks.size); assertEquals(LocalDate.parse("2026-09-28"), weeks[0][0].date)
     }
 
+    @Test fun switchedSessionShowsOnlyTheMinutesEachSubjectSpentOnTheDay() {
+        val day = LocalDate.parse("2026-10-22")
+        val midnight = day.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val first = (midnight - 30 * 60_000L) to (midnight + 10 * 60_000L)
+        val second = first.second to (midnight + 30 * 60_000L)
+        val session = Calendar.Session("s", "Mixed focus", "", listOf(first, second), done = true, live = false,
+            bySubject = mapOf("Chemistry" to listOf(first), "Biology" to listOf(second)))
+        val plan = Calendar.dayPlan(day, Calendar.Sources(sessions = listOf(session)))
+        assertEquals("Chemistry 10 min · Biology 20 min", plan.items.single().detail)
+        assertEquals(30, plan.completedMinutes)
+    }
+
     @Test fun moveOneOverdueTaskKeepsOtherTasksAndUnknownFocalFields() {
         val learning = JSONObject("""{
             "updatedAt":"old","futureLearningField":{"value":1},

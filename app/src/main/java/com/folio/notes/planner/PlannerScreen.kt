@@ -141,7 +141,8 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     onMistakes, { tab = "SACs" }, onStudy)
                 "SACs" -> SacTab(sacs, subjects, enabled, ::saveSacs)
                 "Stoplight" -> StoplightTab(learning, subjects, enabled, ::saveLearning)
-                "Goals" -> GoalsTab(learning, subjects, exams, state.cache.value("atarEstimates") as? JSONArray, enabled, ::saveLearning)
+                "Goals" -> GoalsTab(learning, subjects, exams, state.cache.value("atarEstimates") as? JSONArray,
+                    state.catalog.references, enabled, ::saveLearning)
                 "Grades" -> GradesTab(state.catalog.references, exams)
                 else -> ScoreTab(exams, sacs, state.catalog.references, (state.cache.value("atarEstimates") as? JSONArray)?.objects().orEmpty(), enabled, ::saveAtar)
             }
@@ -458,14 +459,17 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 // ---- Goals --------------------------------------------------------------------------------------
 
 @Composable private fun GoalsTab(learning: JSONObject, subjects: List<String>, exams: List<com.folio.notes.progress.LoggedExam>, atar: JSONArray?,
-    enabled: Boolean, save: suspend (JSONObject) -> Boolean) {
+    references: List<com.folio.notes.progress.ExamReference>, enabled: Boolean, save: suspend (JSONObject) -> Boolean) {
+    val vtac by rememberVtacData()
     var editing by remember { mutableStateOf<JSONObject?>(null) }
     var adding by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val active = remember(learning) { Planner.goals(learning, false) }
     val archived = remember(learning) { Planner.goals(learning, true) }
     val today = LocalDate.now().toString()
-    val progressOf = remember(active, exams, atar) { active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar) } }
+    val progressOf = remember(active, exams, atar, references, vtac) {
+        active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar, references, vtac) }
+    }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         if (active.isNotEmpty()) item {
@@ -479,7 +483,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         } }
         else item { Button({ adding = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
         items(active, key = { it.optString("id") }) { goal ->
-            val progress = progressOf[goal.optString("id")] ?: Planner.goalProgress(goal, exams, atar)
+            val progress = progressOf.getValue(goal.optString("id"))
             val reached = progress.current != null && progress.current >= goal.getDouble("target")
             val expired = !reached && goal.optString("deadline") < today
             PlannerCard {
@@ -549,13 +553,17 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 /** The bundled 275 KB VTAC table, decoded once per process instead of on every visit to the Score tab. */
 @Volatile private var vtacCache: StudyScore.VtacData? = null
 
-@Composable private fun ScoreTab(exams: List<com.folio.notes.progress.LoggedExam>, sacs: List<JSONObject>, references: List<com.folio.notes.progress.ExamReference>,
-    saved: List<JSONObject>, enabled: Boolean, save: suspend (List<JSONObject>) -> Boolean) {
+@Composable private fun rememberVtacData(): State<StudyScore.VtacData?> {
     val context = LocalContext.current
-    val vtac by produceState(vtacCache) {
+    return produceState(vtacCache) {
         if (value == null) value = withContext(Dispatchers.IO) { runCatching { StudyScore.VtacData.decode(context.assets.open("planner/vtac-scaling.json").bufferedReader().use { it.readText() }) }.getOrNull() }
             ?.also { vtacCache = it }
     }
+}
+
+@Composable private fun ScoreTab(exams: List<com.folio.notes.progress.LoggedExam>, sacs: List<JSONObject>, references: List<com.folio.notes.progress.ExamReference>,
+    saved: List<JSONObject>, enabled: Boolean, save: suspend (List<JSONObject>) -> Boolean) {
+    val vtac by rememberVtacData()
     val subjects = remember(exams) { exams.map { it.subject }.distinct().sorted() }
     var picked by rememberSaveable { mutableStateOf("") }
     val subject = if (picked in subjects) picked else subjects.firstOrNull().orEmpty()
@@ -624,17 +632,12 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
     val predictions = remember(exams, references) { exams.map { it.subject }.distinct().mapNotNull { s -> StudyScore.predict(s, exams, references)?.let { StudyScore.studyKey(s) to it.studyScore.toDouble() } }.toMap() }
     val scope = rememberCoroutineScope()
     fun update(next: List<JSONObject>) { rowsRaw = JSONArray(next).toString() }
-    val results = remember(rows, studies, predictions) {
-        rows.mapNotNull { row ->
-            val ref = studies.find { it.code == row.optString("code") } ?: return@mapNotNull null
-            val predicted = predictions[StudyScore.studyKey(ref.studyName)]
-            val raw = if (row.optBoolean("usePrediction") && predicted != null) predicted else row.optString("raw").toDoubleOrNull() ?: return@mapNotNull null
-            StudyScore.interpolate(raw, ref.points)?.let { StudyScore.Result(row.optString("id"), ref.code, ref.studyName, raw, it) }
-        }
+    val results = remember(rows, year, data, exams, references) {
+        StudyScore.atarResults(rows, year, data, exams, references)
     }
     val estimate = remember(results, year) { StudyScore.estimateAtar(results, year, data) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Predicted raw scores are used when you have them; otherwise enter one.")
+        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Choose a Focal prediction or enter a whole raw score from 20 to 50.")
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
             val ref = studies.find { it.code == row.optString("code") }
@@ -642,11 +645,11 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
             PlannerCard {
                 ChoiceField("Study", ref?.studyName.orEmpty(), studies.map { it.studyName }, { name ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
-                if (predicted != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                if (ref != null) Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(row.optBoolean("usePrediction"), modifier = Modifier.semantics { contentDescription = "Use predicted score for ${ref?.studyName.orEmpty()} ($predicted)" }, onCheckedChange = { on -> update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("usePrediction", on) else r }) })
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Use predicted score ($predicted)")
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (predicted == null) "Use predicted score (no evidence yet)" else "Use predicted score ($predicted)")
                 }
-                if (predicted == null || !row.optBoolean("usePrediction")) Field("Raw study score", row.optString("raw"), number = true) { v ->
+                if (!row.optBoolean("usePrediction")) Field("Raw study score", row.optString("raw"), number = true) { v ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("raw", v) else r }) }
                 TextButton({ update(rows.filterIndexed { i, _ -> i != index }) }) { Text("Remove") }
             }

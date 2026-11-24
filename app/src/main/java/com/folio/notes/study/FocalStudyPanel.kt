@@ -274,7 +274,7 @@ internal fun FocalStudyContent(
                         if (!manager.continueFocus(last.id)) notice = "Couldn't continue that session. Refresh and try again."
                     }, enabled = canStart, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
                         Icon(FolioIcons.Play, null); Spacer(Modifier.width(FolioSpacing.dp8))
-                        Text("Continue ${subjectName(last.subjectId) ?: last.title} · ${formatStudyMinutes(studyRoundedMinutes(last.activeMillis))}",
+                        Text("Continue ${subjectName(last.subjectId) ?: last.title} · ${formatStudyMinutes(studyRoundedMinutes(focalSubjectMillis(last)[last.subjectId] ?: 0L))}",
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -440,7 +440,7 @@ internal fun FocalStudyContent(
         if (dedicated && withTimeline) item(key = "timeline") { timeline(false) }
         val sharedActive = entries.filter { entry ->
             entry.active && entry.id != focus?.sessionId && entry.id != remoteMain?.id &&
-                !(entry.kind == "exam" && examRecording?.startedAt == entry.startedAt)
+                !(entry.timedSitting && examRecording?.startedAt == entry.startedAt)
         }
         if (sharedActive.isNotEmpty()) item(key = "shared") {
             Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -459,7 +459,7 @@ internal fun FocalStudyContent(
                     Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
                             Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(if (entry.kind == "exam") "Timed exam" else "Study", focalSubjectNames(entry, state.subjects),
+                            Text(listOfNotNull(entry.sittingLabel ?: "Study", focalSubjectNames(entry, state.subjects),
                                 if (entry.paused) "Paused" else "In progress", formatStudyClock(elapsed)).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -676,7 +676,7 @@ internal fun FocalStudyContent(
         if (target == null) LaunchedEffect(id) { deleteHistoryId = null }
         else AlertDialog(onDismissRequest = { deleteHistoryId = null }, modifier = Modifier.guardUiTouches(),
             title = { Text("Delete this session?") },
-            text = { Text("${formatStudyMinutes(focalHistoryMinutes(target))} of ${subjectName(target.subjectId) ?: "study"} " +
+            text = { Text("${formatStudyMinutes(focalHistoryMinutes(target))} · ${focalSubjectNames(target, state.subjects) ?: "study"} " +
                 "(${focalSlotLabel(FocalStudyInterval(target.startedAt, target.endedAt), zone)}) " +
                 "will be removed from Folio and Focal. This cannot be undone.") },
             confirmButton = { TextButton({
@@ -687,7 +687,7 @@ internal fun FocalStudyContent(
     }
     bulkAction?.let { action ->
         val ids = entries.filter { it.active && it.paused && it.id != focus?.sessionId &&
-            !(it.kind == "exam" && examRecording?.startedAt == it.startedAt) }.map { it.id }
+            !(it.timedSitting && examRecording?.startedAt == it.startedAt) }.map { it.id }
         AlertDialog(onDismissRequest = { bulkAction = null }, modifier = Modifier.guardUiTouches(),
             title = { Text(if (action == "discard") "Discard ${ids.size} paused sessions?" else "Finish ${ids.size} paused sessions?") },
             text = { Text(if (action == "discard") "These sessions will be removed from Folio and Focal. This cannot be undone."

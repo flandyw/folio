@@ -3,6 +3,7 @@ package com.folio.notes.study
 import com.folio.notes.FocalBuildConfig
 import com.folio.notes.exam.ExamTimerPhase
 import com.folio.notes.exam.ExamTimerState
+import com.folio.notes.exam.ExamType
 import com.folio.notes.model.Notebook
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,6 +44,8 @@ data class FocalStudyEntry(
     /** Local integration details, sent with each lifecycle boundary. */
     val metadata: String? = null
 ) {
+    internal val timedSitting get() = kind == "exam" || kind == "sac"
+    internal val sittingLabel get() = when (kind) { "sac" -> "SAC"; "exam" -> "Exam"; else -> null }
     val active: Boolean get() = !completed && !planned && !deleted
     val minutes: Int get() = (activeMillis / 60_000L).toInt().coerceAtLeast(if (completed) 1 else 0)
 }
@@ -118,7 +121,7 @@ internal fun focalMergeSession(local: FocalStudyEntry?, remote: FocalStudyEntry)
         !(remote.deleted || (remote.completed && !local.deleted && !local.completed))) {
         return if (remote.revision > local.revision) local.copy(revision = remote.revision, remotePayload = remote.remotePayload) else local
     }
-    return remote.copy(kind = if (local.notebookId != null) local.kind else remote.kind,
+    return remote.copy(kind = if (remote.kind == "sac" || local.notebookId == null) remote.kind else local.kind,
         startedAt = if (local.notebookId != null && !remote.completed) local.startedAt else remote.startedAt,
         notebookId = local.notebookId ?: remote.notebookId,
         notebookTitle = local.notebookTitle ?: remote.notebookTitle)
@@ -249,6 +252,7 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
                             subjects: List<FocalSubject> = FocalSubjects.builtIn): FocalStudyEntry {
     val started = requireNotNull(timer.startedAt)
     val subject = existing?.subjectId ?: FocalSubjects.suggest(note, subjects)
+    val kind = existing?.kind ?: if (note.exam.type == ExamType.SAC) "sac" else "exam"
     val activeMillis = timer.elapsedActiveMillis(now)
     val activeEnd = started + timer.pausedMillis + activeMillis
     val intervals = (existing?.intervals ?: emptyList()).toMutableList()
@@ -266,10 +270,10 @@ internal fun examStudyEntry(note: Notebook, timer: ExamTimerState, now: Long,
                 if (completed) activeEnd else null))
     }
     return (existing ?: FocalStudyEntry(notebookId = note.id, title = focalSessionTitle(subject, subjects),
-        subjectId = subject, kind = "exam", startedAt = started,
+        subjectId = subject, kind = kind, startedAt = started,
         endedAt = now, activeMillis = activeMillis, notebookTitle = note.title)).copy(
         changeId = UUID.randomUUID().toString(),
-        title = focalSessionTitle(subject, subjects), subjectId = subject, kind = "exam",
+        title = focalSessionTitle(subject, subjects), subjectId = subject, kind = kind,
         endedAt = now.coerceAtLeast(started + 1_000L), activeMillis = activeMillis, notebookTitle = note.title,
         completed = completed, deleted = completed && activeMillis == 0L,
         paused = timer.paused, examPhase = timer.phase.name.lowercase(),

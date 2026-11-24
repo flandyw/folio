@@ -103,6 +103,8 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     var subject by rememberSaveable { mutableStateOf("") }
     var paper by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf("") }
+    var topic by rememberSaveable { mutableStateOf("") }
+    var difficulty by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
     // Debounced query drives the O(N) filter so typing never blocks the text field.
     var debouncedQuery by rememberSaveable { mutableStateOf("") }
@@ -164,7 +166,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
     val overdue = remember(mistakes, clockNow) { MistakeScheduler.getOverdueMistakes(mistakes, clockNow) }
     val overdueIds = remember(overdue) { overdue.map { it.id }.toSet() }
     // Today can focus one subject; a focus whose questions are all done falls back to everything.
-    fun subjectOf(m: ExamTrackMistake) = state.cache.contexts[m.attemptId]?.subject.orEmpty().ifBlank { MistakeToday.UNSORTED }
+    fun subjectOf(m: ExamTrackMistake) = m.subjectFor(state.cache.contexts[m.attemptId]?.subject) ?: MistakeToday.UNSORTED
     val dueSubjects = remember(due, state.cache.contexts) { MistakeToday.subjects(due, ::subjectOf) }
     val todayFocus = focusSubject.takeIf { f -> dueSubjects.any { it.first == f } }.orEmpty()
     val focusedDue = remember(orderedDue, todayFocus, state.cache.contexts) {
@@ -222,19 +224,21 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         (state.cache.contexts.values.map { it.paper }.filter { it.isNotBlank() } + paper)
             .filter { it.isNotBlank() }.distinct().sorted()
     }
-    val subjects = remember(state.cache.contexts, subject) {
-        (state.cache.contexts.values.map { it.subject }.filter { it.isNotBlank() } + subject)
+    val subjects = remember(mistakes, state.cache.contexts, subject) {
+        (mistakes.mapNotNull { it.subjectFor(state.cache.contexts[it.attemptId]?.subject) } + subject)
             .filter { it.isNotBlank() }.distinct().sorted()
     }
+    val topics = remember(mistakes, topic) { (mistakes.mapNotNull { it.topic } + topic).filter(String::isNotBlank).distinct().sorted() }
+    val difficulties = remember(mistakes, difficulty) { (mistakes.mapNotNull { it.difficultyLabel } + difficulty).filter(String::isNotBlank).distinct().sorted() }
     val librarySort = MistakeLibrarySort.parse(sort)
-    val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, debouncedQuery, state.cache.contexts, schedules, librarySort) {
+    val visible = remember(mistakes, due, overdueIds, filter, subject, paper, category, topic, difficulty, debouncedQuery, state.cache.contexts, schedules, librarySort) {
         val q = debouncedQuery.trim().lowercase()
         val words = q.split(Regex("[\\s\\p{Z}]+"))
         // Set lookup keeps Due/Upcoming filtering O(N) instead of O(N²) list scans.
         val dueSet = due.toSet()
         mistakes.filter { m ->
             val ctx = state.cache.contexts[m.attemptId]
-            val matchesSubject = subject.isBlank() || ctx?.subject == subject
+            val matchesSubject = subject.isBlank() || m.subjectFor(ctx?.subject) == subject
             val matchesPaper = paper.isBlank() || ctx?.paper == paper
             val matchesCategory = category.isBlank() || category == m.category
             val matchesFilter = when (filter) {
@@ -246,9 +250,10 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             }
             val matchesQuery = q.isBlank() || listOfNotNull(
                 m.question, m.questionText, m.category, m.explanation, m.correction, m.areaOfStudy, m.criterion,
-                ctx?.subject, ctx?.title, ctx?.paper
+                m.subjectFor(ctx?.subject), m.topic, m.difficultyLabel, ctx?.title, ctx?.paper
             ).joinToString(" ").lowercase().let { text -> words.all { it in text } }
-            matchesSubject && matchesPaper && matchesCategory && matchesFilter && matchesQuery
+            matchesSubject && matchesPaper && matchesCategory && (topic.isBlank() || m.topic == topic) &&
+                (difficulty.isBlank() || m.difficultyLabel == difficulty) && matchesFilter && matchesQuery
         }.let { librarySort.sorted(it, schedules) }
     }
     // Review respects the current list filters so "MM · Exam 1" reviews only those due cards,
@@ -477,7 +482,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
         PreviousAttemptDialog(listOf(previous), folio, closeLabel = "Back to question",
             onOpenPage = { id -> viewingAttempt = null; folio.open(id); onBack() }) { viewingAttempt = null }
     }
-    fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = "" }
+    fun clearFilters() { query = ""; filter = "All"; subject = ""; paper = ""; category = ""; topic = ""; difficulty = "" }
     /** Deletes one card from a list row's long-press menu — same flow as the detail screen. */
     fun deleteCard(id: String) {
         if (working) return
@@ -498,7 +503,7 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
             confirmDelete = null; deleteCard(target.id)
         }
     }
-    val scopeCount = listOf(subject, paper, category).count { it.isNotBlank() }
+    val scopeCount = listOf(subject, paper, category, topic, difficulty).count { it.isNotBlank() }
     val localNotes = remember(folioState.notes) { folioState.notes.filter { it.mistakePractice }.sortedByDescending { it.updated } }
     val unfinishedByMistake = remember(folioState.notes, state.userId) {
         state.userId?.let { unfinishedAttempts(folioState.notes, it) }.orEmpty()
@@ -723,13 +728,15 @@ fun MistakesScreen(model: MistakesViewModel, folio: FolioViewModel, folioState: 
                                             MistakeFilterOptions("Subject", subjects, subject) { subject = it }
                                             MistakeFilterOptions("Paper", papers, paper) { paper = it }
                                             MistakeFilterOptions("Category", mistakes.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(), category) { category = it }
+                                            MistakeFilterOptions("Topic", topics, topic) { topic = it }
+                                            MistakeFilterOptions("Difficulty", difficulties, difficulty) { difficulty = it }
                                             Button({ showFilters = false }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text("Show ${countLabel(visible.size, "question")}") }
-                                            TextButton({ subject = ""; paper = ""; category = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
+                                            TextButton({ subject = ""; paper = ""; category = ""; topic = ""; difficulty = "" }, shapes = ButtonDefaults.shapes()) { Text("Reset filters") }
                                         }
                                     }
                                     if (scopeCount > 0 || query.isNotBlank() || filter != "All") TextButton(::clearFilters, shapes = ButtonDefaults.shapes()) { Text("Reset") }
                                 }
-                                if (scopeCount > 0) Text(listOf(subject, paper, category).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                if (scopeCount > 0) Text(listOf(subject, paper, category, topic, difficulty).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 if (reviewCandidates.isNotEmpty()) FilledTonalButton({ startSession(reviewCandidates) }, enabled = !working, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                                     Icon(FolioIcons.Play, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(FolioSpacing.dp6))

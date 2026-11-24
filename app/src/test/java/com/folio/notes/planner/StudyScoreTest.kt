@@ -53,4 +53,12 @@ class StudyScoreTest {
         assertEquals(33, biology.studyScore); assertEquals(31, biology.low); assertEquals(35, biology.high)
         assertEquals(67.20211930926217, biology.combinedPercentile, 1e-6)
     }
+
+    @Test fun explicitPaperTypeWinsAndCombinedMathsIsExcluded() {
+        val misleading = exam("a", "Mathematical Methods", "Exam 1", 2024, 60, 80, "2026-08-01")
+        fun withType(type: String) = misleading.copy(originalJson = misleading.json.put("paperType", type).toString())
+        val prediction = StudyScore.predict("Mathematical Methods", listOf(withType("exam2")), references)!!
+        assertEquals(listOf(0, 1), prediction.components.take(2).map { it.evidenceCount })
+        assertEquals(null, StudyScore.predict("Mathematical Methods", listOf(withType("combined")), references))
+    }
 }
