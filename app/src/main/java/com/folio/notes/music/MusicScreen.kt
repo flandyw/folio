@@ -41,7 +41,7 @@ import com.folio.notes.library.libraryLastEditedLabel
 import com.folio.notes.ui.FolioActionPopover
 import com.folio.notes.ui.PopoverRow
 import androidx.compose.ui.graphics.Color
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioExpand
 import com.folio.notes.ui.FolioMenuItem

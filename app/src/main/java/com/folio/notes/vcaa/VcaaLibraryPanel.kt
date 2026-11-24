@@ -39,7 +39,7 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.exam.ExamType
 import com.folio.notes.exam.VceSubject
 import com.folio.notes.exam.subjectColor
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.Paper
 import com.folio.notes.settings.rememberPref

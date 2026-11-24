@@ -29,7 +29,7 @@ import androidx.compose.ui.zIndex
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.input.longPressAction
 import com.folio.notes.input.rememberLongPressGuard
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.DrawingTools
 import com.folio.notes.model.ShapePickerTools
 import com.folio.notes.model.StrokeStyle

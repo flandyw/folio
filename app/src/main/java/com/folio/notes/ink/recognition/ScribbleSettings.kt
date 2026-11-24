@@ -18,7 +18,7 @@ import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.toolbar.EditorQuickPrefs
 import com.folio.notes.ink.InkView
 import com.folio.notes.input.LocalStylusActivity
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Paper

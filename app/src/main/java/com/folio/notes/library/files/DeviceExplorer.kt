@@ -38,7 +38,7 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.app.NameDialog
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.libraryLastEditedLabel
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.storage.SharedStorageRules
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem

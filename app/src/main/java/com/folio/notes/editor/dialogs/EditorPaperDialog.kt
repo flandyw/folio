@@ -11,7 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.app.FolioViewModel
 import com.folio.notes.editor.EditorPaperState
 import com.folio.notes.editor.toolbar.FolioPopover
