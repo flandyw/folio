@@ -113,7 +113,7 @@ import com.folio.notes.ui.FolioSpacing
                 Text("$pageCount", Modifier.widthIn(min = 32.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 IconButton({ pageCount = (pageCount + 1).coerceAtMost(40) }, enabled = pageCount < 40, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "More pages") }
             }
-            if (infinite) Text("An unlimited workspace for handwriting and ideas. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (infinite) Text("An unbounded canvas for handwriting and diagrams. Pan in any direction and pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             NotebookTemplate.byId(template)?.let { item -> Text(item.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             TextButton({ appearanceExpanded = !appearanceExpanded }, shapes = ButtonDefaults.shapes()) {
                 Icon(FolioIcons.Palette, null); Spacer(Modifier.width(FolioSpacing.dp8))
@@ -126,7 +126,7 @@ import com.folio.notes.ui.FolioSpacing
                     Column(Modifier.weight(1f)) {
                         Text("First page as cover", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            if (pageCover) "The shelf shows the first page itself" else "The shelf shows the default cover",
+                            if (pageCover) "Shows the first page on the shelf" else "Shows the decorative cover on the shelf",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -144,11 +144,11 @@ import com.folio.notes.ui.FolioSpacing
                     }) })
                 }
             }
-            if (paper == Paper.MATH_GRID) Text("Fine 20 px grid — ideal for workings & fractions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (paper == Paper.GRAPH) Text("Same grid with centred X/Y axes printed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (paper == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet — shade A–E with the pen", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (paper == Paper.TIAN_GRID) Text("田字格 — one character per square with a dashed cross", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (paper == Paper.MI_GRID) Text("米字格 — cross plus diagonals in each square", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.MATH_GRID) Text("Fine 20 px grid, suited to working and fractions.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.GRAPH) Text("Fine grid with centred X and Y axes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.MC_SHEET) Text("Exam 2 Section A answer sheet. Shade A–E with the pen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.TIAN_GRID) Text("田字格: one character per square with a dashed cross.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (paper == Paper.MI_GRID) Text("米字格: cross and diagonals in each square.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp12), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
@@ -163,7 +163,7 @@ import com.folio.notes.ui.FolioSpacing
     if (discard) AlertDialog(
         onDismissRequest = { discard = false },
         title = { Text("Discard this notebook draft?") },
-        text = { Text("Your name, paper and cover choices have not been saved.") },
+        text = { Text("Your name, paper, and cover choices haven't been saved.") },
         confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
         dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } }
     )

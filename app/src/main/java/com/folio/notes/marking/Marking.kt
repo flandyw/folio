@@ -90,7 +90,7 @@ object Marking {
 
     fun sheetHeader(): List<TextBox> = listOf(
         TextBox(x = 40f, y = 40f, width = 520f, text = "Feedback", size = 44f, bold = true, color = DEFAULT_COLOR),
-        TextBox(x = 40f, y = 96f, width = 700f, text = "Numbers match the flags on the pages — write beside each one.",
+        TextBox(x = 40f, y = 96f, width = 700f, text = "Numbers match the flags on the pages; write beside each one.",
             size = 20f, color = 0xFF6B6F6C.toInt())
     )
 

@@ -55,7 +55,7 @@ import com.folio.notes.model.Notebook
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            scanStatus = "Couldn’t read printed marks. Turn the switch off and on to retry."
+            scanStatus = "Couldn't read printed marks. Toggle the switch to retry."
         } finally { scanBusy = false }
     }
 }

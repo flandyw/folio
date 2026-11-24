@@ -70,7 +70,7 @@ internal fun PreviousAttemptDialog(
                 }
                 if (current == null) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        EmptyHint("No previous attempts yet — your first page will appear here next time.", textAlign = TextAlign.Center)
+                        EmptyHint("No previous attempts yet. Your first page will appear here next time.", textAlign = TextAlign.Center)
                     }
                 } else {
                     if (attempts.size > 1) {
@@ -117,7 +117,7 @@ internal fun PreviousAttemptDialog(
                             )
                         }
                         Text(
-                            "Stuck? Copy the approach, not the answer — then close this and keep practising.",
+                            "Stuck? Copy the approach, not the answer, then close this and keep practising.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -219,7 +219,7 @@ private fun PreviousAttemptPage(
                     when {
                         image != null -> Image(
                             image.asImageBitmap(),
-                            "Previous working, page ${pageIndex + 1} — tap to enlarge",
+                            "Previous working, page ${pageIndex + 1} (tap to enlarge)",
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = FolioShapes.largeRadius, topEnd = FolioShapes.largeRadius))
                                 .clickable(onClickLabel = "Enlarge page ${pageIndex + 1}") { onEnlarge() },
                             contentScale = ContentScale.FillWidth,

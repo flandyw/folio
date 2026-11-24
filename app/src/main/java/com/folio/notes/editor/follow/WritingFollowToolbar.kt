@@ -90,7 +90,7 @@ private enum class FollowSub { AREAS, LINES, PEEK }
         ) { Text(responseLabel) }
         else WritingFollowControl(
             if (infinite) FolioIcons.Text else FolioIcons.Forward,
-            if (infinite) responseLabel else if (enabled) "Writing follow on — tap to turn off" else "Turn on writing follow",
+            if (infinite) responseLabel else if (enabled) "Writing follow on (tap to turn off)" else "Turn on writing follow",
             enabled = !peekOpen && !overview, active = enabled,
             onClick = actions.toggle
         )

@@ -30,13 +30,13 @@ import com.folio.notes.ui.FolioSpacing
             selected = selected == PdfExportMode.PRESERVE,
             onClick = { onSelect(PdfExportMode.PRESERVE) },
             title = "Preserve original PDF",
-            subtitle = "Keeps searchable/selectable text, vectors and links where possible. Folio annotations are added as an overlay."
+            subtitle = "Keeps searchable text, vectors, and links where possible, adding Folio annotations as an overlay."
         )
         PdfModeRow(
             selected = selected == PdfExportMode.RASTERISE,
             onClick = { onSelect(PdfExportMode.RASTERISE) },
             title = "Rasterise pages",
-            subtitle = "Flattens each page and its annotations into an image. Larger files and non-selectable text, but maximum visual compatibility."
+            subtitle = "Flattens each page and its annotations into an image. Produces larger files without selectable text, with maximum viewer compatibility."
         )
     }
 }

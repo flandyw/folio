@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
             // A soft scrim keeps the star legible over busy engraving on the white cover.
             IconButton(star, modifier = Modifier.align(Alignment.TopEnd).padding(FolioSpacing.dp2), shapes = IconButtonDefaults.shapes(),
                 colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = .68f))) {
-                Icon(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favorites" else "Add to favorites",
+                Icon(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favourites" else "Add to favourites",
                     Modifier.size(21.dp).folioSelected(score.starred),
                     tint = if (score.starred) MaterialTheme.colorScheme.primary else Color(0xFF5F6368))
             }
@@ -66,7 +66,7 @@ import kotlinx.coroutines.withContext
 
 @Composable internal fun ScoreRow(score: MusicScore, model: MusicViewModel, modifier: Modifier, open: () -> Unit, star: () -> Unit, delete: () -> Unit, menu: @Composable () -> Unit) {
     FolioSwipeRow(modifier, shape = FolioShapes.large,
-        startToEnd = SwipeAction(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favorites" else "Add to favorites", perform = star),
+        startToEnd = SwipeAction(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favourites" else "Add to favourites", perform = star),
         endToStart = SwipeAction(FolioIcons.Delete, "Delete score", destructive = true, perform = delete)) {
     Surface(onClick = open, shape = FolioShapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Box {
@@ -78,7 +78,7 @@ import kotlinx.coroutines.withContext
                     Text(scoreMeta(score), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(star, shapes = IconButtonDefaults.shapes()) {
-                    Icon(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favorites" else "Add to favorites",
+                    Icon(if (score.starred) FolioIcons.StarFilled else FolioIcons.Star, if (score.starred) "Remove from favourites" else "Add to favourites",
                         Modifier.folioSelected(score.starred))
                 }
                 menu()

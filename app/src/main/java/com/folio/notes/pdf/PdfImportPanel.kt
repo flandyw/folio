@@ -115,12 +115,12 @@ internal fun PdfImportDialog(
                         if (aiCheck) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                     }
                     if (checkingDuplicates) Text("Checking for existing copies…", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
-                    if (duplicateCheckError) Text("Some PDFs could not be checked for duplicates. You can still review and import them.", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
+                    if (duplicateCheckError) Text("Some PDFs couldn't be checked for duplicates. You can still review and import them.", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodySmall)
                     if (files.size > 1) TextButton({
                         files.filter { it.detected && !it.plainPdf }.forEach { file ->
                             onUpdate(file.withExam(file.exam.copy(subject = selected.exam.subject, subjectText = selected.exam.subjectText, year = selected.exam.year, company = selected.exam.company, tags = selected.exam.tags)))
                         }
-                    }, enabled = selected.detected && !selected.plainPdf) { Text("Apply this subject, year, company and exam tags to all") }
+                    }, enabled = selected.detected && !selected.plainPdf) { Text("Apply this subject, year, company, and exam tags to all") }
                     duplicates[selected.uri.toString()]?.let { existingId ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("This PDF already exists in ${state.notes.firstOrNull { it.id == existingId }?.title ?: "your library"}.", Modifier.weight(1f))
@@ -212,7 +212,7 @@ private fun ImportFileTile(item: PendingPdfImport, selected: Boolean, onSelect: 
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
         ListItem(headlineContent = { Text(if (item.detected) item.title else "Reading PDF…", maxLines = 2, overflow = TextOverflow.Ellipsis) },
             supportingContent = { Text(when {
-                item.inspectionError != null -> "Couldn’t read this file"
+                item.inspectionError != null -> "Couldn't read this file"
                 !item.detected -> "Finding document details"
                 item.aiCheck == AiCheck.RUNNING -> "Checking with AI…"
                 item.aiCheck == AiCheck.SUGGESTED -> "AI suggestion to review"
@@ -258,7 +258,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
             item {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.errorContainer) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Couldn’t read this PDF", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text("Couldn't read this PDF", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
                         Text(item.inspectionError, color = MaterialTheme.colorScheme.onErrorContainer)
                         TextButton(onRemove, shapes = ButtonDefaults.shapes()) { Text("Remove from import") }
                     }
@@ -314,7 +314,7 @@ private fun ImportDetails(item: PendingPdfImport, onUpdate: (PendingPdfImport) -
                                     TextButton({ onUpdate(item.withExam(tags).copy(aiCheck = AiCheck.APPLIED)) }, shapes = ButtonDefaults.shapes()) { Text("Use these details") }
                                 }
                             }
-                            AiCheck.FAILED -> Text("The AI check couldn’t be completed for this document.", style = MaterialTheme.typography.bodySmall, color = muted)
+                            AiCheck.FAILED -> Text("The AI check couldn't be completed for this document.", style = MaterialTheme.typography.bodySmall, color = muted)
                             null -> {}
                         }
                         TextButton({ editDetails = !editDetails }, shapes = ButtonDefaults.shapes()) {

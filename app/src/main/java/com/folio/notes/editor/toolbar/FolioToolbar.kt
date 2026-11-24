@@ -196,7 +196,7 @@ private val BarGap = FolioSpacing.dp12
                 if (dense) DockButton(FolioIcons.Fit, fitLabel, onFit)
                 onChatGpt?.let { DockButton(FolioIcons.Sparkle, "Review page with AI", it) }
                 // Opens a second document beside this one, or closes the split; lit while the split is open.
-                split?.let { DockButton(FolioIcons.Split, if (it.open) "Close split view" else "Split view — open a document beside",
+                split?.let { DockButton(FolioIcons.Split, if (it.open) "Close split view" else "Split view: open a document beside",
                     it.toggle, tint = if (it.open) MaterialTheme.colorScheme.primary else LocalContentColor.current) }
                 DockButton(FolioIcons.Share, "Share or export", onExport, onLongClick = onShareLongPress)
                 Box {

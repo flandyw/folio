@@ -48,7 +48,7 @@ internal fun FocalSubjectPicker(subjects: List<FocalSubject>, selected: String?,
                     label = { Text(subject.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = if (hue != null) { { Box(Modifier.size(8.dp).background(hue, CircleShape)) } } else null)
             }
-            if (subjects.isEmpty()) EmptyHint("No subjects yet — sessions are saved without one.")
+            if (subjects.isEmpty()) EmptyHint("No subjects yet; sessions save without one.")
         }
     }
 }

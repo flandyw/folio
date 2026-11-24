@@ -471,7 +471,7 @@ import java.io.File
             updates.message("Installing Folio ${ready.update.versionName}…")
             // Keep the APK if the install is cancelled. The next app start removes installed builds.
         } catch (_: Exception) {
-            updates.message("Android could not install the downloaded update.")
+            updates.message("Android couldn't install the downloaded update.")
         }
     }
     // Deferred past first paint + library load so cold start never competes with a network fetch.
@@ -713,7 +713,7 @@ import java.io.File
                 ExportOption(FolioIcons.Book, "Export specific pages", "Choose pages for a PDF or PNG images") {
                     exportMenu = false; pageExportDialog = true
                 }
-                ExportOption(FolioIcons.Archive, "Save as Folio backup", "A compact file with every page, image, PDF and undo history") {
+                ExportOption(FolioIcons.Archive, "Save as Folio backup", "A compact archive with every page, image, PDF, and undo history") {
                     state.active?.let { saveArchive.launch("${exporter.filename(it)}.folio") }; exportMenu = false
                 }
             }

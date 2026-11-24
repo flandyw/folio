@@ -106,7 +106,7 @@ internal fun FocalLoginCard(
                         LoginStep.SIGN_IN -> if (state.needsSignIn) state.status else
                             "Your study sessions and mistake review, together. Sign in with your Focal account."
                         LoginStep.CREATE_ACCOUNT -> "One account for study sessions and mistake review in Folio and Focal."
-                        LoginStep.RESET_PASSWORD -> "Enter your Focal email. We’ll send you a link to choose a new password."
+                        LoginStep.RESET_PASSWORD -> "Enter your Focal email. We'll send you a link to choose a new password."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
