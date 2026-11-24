@@ -55,7 +55,7 @@ class FocalStudyManager(context: Context) {
         val serverMillis = value?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: return
         serverClockAnchor = focalObserveServerClock(serverClockAnchor, serverMillis, SystemClock.elapsedRealtime())
     }
-    private val file = AtomicFile(File(context.filesDir, "focal-study.json"))
+    private val file = AtomicFile(File(context.filesDir, SESSIONS_FILE))
     private val gate = Mutex()
     // Study sessions and mistake review share one Supabase client and one account.
     private val connection = FocalSupabaseConnection.of(context)
@@ -624,6 +624,7 @@ class FocalStudyManager(context: Context) {
     fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = this.now(), phaseAt: Long? = null) {
         val started = timer.startedAt ?: return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
+        if (!lifecycle.enabled.value && existing == null) return
         if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedActiveMillis(now) <= 0L)) return
         val entry = examStudyEntry(note, timer, now, existing, completed = true, subjects = _state.value.subjects)
         updateExam(focalAppendExamBoundaries(entry, focalExamBoundariesFor(existing, timer, now,
@@ -637,7 +638,7 @@ class FocalStudyManager(context: Context) {
             state.copy(entries = if (present) state.entries.map { if (it.id == entry.id) entry else it }
                 else listOf(entry) + state.entries, error = null)
         }
-        if (persist()) scope.launch { publishEntry(entry) }
+        if (persist() && lifecycle.enabled.value) scope.launch { publishEntry(entry) }
     }
     fun logManual(note: Notebook?, subjectId: String?, minutes: Int, notes: String,
                   confidence: Int?, now: Long = this.now()): Boolean {
@@ -763,6 +764,9 @@ class FocalStudyManager(context: Context) {
     }
 
     companion object {
+        private const val SESSIONS_FILE = "focal-study.json"
+        internal fun hasSavedSessions(context: Context): Boolean =
+            File(context.filesDir, SESSIONS_FILE).exists() || File(context.filesDir, "$SESSIONS_FILE.bak").exists()
         private const val FOCUS_CHECKPOINT_INTERVAL_MS = 5_000L
         private const val EXAM_SYNC_INTERVAL_MS = 30_000L
         private const val MAX_OWN_CHANGE_IDS = 200

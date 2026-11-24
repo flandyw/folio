@@ -36,6 +36,8 @@ class FolioApplication : Application() {
     internal val focalEnabled = mutableFocalEnabled.asStateFlow()
 
     val focalStudy by lazy { FocalStudyManager(this) }
+    internal fun focalStudyForExistingSitting(): FocalStudyManager? =
+        if (FocalStudyManager.hasSavedSessions(this)) focalStudy else null
     val focalProgress by lazy { ExamProgressManager(this) }
 
     /** Held for the process lifetime: SharedPreferences keeps its listeners weakly. */

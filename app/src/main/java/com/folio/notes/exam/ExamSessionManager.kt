@@ -28,6 +28,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     val state get() = runtime._state.timerState
     private val epochAtBoot = System.currentTimeMillis() - SystemClock.elapsedRealtime()
     private val focalStudy get() = runtime.application.let { if (it.focalEnabled.value) it.focalStudy else null }
+    private fun existingFocalSitting() = focalStudy ?: runtime.application.focalStudyForExistingSitting()
     internal fun migrateLegacyTimer(notes: List<Notebook>) {
         with(runtime) {
             if (!prefs.contains(TIMER_START_KEY)) return
@@ -114,9 +115,10 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
         with(runtime) {
             val note = _state.value.active ?: return
             if (timer.startedAt == null) return
-            val focal = focalStudy ?: return
-            if (timer.phase == ExamTimerPhase.DONE) focal.finishExam(note, timer, now, phaseAt)
-            else if (timer.active) focal.recordExamProgress(note, timer, now, force, phaseAt)
+            if (timer.phase == ExamTimerPhase.DONE) {
+                if (force) existingFocalSitting()?.finishExam(note, timer, now, phaseAt)
+                else focalStudy?.finishExam(note, timer, now, phaseAt)
+            } else if (timer.active) focalStudy?.recordExamProgress(note, timer, now, force, phaseAt)
         }
     }
 
@@ -325,7 +327,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             val current = _state.value.timer
             val now = timerNow()
             val spent = current.elapsedWriting(now).takeIf { current.startedAt != null && it > 0 }
-            if (current.startedAt != null) focalStudy?.finishExam(
+            if (current.startedAt != null) existingFocalSitting()?.finishExam(
                 requireNotNull(_state.value.active), current, now)
             clearSitting()
             _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
