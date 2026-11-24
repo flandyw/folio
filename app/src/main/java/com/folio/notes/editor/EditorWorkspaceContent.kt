@@ -141,6 +141,7 @@ import com.folio.notes.workspace.LocalSharedInk
 import com.folio.notes.workspace.LocalToolbarPortal
 import com.folio.notes.workspace.ToolbarPortalContent
 import com.folio.notes.workspace.WorkspaceViewport
+import com.folio.notes.workspace.cycleTab
 import com.folio.notes.workspace.restoredTool
 import com.folio.notes.workspace.splitTabs
 import kotlinx.coroutines.CancellationException
@@ -675,8 +676,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     fun openSearch() { finishTextEditing(); if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true }
     fun newNotebook() { context.startActivity(Intent(context, MainActivity::class.java).setAction("com.folio.notes.NEW_NOTE").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }
     fun switchNotebook(back: Boolean) {
-        val tabs = state.tabs
-        if (tabs.size > 1) { finishTextEditing(); val index = tabs.indexOfFirst { it.notebookId == note.id }; model.open(tabs[(index + if (back) tabs.size - 1 else 1) % tabs.size].notebookId) }
+        val tab = state.cycleTab(note.id, back) ?: return
+        finishTextEditing()
+        model.open(tab.notebookId)
     }
     /** Previous/next page in either view; the single-page view starts each page fitted. */
     fun turnPage(forward: Boolean) {
