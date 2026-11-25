@@ -103,4 +103,14 @@ class StudyScoreTest {
         assertEquals(35.0, prediction.examWeightPercent, 0.0)
         assertEquals(1, prediction.components.single().evidenceCount)
     }
+
+    @Test fun hyphenatedMathsSubjectsKeepTheirExamSplit() {
+        for (subject in listOf("Mathematical-Methods", "Specialist-Mathematics")) {
+            val exams = listOf(exam("one", subject, "Exam 1", 2024, 30, 40, "2026-08-01"),
+                exam("two", subject, "Exam 2", 2024, 55, 80, "2026-08-10"))
+            val prediction = requireNotNull(StudyScore.predict(subject, exams, references))
+            assertEquals(subject, listOf(20.0, 40.0), prediction.components.map { it.weightPercent })
+            assertEquals(subject, listOf(1, 1), prediction.components.map { it.evidenceCount })
+        }
+    }
 }

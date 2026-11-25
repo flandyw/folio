@@ -47,7 +47,7 @@ object StudyScore {
 
     private val twoPaper = Regex("mathematical methods|specialist mathematics", RegexOption.IGNORE_CASE)
     /** Subjects whose exam weight is split across Exam 1 and Exam 2 and fixed, ignoring the typed exam weight. */
-    fun hasExamSplit(subject: String) = twoPaper.containsMatchIn(subject)
+    fun hasExamSplit(subject: String) = twoPaper.containsMatchIn(studyKey(subject))
     fun defaultExamWeight(subject: String) = if (hasExamSplit(subject)) 60.0 else 50.0
 
     private val aliases = mapOf("english eal" to "english as an additional language", "english esl" to "english as an additional language",
