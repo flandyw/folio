@@ -52,7 +52,13 @@ import com.folio.notes.ui.FolioSpacing
             input = ""
         }
     }
-    FolioPanel(if (notes.size == 1) "Notebook tags" else "Tag ${notes.size} notebooks", onDismiss) {
+    var discard by rememberSaveable { mutableStateOf(false) }
+    fun canDismiss(): Boolean {
+        val changed = tagDraftChanges(notes.map { it.tags }, pending, removed)
+        if (changed) discard = true
+        return !changed
+    }
+    FolioPanel(if (notes.size == 1) "Notebook tags" else "Tag ${notes.size} notebooks", onDismiss, canDismiss = ::canDismiss) {
         Column(Modifier.padding(horizontal = FolioSpacing.dp24).weight(1f, false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text(if (notes.size == 1) "Labels make notebooks easier to find." else "Mixed tags stay on their original notebooks until you change them.", style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
@@ -64,25 +70,26 @@ import com.folio.notes.ui.FolioSpacing
             FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                 labels.forEach { label ->
                     val count = notes.count { n -> n.tags.any { it.equals(label, true) } }
-                    val active = label in added || (count > 0 && label !in removed)
+                    val active = tagChipActive(label, count, added, removed)
                     FilterChip(active, {
-                        when {
-                            label in added -> { added = added - label; if (count > 0) removed = removed + label }
-                            label in removed -> { removed = removed - label; added = added + label }
-                            count == notes.size -> removed = removed + label
-                            else -> added = added + label
-                        }
-                    }, { Text(if (count in 1 until notes.size && label !in added && label !in removed) "$label · Mixed" else label) },
+                        toggleTagDraft(label, count, notes.size, added, removed).let { (a, r) -> added = a; removed = r }
+                    }, { Text(if (tagChipMixed(label, count, notes.size, added, removed)) "$label · Mixed" else label) },
                         leadingIcon = { Icon(if (active) FolioIcons.Check else FolioIcons.Tag, null, Modifier.size(18.dp)) })
                 }
             }
             Text(if (tooMany) "A notebook has too many tags. Remove a tag before saving." else "Up to ${NotebookTags.MAX_TAGS} tags per notebook", style = MaterialTheme.typography.bodySmall, color = if (tooMany) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(Modifier.fillMaxWidth().padding(FolioSpacing.dp24), horizontalArrangement = Arrangement.End) {
-            TextButton(onDismiss, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
+            TextButton({ if (canDismiss()) onDismiss() }, shapes = ButtonDefaults.shapes()) { Text("Cancel") }
             Button({ onApply(pending, removed) }, enabled = !tooMany, shapes = ButtonDefaults.shapes()) { Text("Save tags") }
         }
     }
+    if (discard) AlertDialog(
+        onDismissRequest = { discard = false },
+        title = { Text("Discard tag changes?") },
+        text = { Text("Your tag changes have not been saved.") },
+        confirmButton = { TextButton(onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") } },
+        dismissButton = { TextButton({ discard = false }) { Text("Keep editing") } })
 }
 
 @Composable internal fun ExplorerBreadcrumbs(crumbs: List<Pair<String, () -> Unit>>, drag: NotebookDragState? = null,
