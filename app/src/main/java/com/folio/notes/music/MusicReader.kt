@@ -37,6 +37,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.zIndex
@@ -250,8 +254,8 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
             onTurn = ::turn,
             onKey = ::onKey,
             chrome = { insets ->
-                @Composable fun Anchored(kind: ReaderPopover, width: androidx.compose.ui.unit.Dp = 320.dp, content: @Composable ColumnScope.() -> Unit) {
-                    if (popover == kind) FolioPopover(::close, width = width, content = content)
+                @Composable fun Anchored(kind: ReaderPopover, title: String, width: androidx.compose.ui.unit.Dp = 320.dp, content: @Composable ColumnScope.() -> Unit) {
+                    if (popover == kind) FolioPopover(::close, modifier = Modifier.semantics { paneTitle = title }, width = width, content = content)
                 }
                 // Night reading: a plain scrim over the desk only. It carries no pointer input, so every
                 // tap and stroke still reaches the page underneath.
@@ -278,12 +282,12 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                             ReaderButton(FolioIcons.Back, "Back to Music", onClick = onBack)
                             Box {
                                 ReaderButton(FolioIcons.Bookmarks, "Rehearsal marks") { popover = ReaderPopover.MARKS }
-                                Anchored(ReaderPopover.MARKS) { MarksPopover(score, start, visible, model) { go(it); close() } }
+                                Anchored(ReaderPopover.MARKS, "Rehearsal marks") { MarksPopover(score, start, visible, model) { go(it); close() } }
                             }
                             Box {
                                 if (running) BeatButton(score.bpm, beat, metronomeBeatStrength(beat - 1, if (leadBars > 0) emptyList() else score.beatAccents, leadBars > 0 || accent) == 2) { popover = ReaderPopover.METRONOME }
                                 else ReaderButton(FolioIcons.Speed, "Metronome") { popover = ReaderPopover.METRONOME }
-                                Anchored(ReaderPopover.METRONOME) {
+                                Anchored(ReaderPopover.METRONOME, "Metronome") {
                                     MetronomePopover(score, model, running, ::setRunning, sound, ::setSound, beat,
                                         accent, ::setAccent, subdivision, ::setSubdivision, countInBars, ::setCountInBars,
                                         voice, ::setVoice, volume, ::setVolume, leadBars, audioError)
@@ -298,13 +302,13 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                         FloatingRail {
                             Box {
                                 ReaderButton(FolioIcons.MoreVertical, "Score options") { popover = ReaderPopover.MORE }
-                                Anchored(ReaderPopover.READING) {
+                                Anchored(ReaderPopover.READING, "Reading and timed turns") {
                                     ReadingPopover(score, model, canStart = !last) {
                                         close(); autoTurning = true; onPerformance(true)
                                     }
                                 }
-                                Anchored(ReaderPopover.MORE) {
-                                    Text(score.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Anchored(ReaderPopover.MORE, "Score options") {
+                                    Text(score.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text(listOfNotNull(score.composer.ifBlank { null }, score.part.ifBlank { null }, setLabel,
                                         com.folio.notes.model.countOf(score.pages, "page"), score.durationSeconds?.let { musicDurationText(it.toLong()) },
                                         if (score.annotationCount() > 0) com.folio.notes.model.countOf(score.annotationCount(), "pencil mark") else null).joinToString(" · "),
@@ -344,12 +348,12 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                             }
                             Box {
                                 ReaderButton(FolioIcons.Repeat, "Repeats and codas") { popover = ReaderPopover.JUMPS }
-                                Anchored(ReaderPopover.JUMPS) { JumpsPopover(score, start, model) { jump(it); close() } }
+                                Anchored(ReaderPopover.JUMPS, "Repeats and codas") { JumpsPopover(score, start, model) { jump(it); close() } }
                             }
                             if (runningOrder.isNotEmpty()) Box {
                                 ReaderButton(FolioIcons.Numbered, "Running order") { popover = ReaderPopover.ORDER }
-                                Anchored(ReaderPopover.ORDER) {
-                                    Text(setLabel.orEmpty(), style = MaterialTheme.typography.titleMedium)
+                                Anchored(ReaderPopover.ORDER, setLabel ?: "Running order") {
+                                    setLabel?.let { Text(it, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium) }
                                     runningOrder.forEachIndexed { index, piece ->
                                         PopoverRow(FolioIcons.Music, "${index + 1}. ${piece.displayTitle()}",
                                             selected = piece.id == score.id) { close(); if (piece.id != score.id) onChooseScore(piece) }
@@ -359,14 +363,18 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
                             ReaderButton(FolioIcons.Fullscreen, "Performance mode") { popover = null; onPerformance(true) }
                             Box {
                                 // The position readout is also the way into the page grid.
-                                TextButton({ popover = ReaderPopover.PAGES }, modifier = Modifier.heightIn(min = 40.dp).widthIn(min = 40.dp), shapes = ButtonDefaults.shapes(),
+                                TextButton({ popover = ReaderPopover.PAGES }, modifier = Modifier.heightIn(min = 40.dp).widthIn(min = 40.dp).semantics {
+                                        contentDescription = "Open score pages"
+                                        stateDescription = musicPagesState(visible, score.pages)
+                                    }, shapes = ButtonDefaults.shapes(),
                                     contentPadding = PaddingValues(horizontal = FolioSpacing.dp4)) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    // The state above says where we are; the bare numbers would repeat it.
+                                    Column(Modifier.clearAndSetSemantics {}, horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(if (step > 1 && start + 1 < score.pages) "${start + 1}–${minOf(start + step, score.pages)}" else "${start + 1}", style = MaterialTheme.typography.labelLarge, maxLines = 1)
                                         Text("of ${score.pages}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                     }
                                 }
-                                Anchored(ReaderPopover.PAGES) { PagesPopover(score, visible) { go(it); close() } }
+                                Anchored(ReaderPopover.PAGES, "Go to page") { PagesPopover(score, visible, scrub = { go(it) }) { go(it); close() } }
                             }
                             if (last && next != null) FilledTonalIconButton(onNextScore, modifier = Modifier.size(48.dp), shapes = IconButtonDefaults.shapes()) {
                                 Icon(FolioIcons.SkipNext, "Next: ${next.title}")
@@ -438,9 +446,12 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
 /** The running metronome as a rail button: the tempo, flashing on the downbeat. */
 @Composable private fun BeatButton(bpm: Int, beat: Int, accented: Boolean, onClick: () -> Unit) {
     val container by animateColorAsState(if (beat > 0 && accented) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer, label = "beat")
-    Surface(onClick = onClick, shape = CircleShape, color = container, contentColor = if (beat > 0 && accented) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
-        modifier = Modifier.size(40.dp)) {
-        Box(contentAlignment = Alignment.Center) { Text("$bpm", style = MaterialTheme.typography.labelMedium) }
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below), tooltip = { PlainTooltip { Text("Metronome · $bpm BPM") } }, state = rememberTooltipState()) {
+        // Only the tempo is announced; the flashing beat changes colour, never semantics.
+        Surface(onClick = onClick, shape = CircleShape, color = container, contentColor = if (beat > 0 && accented) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.size(40.dp).semantics { contentDescription = "Open metronome, $bpm beats per minute"; role = Role.Button }) {
+            Box(Modifier.clearAndSetSemantics {}, contentAlignment = Alignment.Center) { Text("$bpm", style = MaterialTheme.typography.labelMedium) }
+        }
     }
 }
 
@@ -467,7 +478,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     val following = nextMark(page, score.marks)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Icon(FolioIcons.Bookmarks, null, Modifier.size(20.dp))
-        Text("Rehearsal marks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Text("Rehearsal marks", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         // Jump along the marks in order without opening the list again.
         FilledTonalIconButton({ previous?.let { go(it.page) } }, enabled = previous != null,
             shapes = IconButtonDefaults.shapes(), modifier = Modifier.size(36.dp)) {
@@ -507,7 +518,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
 
 @Composable private fun ReadingPopover(score: MusicScore, model: MusicViewModel, canStart: Boolean, start: () -> Unit) {
     var seconds by remember(score.id, score.turnSeconds) { mutableFloatStateOf(musicTurnSeconds(score.turnSeconds).toFloat()) }
-    Text("Reading and timed turns", style = MaterialTheme.typography.titleMedium)
+    Text("Reading and timed turns", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
     PopoverGroup("Landscape layout") {
         PopoverRow(FolioIcons.Paper, "One page", selected = !score.twoUp) {
             model.score(score.id) { it.copy(twoUp = false) }
@@ -529,8 +540,11 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     }
     HorizontalDivider()
     Text("Turn every ${seconds.roundToInt()} seconds", style = MaterialTheme.typography.titleSmall)
-    Slider(seconds, { seconds = it }, valueRange = 5f..300f,
-        modifier = Modifier.semanticsLabel("Seconds between page turns"),
+    Slider(seconds, { seconds = it }, valueRange = 5f..300f, steps = 300 - 5 - 1,
+        modifier = Modifier.semantics {
+            contentDescription = "Seconds between page turns"
+            stateDescription = "${seconds.roundToInt()} seconds"
+        },
         onValueChangeFinished = { model.score(score.id) { it.copy(turnSeconds = musicTurnSeconds(seconds.roundToInt())) } })
     Text("Start enters performance mode. Manual turns and repeat jumps restart the countdown. Timed turns stop at the final page, when you exit performance mode, or when you leave Folio.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -545,15 +559,15 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
 @Composable private fun JumpsPopover(score: MusicScore, page: Int, model: MusicViewModel, go: (Int) -> Unit) {
     var name by rememberSaveable(score.id, page) { mutableStateOf("") }
     var destination by rememberSaveable(score.id, page) { mutableStateOf("") }
-    val target = destination.toIntOrNull()?.minus(1)
-    val valid = target != null && target in 0 until score.pages && target != page
+    val target = musicJumpTarget(destination, score.pages, page)
+    val valid = target != null
     fun add() {
         if (!valid || name.isBlank()) return
         val jump = MusicJump(page, target!!, name.trim())
         model.score(score.id) { it.copy(jumps = (it.jumps + jump).distinct()) }
         name = ""; destination = ""
     }
-    Text("Repeats and codas", style = MaterialTheme.typography.titleMedium)
+    Text("Repeats and codas", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
     Text("Add a shortcut from page ${page + 1}. Tap its button when you reach a repeat, D.S. or coda; Return takes you back.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     score.jumps.sortedBy { it.from }.forEach { jump ->
@@ -588,7 +602,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     fun meter(value: Int) { model.score(score.id) { it.copy(beats = value.coerceIn(1, 12), beatAccents = emptyList()) } }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Icon(FolioIcons.Speed, null, Modifier.size(20.dp))
-        Text("Metronome", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Text("Metronome", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         BeatDots(score.beats, beat, if (leadBars > 0) emptyList() else score.beatAccents, leadBars > 0 || accent)
     }
     Button({ onRunning(!running) }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
@@ -606,7 +620,10 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
         }
         FilledTonalIconButton({ tempo(bpm.roundToInt() + 1) }, enabled = bpm < 240, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Plus, "Faster") }
     }
-    Slider(bpm, { bpm = it }, modifier = Modifier.semanticsLabel("Tempo in beats per minute"), valueRange = 30f..240f, onValueChangeFinished = { tempo(bpm.roundToInt()) })
+    Slider(bpm, { bpm = it }, modifier = Modifier.semantics {
+            contentDescription = "Tempo in beats per minute"
+            stateDescription = "${bpm.roundToInt()} beats per minute"
+        }, valueRange = 30f..240f, steps = 240 - 30 - 1, onValueChangeFinished = { tempo(bpm.roundToInt()) })
     // Coarse steps for finding a tempo quickly, then the slider for the exact number.
     Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         OutlinedButton({ tempo(bpm.roundToInt() - 5) }, modifier = Modifier.weight(1f).semanticsLabel("Decrease tempo by 5 beats per minute"), enabled = bpm > 30, shapes = ButtonDefaults.shapes()) { Text("−5") }
@@ -619,7 +636,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
             FilterChip(bpm.roundToInt() == preset.bpm, { tempo(preset.bpm) }, { Text("${preset.label} · ${preset.bpm}") })
         }
     }
-    Text("Beat pattern · tap to cycle normal, strong, silent", style = MaterialTheme.typography.labelLarge)
+    Text("Beat pattern · tap to cycle normal, strong, silent", Modifier.semantics { heading() }, style = MaterialTheme.typography.labelLarge)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         for (index in 0 until score.beats) {
             val strength = metronomeBeatStrength(index, score.beatAccents, accent)
@@ -637,14 +654,14 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     }
     if (score.beatAccents.isEmpty()) FilterChip(accent, { onAccent(!accent) }, { Text("Accent beat 1") })
     else TextButton({ model.score(score.id) { it.copy(beatAccents = emptyList()) } }, shapes = ButtonDefaults.shapes()) { Text("Reset beat pattern") }
-    Text("Count-in bars", style = MaterialTheme.typography.labelLarge)
+    Text("Count-in bars", Modifier.semantics { heading() }, style = MaterialTheme.typography.labelLarge)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         listOf(0, 1, 2, 4).forEach { bars ->
             FilterChip(countInBars == bars, { onCountInBars(bars) }, { Text(if (bars == 0) "Off" else "$bars") },
                 modifier = Modifier.semanticsLabel(if (bars == 0) "Count-in off" else "Count-in $bars ${if (bars == 1) "bar" else "bars"}"))
         }
     }
-    Text("Subdivision", style = MaterialTheme.typography.labelLarge)
+    Text("Subdivision", Modifier.semantics { heading() }, style = MaterialTheme.typography.labelLarge)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
         listOf(0 to "Off", 2 to "2", 3 to "3", 4 to "4").forEach { (value, label) ->
             FilterChip(subdivision == value, { onSubdivision(value) }, { Text(label) },
@@ -652,7 +669,7 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
         }
     }
     if (sound) {
-        Text("Click sound", style = MaterialTheme.typography.labelLarge)
+        Text("Click sound", Modifier.semantics { heading() }, style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp6), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp6)) {
             MetronomeVoice.entries.forEach { choice ->
                 FilterChip(voice == choice, { onVoice(choice) }, { Text(choice.label) })
@@ -681,12 +698,13 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
 }
 
 /** Every page as a tile; a dot marks a rehearsal mark and a blue number counts the pencil notes. */
-@Composable private fun PagesPopover(score: MusicScore, visible: IntRange, go: (Int) -> Unit) {
+/** [go] navigates and closes (tiles, First, Last); [scrub] navigates while the slider is dragged and leaves the popover open. */
+@Composable private fun PagesPopover(score: MusicScore, visible: IntRange, scrub: (Int) -> Unit, go: (Int) -> Unit) {
     val marked = score.marks.map { it.page }.toSet()
     val counts = score.pencil.withIndex().filter { it.value > 0 }.associate { it.index to it.value }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Icon(FolioIcons.Pages, null, Modifier.size(20.dp))
-        Text("Go to page", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Text("Go to page", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         // Long scores rarely need the middle: jump straight to an end from here.
         TextButton({ go(0) }, enabled = visible.first > 0, shapes = ButtonDefaults.shapes()) { Text("First") }
         TextButton({ go(score.pages - 1) }, enabled = visible.last < score.pages - 1, shapes = ButtonDefaults.shapes()) { Text("Last") }
@@ -714,11 +732,11 @@ private enum class ReaderPopover { MARKS, METRONOME, PAGES, MORE, ORDER, JUMPS, 
     }
     // A scrubber for a long score: drag straight to a page instead of hunting for its tile.
     // 1-based like the tiles; only go() takes the stored zero-based index.
-    if (score.pages > 1) Slider(visible.first + 1f, { go(it.roundToInt() - 1) }, valueRange = 1f..score.pages.toFloat(),
+    if (score.pages > 1) Slider(visible.first + 1f, { scrub(it.roundToInt() - 1) }, valueRange = 1f..score.pages.toFloat(),
+        steps = score.pages - 2,
         modifier = Modifier.semantics {
             contentDescription = "Score page"
-            stateDescription = if (visible.first == visible.last) "Page ${visible.first + 1} of ${score.pages}"
-                else "Pages ${visible.first + 1} to ${visible.last + 1} of ${score.pages}"
+            stateDescription = musicPagesState(visible, score.pages)
         })
     if (marked.isNotEmpty() || counts.isNotEmpty()) Text(
         listOfNotNull(if (marked.isNotEmpty()) "a dot marks a rehearsal mark" else null,
@@ -762,3 +780,6 @@ private data class MusicPageImage(val bitmap: Bitmap? = null, val error: String?
         } else LoadingIndicator()
     }
 }
+
+private fun musicPagesState(visible: IntRange, pages: Int) =
+    if (visible.first == visible.last) "Page ${visible.first + 1} of $pages" else "Pages ${visible.first + 1} to ${visible.last + 1} of $pages"

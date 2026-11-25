@@ -85,6 +85,11 @@ object NotebookTags {
     const val MAX_LENGTH = 40
     fun normalize(tags: Iterable<String>, limit: Int = MAX_TAGS): List<String> = tags.map { it.trim().take(MAX_LENGTH) }
         .filter { it.isNotEmpty() }.distinctBy { it.lowercase(Locale.ROOT) }.take(limit.coerceAtLeast(0)).sortedBy { it.lowercase(Locale.ROOT) }
+    /** [tags] with [remove] taken off (ignoring case) and [add] put on; what Save tags writes. */
+    fun edit(tags: List<String>, add: List<String>, remove: List<String>): List<String> {
+        val removed = remove.map { it.lowercase(Locale.ROOT) }.toSet()
+        return normalize(tags.filterNot { it.lowercase(Locale.ROOT) in removed } + add)
+    }
     fun decode(array: JSONArray?): List<String> = normalize(if (array == null) emptyList()
         else (0 until array.length()).map { array.optString(it, "") })
 }

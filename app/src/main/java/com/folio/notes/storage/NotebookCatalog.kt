@@ -134,9 +134,7 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
 
     fun updateNotebookTags(ids: Set<String>, add: List<String>, remove: List<String> = emptyList()) {
         with(runtime) {
-            val removed = remove.map { it.lowercase(java.util.Locale.ROOT) }.toSet()
-            updateNotes(ids) { note -> note.copy(tags = NotebookTags.normalize(
-                note.tags.filterNot { it.lowercase(java.util.Locale.ROOT) in removed } + add)) }
+            updateNotes(ids) { note -> note.copy(tags = NotebookTags.edit(note.tags, add, remove)) }
         }
     }
 
