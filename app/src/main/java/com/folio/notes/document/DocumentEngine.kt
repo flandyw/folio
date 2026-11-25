@@ -562,8 +562,6 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         }
     }
 
-    fun appendDocumentStrokes(noteId: String, strokes: Map<String, List<Stroke>>, revisions: Map<String, Int>): Boolean = with(runtime) { commitDocumentEdits(noteId, strokes.filterValues { it.isNotEmpty() }.mapValues { PageEdit(StrokesEdit.Add(it.value)) }, revisions) }
-
     internal suspend fun loadDocumentHistoryPages(noteId: String, ids: List<String>) {
         with(runtime) {
             for (id in ids) {

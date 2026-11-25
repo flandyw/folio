@@ -416,7 +416,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun commitDocumentEdits(noteId: String, edits: Map<String, PageEdit>, expectedRevisions: Map<String, Int> = emptyMap()): Boolean = documentEngine.commitDocumentEdits(noteId, edits, expectedRevisions)
 
-    fun appendDocumentStrokes(noteId: String, strokes: Map<String, List<Stroke>>, revisions: Map<String, Int>): Boolean = documentEngine.appendDocumentStrokes(noteId, strokes, revisions)
 
     fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: (Map<String, CanvasSelection>) -> Unit): Unit = editorSelectionController.duplicateDocumentSelection(noteId, selection, onDone)
 
