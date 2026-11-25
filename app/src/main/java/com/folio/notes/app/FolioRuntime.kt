@@ -361,8 +361,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     fun deleteLayer(id: Int): Unit = editorLayerController.deleteLayer(id)
     fun moveSelectionToLayer(selection: CanvasSelection, layer: Int): Unit = editorLayerController.moveSelectionToLayer(selection, layer)
 
-    fun clearPage(): Unit = documentEngine.clearPage()
-
     fun clearPageContent(pageId: String): Unit = documentEngine.clearPageContent(pageId)
 
     fun clearPagesInk(noteId: String, pageIds: List<String>): Unit = documentEngine.clearPagesInk(noteId, pageIds)
