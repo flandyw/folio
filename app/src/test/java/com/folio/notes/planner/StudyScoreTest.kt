@@ -52,5 +52,10 @@ class StudyScoreTest {
             references, 70.0, 50.0)!!
         assertEquals(33, biology.studyScore); assertEquals(31, biology.low); assertEquals(35, biology.high)
         assertEquals(67.20211930926217, biology.combinedPercentile, 1e-6)
+        // A split exam ignores the typed weight, which is why the Score tab shows it read-only.
+        assertTrue(StudyScore.hasExamSplit("Mathematical Methods")); assertFalse(StudyScore.hasExamSplit("Biology"))
+        val typed = StudyScore.predict("Mathematical Methods", listOf(exam("a", "Mathematical Methods", "Exam 1", 2024, 30, 40, "2026-08-01")), references, null, 10.0)!!
+        val default = StudyScore.predict("Mathematical Methods", listOf(exam("a", "Mathematical Methods", "Exam 1", 2024, 30, 40, "2026-08-01")), references)!!
+        assertEquals(60.0, typed.examWeightPercent, 0.0); assertEquals(default.combinedPercentile, typed.combinedPercentile, 0.0)
     }
 }

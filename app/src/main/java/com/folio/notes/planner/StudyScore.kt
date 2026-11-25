@@ -44,7 +44,9 @@ object StudyScore {
     private fun toRaw(percentile: Double) = clamp(30 + 7 * inverseNormalCdf(clamp(percentile, 0.1, 99.9) / 100), 0.0, 50.0)
 
     private val twoPaper = Regex("mathematical methods|specialist mathematics", RegexOption.IGNORE_CASE)
-    fun defaultExamWeight(subject: String) = if (twoPaper.containsMatchIn(subject)) 60.0 else 50.0
+    /** Subjects whose exam weight is split across Exam 1 and Exam 2 and fixed, ignoring the typed exam weight. */
+    fun hasExamSplit(subject: String) = twoPaper.containsMatchIn(subject)
+    fun defaultExamWeight(subject: String) = if (hasExamSplit(subject)) 60.0 else 50.0
 
     private val paperRegex = Regex("(?:exam(?:ination)?|paper)\\s*([12])\\b", RegexOption.IGNORE_CASE)
     private fun paperNumber(paper: String) = paperRegex.find(paper)?.groupValues?.get(1)?.toInt()
@@ -99,7 +101,7 @@ object StudyScore {
         var evidence = all; var examPercentile = overall.percentile
         var weight = clamp(examWeightPercent, 0.0, 100.0)
         val contribution: Double; val uncertainty: Double; val components: List<Component>
-        if (twoPaper.containsMatchIn(subject)) {
+        if (hasExamSplit(subject)) {
             val parts = listOf(Triple(1, "Exam 1", 20.0), Triple(2, "Exam 2", 40.0)).map { (n, label, w) ->
                 val matched = weigh(linked.filter { paperNumber(it.exam.paper) == n })
                 Part(label, w, matched, if (matched.isEmpty()) overall else summarise(matched))
@@ -142,8 +144,10 @@ object StudyScore {
         }
     }
 
+    /** The raw study scores VTAC scaling covers. */
+    val SCALED_RAW = 20.0..50.0
     fun interpolate(raw: Double, points: List<Pair<Double, Double>>): Double? {
-        if (!raw.isFinite() || raw < 20 || raw > 50 || points.size < 2) return null
+        if (!raw.isFinite() || raw !in SCALED_RAW || points.size < 2) return null
         val ordered = points.sortedBy { it.first }
         ordered.find { it.first == raw }?.let { return it.second }
         val upper = ordered.indexOfFirst { it.first > raw }
