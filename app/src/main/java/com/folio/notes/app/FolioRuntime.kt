@@ -320,8 +320,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun togglePageBookmark(pageId: String): Unit = documentEngine.togglePageBookmark(pageId)
 
-    fun setPageBookmarked(noteId: String, pageId: String, bookmarked: Boolean): Unit = documentEngine.setPageBookmarked(noteId, pageId, bookmarked)
-
     fun setPageRedoFlag(noteId: String, pageId: String, flagged: Boolean): Unit = documentEngine.setPageRedoFlag(noteId, pageId, flagged)
 
     fun setDefaultPaper(paper: Paper): Unit = documentEngine.setDefaultPaper(paper)

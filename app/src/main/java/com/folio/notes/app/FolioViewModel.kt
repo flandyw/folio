@@ -147,7 +147,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun renamePage(pageId: String, title: String): Unit = runtime.renamePage(pageId, title)
     fun setPeekAnchor(anchor: PeekAnchor?): Unit = runtime.setPeekAnchor(anchor)
     fun togglePageBookmark(pageId: String): Unit = runtime.togglePageBookmark(pageId)
-    fun setPageBookmarked(noteId: String, pageId: String, bookmarked: Boolean): Unit = runtime.setPageBookmarked(noteId, pageId, bookmarked)
     fun setPageRedoFlag(noteId: String, pageId: String, flagged: Boolean): Unit = runtime.setPageRedoFlag(noteId, pageId, flagged)
     fun setDefaultPaper(paper: Paper): Unit = runtime.setDefaultPaper(paper)
     fun setPaper(paper: Paper): Unit = runtime.setPaper(paper)
