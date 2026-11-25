@@ -12,6 +12,7 @@ import com.folio.notes.app.PdfSearchState
 import com.folio.notes.editor.toolbar.EditorTabChip
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.Tool
+import com.folio.notes.model.notebook
 
 /** Navigation only: page content continues to belong to the repository's notebooks. */
 data class EditorTab(
@@ -159,6 +160,16 @@ object WorkspaceSessionCodec {
     }.getOrDefault(emptyList())
 }
 
+private fun FolioState.tabNotebook(id: String): Notebook? = notes.notebook(id)?.takeUnless { it.mistakePractice }
+
+internal fun FolioState.cycleTab(activeId: String, back: Boolean): EditorTab? {
+    val visible = tabs.filter { tabNotebook(it.notebookId) != null }
+    val index = visible.indexOfFirst { it.notebookId == activeId }
+    if (index < 0) return if (back) visible.lastOrNull() else visible.firstOrNull()
+    if (visible.size == 1) return null
+    return visible[(index + if (back) visible.size - 1 else 1) % visible.size]
+}
+
 /**
  * The tab strip's documents. In split view both documents get a tab, side by side in the order the
  * panes sit on screen, so the strip shows which two are open together.
@@ -172,9 +183,8 @@ internal fun splitTabs(state: FolioState, activeId: String): List<EditorTabChip>
         ids = if (at < 0) ids + other else ids.toMutableList().apply { add(if (state.editorOnRight) at else at + 1, other) }
     }
     return ids.mapNotNull { id ->
-        val notebook = state.notes.find { it.id == id }
-        if (notebook == null || notebook.mistakePractice) null
-        else EditorTabChip(id, notebook.title.ifBlank { state.tabs.find { it.notebookId == id }?.title.orEmpty() },
+        val notebook = state.tabNotebook(id) ?: return@mapNotNull null
+        EditorTabChip(id, notebook.title.ifBlank { state.tabs.find { it.notebookId == id }?.title.orEmpty() },
             split = other != null && (id == other || id == activeId))
     }
 }

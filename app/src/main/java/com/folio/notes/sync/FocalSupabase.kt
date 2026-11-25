@@ -1,6 +1,7 @@
 package com.folio.notes.sync
 
 import android.content.Context
+import com.folio.notes.FolioApplication
 import com.folio.notes.FocalBuildConfig
 import com.folio.notes.mistakes.sync.EncryptedExamTrackSession
 import com.folio.notes.mistakes.sync.ExamTrackSessionLifecycle
@@ -26,7 +27,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.UUID
 
 /**
@@ -59,12 +59,7 @@ class FocalSupabaseConnection(context: Context) {
         install(Realtime)
         install(Storage)
     }
-    internal val lifecycle = ExamTrackSessionLifecycle(client, sessions)
-
-    init {
-        // The pre-merge ExamTrack project is gone; its encrypted session can never authenticate again.
-        runCatching { File(appContext.noBackupFilesDir, "examtrack-session").delete() }
-    }
+    internal val lifecycle = ExamTrackSessionLifecycle(client, sessions, (appContext as FolioApplication).focalEnabled)
 
     companion object {
         @Volatile private var shared: FocalSupabaseConnection? = null

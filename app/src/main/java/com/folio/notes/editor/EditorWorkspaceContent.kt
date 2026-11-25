@@ -133,13 +133,15 @@ import com.folio.notes.settings.rememberPref
 import com.folio.notes.storage.InkCodec
 import com.folio.notes.storage.PageJournal
 import com.folio.notes.storage.content
-import com.folio.notes.study.FocalStudyChip
+import com.folio.notes.app.LocalOpenFocalStudy
+import com.folio.notes.ui.FolioIcons
 import com.folio.notes.ui.FolioExpand
 import com.folio.notes.ui.FolioSpacing
 import com.folio.notes.workspace.LocalSharedInk
 import com.folio.notes.workspace.LocalToolbarPortal
 import com.folio.notes.workspace.ToolbarPortalContent
 import com.folio.notes.workspace.WorkspaceViewport
+import com.folio.notes.workspace.cycleTab
 import com.folio.notes.workspace.restoredTool
 import com.folio.notes.workspace.splitTabs
 import kotlinx.coroutines.CancellationException
@@ -553,10 +555,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         paperMenu = true
     }
     var timerPanel by editor.overlays.timer
-    var studyPanel by editor.overlays.study
+    val openFocalStudy = LocalOpenFocalStudy.current
     var examPanel by editor.overlays.exam
     var markDialog by editor.overlays.markDialog
-    // A mark just recorded for Focal, awaiting confirmation in the save review.
     var pdfSearchOpen by editor.overlays.pdfSearch
     var pdfContentsOpen by editor.overlays.pdfContents
     var pdfOutline by remember(note.id) { mutableStateOf<List<PdfOutlineEntry>?>(null) }
@@ -675,8 +676,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     fun openSearch() { finishTextEditing(); if (page.pdfIndex != null) pdfSearchOpen = true else noteSearchOpen = true }
     fun newNotebook() { context.startActivity(Intent(context, MainActivity::class.java).setAction("com.folio.notes.NEW_NOTE").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }
     fun switchNotebook(back: Boolean) {
-        val tabs = state.tabs
-        if (tabs.size > 1) { finishTextEditing(); val index = tabs.indexOfFirst { it.notebookId == note.id }; model.open(tabs[(index + if (back) tabs.size - 1 else 1) % tabs.size].notebookId) }
+        val tab = state.cycleTab(note.id, back) ?: return
+        finishTextEditing()
+        model.open(tab.notebookId)
     }
     /** Previous/next page in either view; the single-page view starts each page fitted. */
     fun turnPage(forward: Boolean) {
@@ -910,7 +912,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
     }
     val canvasKeys = !commandPalette && conversionDraft == null && !gestureGuide && !historyOpen && !protectionOpen && !placementOpen && !snippetsOpen &&
         !editor.overlays.pageBrowser.value && !editor.overlays.noteSearch.value && !editor.overlays.pdfSearch.value &&
-        !palette && !editor.overlays.rename.value && !editor.overlays.timer.value && !editor.overlays.exam.value && !editor.overlays.study.value
+        !palette && !editor.overlays.rename.value && !editor.overlays.timer.value && !editor.overlays.exam.value
     fun clearPicked() { activeInkView?.clearSelection(); activeInkView?.clearImageSelection(); selectedImage = null; selection = null; editor.documentInput.clearSelection() }
     fun keyboardPicked(): CanvasSelection = if (selected.isNotEmpty()) selected else selectedImage?.takeIf { it.first == page.id }?.let { CanvasSelection(images = listOf(it.second)) } ?: CanvasSelection()
     fun copyPicked(cut: Boolean) {
@@ -1425,9 +1427,9 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
                                     ExamTimerChip(state.timer, onLongClick = {
                                         if (state.timer.phase != ExamTimerPhase.IDLE) model.toggleTimerPause()
                                     }) { timerPanel = true }
-                                    FocalStudyChip(state.timer, note.id, onLongClick = {
-                                        (context.applicationContext as FolioApplication).focalStudy.toggleFocus()
-                                    }) { studyPanel = true }
+                                    if (openFocalStudy != null) IconButton(openFocalStudy, shapes = IconButtonDefaults.shapes()) {
+                                        Icon(FolioIcons.School, "Open Focal study")
+                                    }
                                 }
                             },
                             onPages = { pageBrowser = true },
@@ -1654,7 +1656,7 @@ import com.folio.notes.editor.follow.WritingFollowToolbar
         EditorCommand(if (rulerOn) "Hide ruler" else "Show ruler", run = { rulerOn = !rulerOn }),
         EditorCommand("Export pages", run = { finishTextEditing(); onExport() }), EditorCommand("Reset zoom", "Ctrl+0", run = ::resetZoom),
         EditorCommand("Undo history", run = { historyOpen = true }),
-        EditorCommand("Saving, sync and backups", run = { protectionOpen = true }),
+        EditorCommand("Saving and backups", run = { protectionOpen = true }),
         EditorCommand("Align and distribute selection", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.size >= 2 }, reason = "Select two or more objects on a page", run = { placementOpen = true }),
         EditorCommand("Saved snippets", run = { snippetsOpen = true }),
         EditorCommand("Convert handwriting to text", enabled = (if (documentSelection.isNotEmpty()) documentSelection.values else listOf(selected)).any { it.strokes.isNotEmpty() || it.texts.any { box -> box.stickyInk.isNotEmpty() } }, reason = "Select handwriting first", run = { convertSelectionToText(page.id, selected) }),

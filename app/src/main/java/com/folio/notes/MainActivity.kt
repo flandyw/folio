@@ -125,16 +125,12 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
-        (application as FolioApplication).focalStudy.setForeground(true)
     }
     override fun onResume() {
         super.onResume()
         // A mode can change while the app is in the background (another app, a power profile), so the
         // request is re-checked on every return rather than assumed to have stuck.
         refreshDisplayRequest()
-        // A session may have been finished in Focal while Android deferred our background poll.
-        // Pull as soon as the user returns so its timer stops on the remote terminal change.
-        (application as FolioApplication).focalStudy.retry()
     }
     override fun onStop() {
         displayManager.unregisterDisplayListener(displayListener)
@@ -142,7 +138,6 @@ class MainActivity : ComponentActivity() {
         // or turning the screen off parks it, and parked time never counts. Rotation also stops
         // the activity, so it is skipped — the timer keeps running across a rotate.
         if (!isChangingConfigurations) model.autoPauseTimer()
-        (application as FolioApplication).focalStudy.setForeground(false)
         super.onStop()
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent) }

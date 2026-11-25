@@ -56,24 +56,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
 
-@Composable
-fun FocalStudyPanel(note: Notebook?, examTimer: ExamTimerState? = null, onDismiss: () -> Unit) {
-    var accountOpen by rememberSaveable { mutableStateOf(false) }
-    FolioPanel("Study sessions", onDismiss) {
-        FocalStudyContent(note, examTimer, onAccount = { accountOpen = true })
-    }
-    if (accountOpen) FocalAccountPanel({ accountOpen = false }, onMistakes = null, onStudy = null)
-}
-
 internal enum class HeroMode { IDLE, RUNNING, PAUSED }
 
-/**
- * One set of controls for the dedicated destination and the editor's quick panel.
- *
- * Wide surfaces (landscape tablet, the landscape panel) split into a timer column and a
- * context column that scroll independently, so Pause/Save never move while history grows.
- * Narrow ones (portrait tablet, phone) stack the same blocks, timer first.
- */
 @Composable
 internal fun FocalStudyContent(
     note: Notebook?, examTimer: ExamTimerState? = null, dedicated: Boolean = false,

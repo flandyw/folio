@@ -6,10 +6,6 @@ package com.folio.notes.app
  * so a destination added later shows up for everyone until they turn it off. Pure: no Android imports.
  */
 enum class SidebarItem(val label: String, val summary: String) {
-    MISTAKES("Mistakes", "Review and practise questions you got wrong"),
-    STUDY("Study", "Timer, sessions and the day timeline"),
-    PROGRESS("Progress", "Marks, results and upcoming exams"),
-    PLANNER("Planner", "SACs, stoplight checklist and score goals"),
     MUSIC("Music", "Sheet music shelf and reader"),
     VCAA("VCAA exams", "Search and import official past papers");
 

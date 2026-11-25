@@ -12,7 +12,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioApplication
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
@@ -20,7 +19,6 @@ import com.folio.notes.backup.LibraryAutoBackup
 import com.folio.notes.editor.selection.SelectionPlacement
 import com.folio.notes.export.ShareShortcut
 import com.folio.notes.ink.InkRenderer
-import com.folio.notes.mistakes.MistakesViewModel
 import com.folio.notes.model.CanvasSelection
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Notebook
@@ -66,22 +64,11 @@ import org.json.JSONObject
     val configured by rememberPref(prefs, LibraryAutoBackup.TREE_URI) { it.getString(LibraryAutoBackup.TREE_URI, null) != null }
     val openBackup = LocalOpenBackupSettings.current
     val progress by LibraryAutoBackup.progress.collectAsState()
-    val study by (context.applicationContext as FolioApplication).focalStudy.state.collectAsState()
-    val mistakeModel: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val mistakes by mistakeModel.state.collectAsState()
-    FolioPanel("Saving, sync and backups", onDismiss) {
+    FolioPanel("Saving and backups", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("On this device", style = MaterialTheme.typography.titleSmall)
             Text(if (state.saveFailed) state.saveFailureReason ?: "Save failed. Your latest changes remain open." else if (state.saving) "Saving latest changes…" else "All current edits are saved on this device.")
             if (state.saveFailed) Button(model::retrySave, enabled = !state.retryingSave) { Text("Retry save") }
-            Text("Focal study sync", style = MaterialTheme.typography.titleSmall)
-            Text(study.syncStatus)
-            Text("${study.pendingCount} study records waiting to sync.")
-            Text("Focal mistake sync", style = MaterialTheme.typography.titleSmall)
-            Text(mistakes.status)
-            mistakes.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            TextButton({ mistakeModel.requestSync(force = true) }, enabled = mistakes.userId != null && !mistakes.busy) { Text("Retry mistake sync") }
-            Text("Focal sync covers study records and mistake review. Notebook files require a library backup.")
             Text("Library backup", style = MaterialTheme.typography.titleSmall)
             Text(if (last == 0L) "No successful automatic backup recorded." else "Last successful automatic backup: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(last))}")
             if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)

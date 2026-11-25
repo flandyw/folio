@@ -224,6 +224,8 @@ object AppPrefs {
     const val BACKUP_EXCLUDED_NOTEBOOKS = "backup.excludedNotebooks"
     /** Notebook attempt ids dismissed from "Add notebook results" on this device; never synced to Focal. */
     const val FOCAL_DISMISSED_RESULTS = "focal.dismissedResults"
+    const val FOCAL_INTEGRATION = "focal.integration"
+    const val DEFAULT_FOCAL_INTEGRATION = true
     /** Peek shows the whole current page instead of a pinned view. */
     const val AUTO_PEEK = "peek.auto"
 

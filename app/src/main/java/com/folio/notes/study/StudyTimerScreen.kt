@@ -41,7 +41,7 @@ fun StudyTimerScreen(notebooks: List<Notebook>, initialExamTimer: ExamTimerState
     Column(Modifier.fillMaxSize()) {
         FocalScreenHeading("Study timer", studySyncIcon(state), state.syncStatus, state.syncing,
             canSync = state.userId != null && state.configured && !state.needsSignIn, onSync = manager::retry,
-            onAccount = onAccount, trouble = state.error != null && !state.syncing)
+            trouble = state.error != null && !state.syncing)
         Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             StatTiles(listOf(
                 StatTileData(FolioIcons.Flame, if (longest == 1) "1 day" else "$longest days", "Longest streak"),

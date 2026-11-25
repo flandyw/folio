@@ -71,7 +71,7 @@ class ExamTrackAuthRepository(context: Context) {
     }
     suspend fun resetPassword(email: String) {
         awaitRestoration()
-        client.auth.resetPasswordForEmail(email)
+        lifecycle.whileEnabled { client.auth.resetPasswordForEmail(email) }
     }
     suspend fun signOut() {
         // Local sign-out must work offline; clearing also stops SDK token refresh. Study sessions

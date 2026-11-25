@@ -83,7 +83,7 @@ internal class BackupSettings(
     val progress: String? = null,
 )
 
-internal class AccountSettings(val onFocal: () -> Unit, val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit)
+internal class AccountSettings(val onCheckForUpdates: () -> Unit, val onCheckGitHub: () -> Unit, val updateChecking: Boolean, val updateBusy: Boolean, val updateContent: @Composable () -> Unit)
 
 private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
 
@@ -302,7 +302,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
         SettingsDivider()
         SettingsPrefSwitch(AppPrefs.TOOLBAR_TABS, true, "Document tabs", "Show open documents above the toolbar. Off shows a back button instead.")
         SettingsDivider()
-        SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show exam and Focal timers beside the tools when space allows.")
+        SettingsPrefSwitch(AppPrefs.TOOLBAR_TIMER, true, "Timer on the toolbar", "Show the exam timer beside the tools when space allows.")
     }
     SettingsGroup("Opening a notebook") {
         // A starting tool chosen before this list was shortened (a shape, say) stays selectable.
@@ -557,8 +557,6 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val customMinutes by rememberPref(p, AppPrefs.TIMER_CUSTOM_MIN) { AppPrefs.timerCustomMinutes(it.getInt(AppPrefs.TIMER_CUSTOM_MIN, AppPrefs.DEFAULT_TIMER_CUSTOM_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_CUSTOM_MIN) }) }
     val reading by rememberPref(p, AppPrefs.TIMER_READING_MIN) { AppPrefs.timerReadingMinutes(it.getInt(AppPrefs.TIMER_READING_MIN, AppPrefs.DEFAULT_TIMER_READING_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_READING_MIN) }) }
     val idle by rememberPref(p, AppPrefs.TIMER_IDLE_MIN) { AppPrefs.timerIdleMinutes(it.getInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN).takeIf { _ -> it.contains(AppPrefs.TIMER_IDLE_MIN) }) }
-    val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
-    val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
 
     SettingsGroup("Exam timer", footer = "The Exam 1 (90) and Exam 2 (120) presets are fixed; these set the Custom timer.") {
         // Five-minute steps; an exact length can still be typed in the timer panel.
@@ -583,6 +581,12 @@ private fun paperLabel(paper: Paper): String = when (paper) {
             onReset = if (idle != AppPrefs.DEFAULT_TIMER_IDLE_MIN) ({ p.write { putInt(AppPrefs.TIMER_IDLE_MIN, AppPrefs.DEFAULT_TIMER_IDLE_MIN) } }) else null,
         )
     }
+}
+
+@Composable internal fun MistakePracticeSettings() {
+    val p = rememberPrefs()
+    val paper by rememberPref(p, AppPrefs.MISTAKE_PAPER) { AppPrefs.mistakePaper(it.getString(AppPrefs.MISTAKE_PAPER, null)) }
+    val zoom by rememberPref(p, AppPrefs.MISTAKE_ZOOM) { AppPrefs.mistakeZoom(it.getFloat(AppPrefs.MISTAKE_ZOOM, AppPrefs.DEFAULT_MISTAKE_ZOOM)) }
     SettingsGroup("Mistake practice", footer = "Paper and zoom apply to your next practice question. Existing pages keep their setup.") {
         SettingsChipRow("Paper guide", Paper.entries.map { it to paperLabel(it) }, paper, { p.write { putString(AppPrefs.MISTAKE_PAPER, it.name) } })
         SettingsDivider()
@@ -601,8 +605,9 @@ private fun paperLabel(paper: Paper): String = when (paper) {
     val experimental by rememberPref(prefs, AppPrefs.EXPERIMENTAL_UPDATES) {
         it.getBoolean(AppPrefs.EXPERIMENTAL_UPDATES, AppPrefs.DEFAULT_EXPERIMENTAL_UPDATES)
     }
-    SettingsGroup("Accounts") {
-        SettingsLinkRow("Focal account", "One account for study sessions, planner, progress, and mistake sync.", onClick = a.onFocal)
+    SettingsGroup("Integrations") {
+        SettingsPrefSwitch(AppPrefs.FOCAL_INTEGRATION, AppPrefs.DEFAULT_FOCAL_INTEGRATION, "Focal integration",
+            "Show Focal and sync study records. Turning this off keeps your records and sign-in.")
     }
     val context = LocalContext.current
     val version = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown" }

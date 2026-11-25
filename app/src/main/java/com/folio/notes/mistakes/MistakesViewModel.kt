@@ -105,9 +105,19 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
         override fun onAvailable(network: Network) { viewModelScope.launch { requestSync() } }
     }
     init {
-        connectivity.registerDefaultNetworkCallback(callback)
         viewModelScope.launch {
-            combine(auth.account, foreground) { account, visible -> account to visible }
+            auth.lifecycle.enabled.collectLatest { enabled ->
+                if (enabled) {
+                    connectivity.registerDefaultNetworkCallback(callback)
+                    try { kotlinx.coroutines.awaitCancellation() }
+                    finally { connectivity.unregisterNetworkCallback(callback) }
+                } else {
+                    syncJob?.cancel()
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(auth.account, foreground, auth.lifecycle.enabled) { account, visible, enabled -> account to (visible && enabled) }
                 .collectLatest { (account, visible) ->
                     val user = account.user?.id?.takeUnless { account.needsSignIn }
                     // Listen while the app is visible; the 30-second pull also covers missed socket events.
@@ -209,7 +219,7 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     fun dismissStatus() { _state.update { it.copy(status = "") } }
 
     fun requestSync(force: Boolean = false) {
-        if (_state.value.needsSignIn) return
+        if (!auth.lifecycle.enabled.value || _state.value.needsSignIn) return
         val user = _state.value.userId ?: return
         if (syncJob?.isActive == true) { rerunSync = true; return }
         val now = System.currentTimeMillis()
@@ -297,7 +307,6 @@ class MistakesViewModel(application: Application) : AndroidViewModel(application
     }
     override fun onCleared() {
         finishPracticeStudy()
-        connectivity.unregisterNetworkCallback(callback)
         // The Supabase client is process-scoped and shared with study sessions, so it is not closed here.
         super.onCleared()
     }
