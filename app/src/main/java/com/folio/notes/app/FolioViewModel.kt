@@ -196,7 +196,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun clearMark(pageId: String, zone: MarkZone): Unit = runtime.clearMark(pageId, zone)
     suspend fun pagesForSearch(notebookId: String): List<NotePage> = runtime.pagesForSearch(notebookId)
     fun commitDocumentEdits(noteId: String, edits: Map<String, PageEdit>, expectedRevisions: Map<String, Int> = emptyMap()): Boolean = runtime.commitDocumentEdits(noteId, edits, expectedRevisions)
-    fun appendDocumentStrokes(noteId: String, strokes: Map<String, List<Stroke>>, revisions: Map<String, Int>): Boolean = runtime.appendDocumentStrokes(noteId, strokes, revisions)
     fun duplicateDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, onDone: (Map<String, CanvasSelection>) -> Unit): Unit = runtime.duplicateDocumentSelection(noteId, selection, onDone)
     fun moveDocumentSelection(noteId: String, selection: Map<String, CanvasSelection>, flattened: CanvasSelection,
         targetId: String, onDone: () -> Unit): Unit = runtime.moveDocumentSelection(noteId, selection, flattened, targetId, onDone)
