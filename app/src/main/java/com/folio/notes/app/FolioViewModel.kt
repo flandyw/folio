@@ -170,7 +170,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun moveLayer(id: Int, up: Boolean): Unit = runtime.moveLayer(id, up)
     fun deleteLayer(id: Int): Unit = runtime.deleteLayer(id)
     fun moveSelectionToLayer(selection: CanvasSelection, layer: Int): Unit = runtime.moveSelectionToLayer(selection, layer)
-    fun clearPage(): Unit = runtime.clearPage()
     fun clearPageContent(pageId: String): Unit = runtime.clearPageContent(pageId)
     fun clearPagesInk(noteId: String, pageIds: List<String>): Unit = runtime.clearPagesInk(noteId, pageIds)
     fun images(pageId: String, images: List<PageImage>): Unit = runtime.images(pageId, images)

@@ -475,10 +475,6 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         }
     }
 
-    fun clearPage() {
-        with(runtime) { _state.value.page?.let { clearPageContent(it.id) } }
-    }
-
     fun clearPageContent(pageId: String) {
         with(runtime) {
             val page = findPageContent(pageId) ?: return
