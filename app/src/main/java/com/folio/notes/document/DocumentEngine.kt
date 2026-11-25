@@ -420,7 +420,6 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         }
     }
 
-    internal fun allPublishedHistory(): Map<String, PageJournal.History> = with(runtime) { publishedHistory.toMap() }
 
     fun strokes(strokes: List<Stroke>) {
         with(runtime) {
