@@ -37,7 +37,7 @@ class StudyScoreTest {
         assertEquals(listOf(34.5, 34.5, 34.5, 34.5), estimate.primary.map { it.result.raw })
     }
 
-    @Test fun atarGoalKeepsItsBaselineWhenAPredictionCannotBeScaled() {
+    @Test fun atarGoalExcludesAStudyWhenItsSelectedPredictionCannotBeScaled() {
         val rows = org.json.JSONArray(listOf("EN", "BI", "CH", "PY").map { code ->
             org.json.JSONObject().put("id", code).put("code", code).put("raw", "34.5").put("usePrediction", code == "BI")
         })
@@ -48,7 +48,7 @@ class StudyScoreTest {
         assertTrue("Expected a prediction below the scaling range, got ${prediction.studyScore}", prediction.studyScore < 20)
         val baseline = Planner.goalProgress(goal, emptyList(), saved, references, data).current
         assertNotNull(baseline)
-        assertEquals(baseline, Planner.goalProgress(goal, exams, saved, references, data).current)
+        assertNull(Planner.goalProgress(goal, exams, saved, references, data).current)
     }
 
     @Test fun scalingInterpolatesAndAveragesYears() {
@@ -95,5 +95,12 @@ class StudyScoreTest {
         val prediction = requireNotNull(StudyScore.predict("Mathematical Methods", listOf(compact), references))
         assertEquals(listOf(0, 1), prediction.components.take(2).map { it.evidenceCount })
         assertNull(StudyScore.predict("Mathematical Methods", listOf(compact.copy(paper = "Exam1 & Exam2")), references))
+    }
+
+    @Test fun generalMathematicsUsesTheTypedExamWeightWithNumberedPapers() {
+        val compact = exam("general", "General Mathematics", "Exam2", 2024, 60, 120, "2026-08-01")
+        val prediction = requireNotNull(StudyScore.predict("General Mathematics", listOf(compact), references, 70.0, 35.0))
+        assertEquals(35.0, prediction.examWeightPercent, 0.0)
+        assertEquals(1, prediction.components.single().evidenceCount)
     }
 }

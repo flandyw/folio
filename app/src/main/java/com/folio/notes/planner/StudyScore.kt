@@ -45,11 +45,10 @@ object StudyScore {
 
     private fun toRaw(percentile: Double) = clamp(30 + 7 * inverseNormalCdf(clamp(percentile, 0.1, 99.9) / 100), 0.0, 50.0)
 
-    private fun twoPapers(subject: String) =
-        studyKey(subject) in setOf("general mathematics", "mathematical methods", "specialist mathematics")
+    private val twoPaper = Regex("mathematical methods|specialist mathematics", RegexOption.IGNORE_CASE)
     /** Subjects whose exam weight is split across Exam 1 and Exam 2 and fixed, ignoring the typed exam weight. */
-    fun hasExamSplit(subject: String) = twoPapers(subject)
-    fun defaultExamWeight(subject: String) = if (twoPapers(subject)) 60.0 else 50.0
+    fun hasExamSplit(subject: String) = twoPaper.containsMatchIn(subject)
+    fun defaultExamWeight(subject: String) = if (hasExamSplit(subject)) 60.0 else 50.0
 
     private val aliases = mapOf("english eal" to "english as an additional language", "english esl" to "english as an additional language",
         "english sl" to "english", "further mathematics" to "general mathematics", "mathematical methods cas" to "mathematical methods")
@@ -64,7 +63,7 @@ object StudyScore {
     private fun compatible(exam: LoggedExam, references: List<ExamReference>, year: Int?): List<ExamReference> {
         val available = references.filter { sameStudy(it.subject, exam.subject) && (year == null || it.year == year) }
         val type = exam.paperType
-        val two = twoPapers(exam.subject)
+        val two = hasExamSplit(exam.subject) || studyKey(exam.subject) == "general mathematics"
         if (two && type == PaperType.COMBINED) return emptyList()
         val number = type?.takeUnless { it == PaperType.COMBINED }
         fun compatiblePaper(ref: ExamReference) = !two || number == null || PaperType.parse(ref.paper) == number
@@ -109,9 +108,8 @@ object StudyScore {
         var evidence = all; var examPercentile = overall.percentile
         var weight = clamp(examWeightPercent, 0.0, 100.0)
         val contribution: Double; val uncertainty: Double; val components: List<Component>
-        if (twoPapers(subject)) {
-            val general = studyKey(subject) == "general mathematics"
-            val weights = listOf(PaperType.EXAM_1 to if (general) 30.0 else 20.0, PaperType.EXAM_2 to if (general) 30.0 else 40.0)
+        if (hasExamSplit(subject)) {
+            val weights = listOf(PaperType.EXAM_1 to 20.0, PaperType.EXAM_2 to 40.0)
             val parts = weights.map { (type, w) ->
                 val label = type.label
                 val matched = weigh(linked.filter { it.paper == type })
@@ -229,27 +227,17 @@ object StudyScore {
         return atar to String.format(Locale.US, "%.2f", atar)
     }
 
-    internal fun atarResults(rows: List<JSONObject>, year: Int, data: VtacData, exams: List<LoggedExam>,
-        references: List<ExamReference>): List<Result> {
-        val studies = data.scaling.filter { it.year == year }.associateBy { it.code }
-        val predictions = mutableMapOf<String, Prediction?>()
-        return rows.mapNotNull { row ->
-            val study = studies[row.optString("code")] ?: return@mapNotNull null
-            val predicted = if (row.optBoolean("usePrediction")) {
-                val key = studyKey(study.studyName)
-                if (key !in predictions) predictions[key] = predict(study.studyName, exams, references)
-                predictions[key]?.studyScore?.toDouble()
-            } else null
-            fun scaledResult(raw: Double?): Result? = raw?.let { score ->
-                interpolate(score, study.points)?.let { Result(row.optString("id"), study.code, study.studyName, score, it) }
-            }
-            scaledResult(predicted) ?: scaledResult(row.optString("raw").trim().toDoubleOrNull())
-        }
-    }
+    internal fun atarPredictions(exams: List<LoggedExam>, references: List<ExamReference>): Map<String, Double> =
+        exams.distinctBy { studyKey(it.subject) }.mapNotNull { exam ->
+            predict(exam.subject, exams, references)?.let { studyKey(exam.subject) to it.studyScore.toDouble() }
+        }.toMap()
 
     internal fun liveAtar(scenario: JSONObject, data: VtacData, exams: List<LoggedExam>, references: List<ExamReference>): AtarEstimate? {
         val year = scenario.optInt("year")
-        return estimateAtar(atarResults(scenario.optJSONArray("rows")?.objects().orEmpty(), year, data, exams, references), year, data)
+        val studies = data.scaling.filter { it.year == year }
+        val predictions = atarPredictions(exams, references)
+        val results = scenario.optJSONArray("rows")?.objects().orEmpty().mapNotNull { checkAtarRow(it, year, studies, predictions).result }
+        return estimateAtar(results, year, data)
     }
 
     fun estimateAtar(results: List<Result>, year: Int, data: VtacData): AtarEstimate? {
