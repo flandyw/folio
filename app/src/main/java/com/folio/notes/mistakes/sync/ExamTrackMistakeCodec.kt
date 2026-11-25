@@ -37,7 +37,9 @@ object ExamTrackMistakeCodec {
             number("marksLost"), optional("areaOfStudy"), optional("criterion"), attachments, date("dueAt"), reviews,
             ReviewState.entries.find { it.wire == optional("reviewState") }, number("intervalDays"), number("easeFactor"),
             count("repetitions"), count("lapses"), date("lastReviewedAt"), o.optBoolean("suspended", false),
-            o.optBoolean("resolved", false), created, updated, payload)
+            o.optBoolean("resolved", false), created, updated, payload,
+            optional("subject")?.trim()?.takeIf(String::isNotBlank), optional("topic")?.trim()?.takeIf(String::isNotBlank),
+            count("difficulty")?.takeIf { it in 1..5 })
     }.getOrNull()
 
     fun encode(mistake: ExamTrackMistake): String = mistake.originalJson

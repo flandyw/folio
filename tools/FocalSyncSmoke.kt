@@ -179,7 +179,17 @@ fun main() = runBlocking {
         val saved = SavedSession(session(expired = true))
         var owned = ownedClient(saved)
         refreshStatus.set(429)
-        var lifecycle = ExamTrackSessionLifecycle(owned, saved)
+        val integrationEnabled = kotlinx.coroutines.flow.MutableStateFlow(false)
+        var lifecycle = ExamTrackSessionLifecycle(owned, saved, integrationEnabled)
+        lifecycle.awaitRestoration()
+        val beforeEnable = refreshCalls.get()
+        val disabledRead = runCatching { SupabaseSyncRemote(owned, lifecycle).read(userId, 0) }.exceptionOrNull()
+        check(disabledRead is kotlinx.coroutines.CancellationException) { "Disabling Focal must block RPCs" }
+        check(refreshCalls.get() == beforeEnable && saved.saved?.refreshToken == "test-refresh-token" && saved.deletes == 0) {
+            "Disabling Focal must keep the saved login without refreshing it"
+        }
+        println("Focal integration disabled: RPC blocked and saved login retained")
+        integrationEnabled.value = true
         try {
             withTimeout(5_000) {
                 lifecycle.state.first { it.status == FocalAccountStatus.RECONNECTING }

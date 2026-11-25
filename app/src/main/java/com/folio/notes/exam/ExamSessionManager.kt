@@ -1,6 +1,6 @@
 package com.folio.notes.exam
 
-import com.folio.notes.FolioApplication
+import android.os.SystemClock
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioRuntime
 import com.folio.notes.app.FolioRuntime.Companion.LAST_SEEN_THROTTLE_MS
@@ -16,6 +16,7 @@ import com.folio.notes.app.FolioRuntime.Companion.TIMER_WRITING_KEY
 import com.folio.notes.model.Notebook
 import com.folio.notes.study.FocalFocus
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 
 /** Application-owned ExamSessionManager commands over the single shared document runtime. */
@@ -25,6 +26,9 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     internal var lastSeenPersistedAt: Long = 0L
     @Volatile internal var lastTimerActivityAt: Long = 0L
     val state get() = runtime._state.timerState
+    private val epochAtBoot = System.currentTimeMillis() - SystemClock.elapsedRealtime()
+    private val focalStudy get() = runtime.application.let { if (it.focalEnabled.value) it.focalStudy else null }
+    private fun existingFocalSitting() = focalStudy ?: runtime.application.focalStudyForExistingSitting()
     internal fun migrateLegacyTimer(notes: List<Notebook>) {
         with(runtime) {
             if (!prefs.contains(TIMER_START_KEY)) return
@@ -78,7 +82,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             lastTimerActivityAt = now
             _state.update { it.copy(timer = clamped, lastTimedSeconds = cached?.seconds) }
             if (clamped.active) _state.value.active?.let { note ->
-                (getApplication<FolioApplication>()).focalStudy.recordExamProgress(note, clamped, now, force = true)
+                existingFocalSitting()?.recordExamProgress(note, clamped, now, force = true)
             }
         }
     }
@@ -92,29 +96,31 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
                 if (paused != current) {
                     saveSitting(paused)
                     _state.value.notes.find { it.id == previous }?.let { note ->
-                        (getApplication<FolioApplication>()).focalStudy.recordExamProgress(note, paused, now, force = true)
+                        existingFocalSitting()?.recordExamProgress(note, paused, now, force = true)
                     }
                 }
                 val state = _state.value
                 notebookSittings.save(previous, paused, state.lastTimedSeconds)
             }
             // Switching between notebooks is still studying; only leaving the pages altogether parks.
-            if (id == null) (getApplication<FolioApplication>()).focalStudy
-                .parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true, now = now)
+            if (id == null) focalStudy?.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true)
             timerNotebookId = id
             restoreNotebookTimer()
         }
     }
 
-    internal fun timerNow(): Long = with(runtime) { (getApplication<FolioApplication>()).focalStudy.now() }
+    internal fun timerNow(): Long = with(runtime) { SystemClock.elapsedRealtime() + epochAtBoot }
 
     internal fun recordTimerInFocal(timer: ExamTimerState, now: Long, force: Boolean = false, phaseAt: Long? = null) {
         with(runtime) {
             val note = _state.value.active ?: return
             if (timer.startedAt == null) return
-            val focal = (getApplication<FolioApplication>()).focalStudy
-            if (timer.phase == ExamTimerPhase.DONE) focal.finishExam(note, timer, now, phaseAt)
-            else if (timer.active) focal.recordExamProgress(note, timer, now, force, phaseAt)
+            if (timer.phase == ExamTimerPhase.DONE) {
+                if (force) existingFocalSitting()?.finishExam(note, timer, now, phaseAt)
+                else focalStudy?.finishExam(note, timer, now, phaseAt)
+            } else if (timer.active) {
+                (if (force) existingFocalSitting() else focalStudy)?.recordExamProgress(note, timer, now, force, phaseAt)
+            }
         }
     }
 
@@ -235,7 +241,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     fun autoPauseTimer(now: Long = runtime.timerNow()) {
         with(runtime) {
             // The study session first: leaving the editor may already have cleared the active notebook.
-            (getApplication<FolioApplication>()).focalStudy.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true, now = now)
+            focalStudy?.parkFocus(FocalFocus.PARK_AWAY, attendedOnly = true)
             if (_state.value.active == null) return
             val current = _state.value.timer
             if (current.running) {
@@ -251,7 +257,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
 
     fun pauseForUpdate(now: Long = runtime.timerNow()) {
         with(runtime) {
-            (getApplication<FolioApplication>()).focalStudy.parkFocus(FocalFocus.PARK_UPDATE, now = now)
+            focalStudy?.parkFocus(FocalFocus.PARK_UPDATE)
             val current = _state.value.timer
             if (_state.value.active != null && current.running) {
                 val parked = current.pause(now, auto = true)
@@ -267,8 +273,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     fun startTimer(preset: ExamTimerPreset, now: Long = runtime.timerNow()) {
         with(runtime) {
             if (_state.value.active == null) return
-            val focal = (getApplication<FolioApplication>()).focalStudy
-            focal.parkFocus(FocalFocus.PARK_EXAM, now = now)
+            focalStudy?.parkFocus(FocalFocus.PARK_EXAM)
             val started = ExamTimerState().start(preset, now)
             lastTimerActivityAt = now
             saveSitting(started, lastSeen = now)
@@ -324,7 +329,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
             val current = _state.value.timer
             val now = timerNow()
             val spent = current.elapsedWriting(now).takeIf { current.startedAt != null && it > 0 }
-            if (current.startedAt != null) (getApplication<FolioApplication>()).focalStudy.finishExam(
+            if (current.startedAt != null) existingFocalSitting()?.finishExam(
                 requireNotNull(_state.value.active), current, now)
             clearSitting()
             _state.update { it.copy(timer = current.stop(), lastTimedSeconds = spent ?: it.lastTimedSeconds) }
@@ -333,28 +338,31 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
     internal fun start() { with(runtime) {
         restoreNotebookTimer()
         scope.launch {
-            (application as FolioApplication).focalStudy.state.collect { shared ->
-                val current = _state.value.timer
-                val started = current.startedAt ?: return@collect
-                if (!current.active) return@collect
-                val entry = shared.entries.firstOrNull { it.kind == "exam" && it.startedAt == started && it.synced &&
-                    (it.userId == null || it.userId == shared.userId) }
-                    ?: return@collect
-                val now = timerNow()
-                when {
-                    entry.deleted || entry.completed -> {
-                        clearSitting()
-                        _state.update { it.copy(timer = current.stop()) }
-                    }
-                    entry.paused && !current.paused -> {
-                        val paused = current.pause(now)
-                        saveSitting(paused, lastSeen = now)
-                        _state.update { it.copy(timer = paused) }
-                    }
-                    !entry.paused && current.paused -> {
-                        val resumed = current.unpause(now)
-                        saveSitting(resumed, lastSeen = now)
-                        _state.update { it.copy(timer = resumed) }
+            application.focalEnabled.collectLatest { enabled ->
+                if (!enabled) return@collectLatest
+                application.focalStudy.state.collect { shared ->
+                    val current = _state.value.timer
+                    val started = current.startedAt ?: return@collect
+                    if (!current.active) return@collect
+                    val entry = shared.entries.firstOrNull { it.timedSitting && it.startedAt == started && it.synced && it.notebookId == timerNotebookId &&
+                        (it.userId == null || it.userId == shared.userId) }
+                        ?: return@collect
+                    val now = timerNow()
+                    when {
+                        entry.deleted || entry.completed -> {
+                            clearSitting()
+                            _state.update { it.copy(timer = current.stop()) }
+                        }
+                        entry.paused && !current.paused -> {
+                            val paused = current.pause(now)
+                            saveSitting(paused, lastSeen = now)
+                            _state.update { it.copy(timer = paused) }
+                        }
+                        !entry.paused && current.paused -> {
+                            val resumed = current.unpause(now)
+                            saveSitting(resumed, lastSeen = now)
+                            _state.update { it.copy(timer = resumed) }
+                        }
                     }
                 }
             }

@@ -10,7 +10,6 @@ import com.folio.notes.editor.selection.ObjectLift
 import com.folio.notes.editor.sticky.StickyLift
 import com.folio.notes.editor.toolbar.ToolOptions
 import com.folio.notes.editor.toolbar.ToolPreset
-import com.folio.notes.exam.ExamAttempt
 import com.folio.notes.ink.EraserBrush
 import com.folio.notes.model.CanvasSelection
 import com.folio.notes.model.NotePage
@@ -111,7 +110,6 @@ internal class EditorOverlayState {
     val noteSearch = mutableStateOf(false)
     val keyboardShortcuts = mutableStateOf(false)
     val markDialog = mutableStateOf(false)
-    val focalReview = mutableStateOf<Pair<Notebook, ExamAttempt>?>(null)
     val pageBrowser = mutableStateOf(false)
     val namedPage = mutableStateOf<NotePage?>(null)
     val pageTitle = mutableStateOf("")
@@ -122,7 +120,6 @@ internal class EditorOverlayState {
     val pdfSearch = mutableStateOf(false)
     val pdfContents = mutableStateOf(false)
     val timer = mutableStateOf(false)
-    val study = mutableStateOf(false)
     val exam = mutableStateOf(false)
 }
 

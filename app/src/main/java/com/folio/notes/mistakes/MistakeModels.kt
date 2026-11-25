@@ -28,8 +28,12 @@ data class ExamTrackMistake(
     val attachments: List<MistakeAttachment>, val dueAt: String?, val reviewHistory: List<MistakeReview>,
     val reviewState: ReviewState?, val intervalDays: Double?, val easeFactor: Double?,
     val repetitions: Int?, val lapses: Int?, val lastReviewedAt: String?, val suspended: Boolean,
-    val resolved: Boolean, val createdAt: String, val updatedAt: String, val originalJson: String
-)
+    val resolved: Boolean, val createdAt: String, val updatedAt: String, val originalJson: String,
+    val subject: String? = null, val topic: String? = null, val difficulty: Int? = null,
+) {
+    fun subjectFor(attemptSubject: String?): String? = attemptSubject?.takeIf(String::isNotBlank) ?: subject
+    val difficultyLabel get() = difficulty?.let { "Difficulty $it/5" }
+}
 data class MistakeSchedule(val state: ReviewState, val dueAt: String, val intervalDays: Double,
     val easeFactor: Double, val repetitions: Int, val lapses: Int, val resolved: Boolean)
 /** Local only, also embedded in the practice notebook's backup. Never sent to Supabase. */

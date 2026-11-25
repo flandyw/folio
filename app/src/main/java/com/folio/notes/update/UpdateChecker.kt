@@ -135,7 +135,7 @@ class FolioUpdateChecker(private val context: Context) {
     }
 
     fun discardDownload(ready: DownloadedUpdate) {
-        if (ready.file.exists() && !ready.file.delete()) throw IOException("Couldn’t delete the downloaded update")
+        if (ready.file.exists() && !ready.file.delete()) throw IOException("Couldn't delete the downloaded update")
         record.delete()
     }
 

@@ -12,7 +12,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.folio.notes.FolioApplication
 import com.folio.notes.app.AppPrefs
 import com.folio.notes.app.FolioState
 import com.folio.notes.app.FolioViewModel
@@ -20,7 +19,6 @@ import com.folio.notes.backup.LibraryAutoBackup
 import com.folio.notes.editor.selection.SelectionPlacement
 import com.folio.notes.export.ShareShortcut
 import com.folio.notes.ink.InkRenderer
-import com.folio.notes.mistakes.MistakesViewModel
 import com.folio.notes.model.CanvasSelection
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Notebook
@@ -46,7 +44,7 @@ import org.json.JSONObject
     Column {
         if (state.saveFailed) Surface(color = MaterialTheme.colorScheme.errorContainer) {
             Row(Modifier.fillMaxWidth().padding(8.dp).semantics { liveRegion = LiveRegionMode.Assertive }, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text(state.saveFailureReason ?: "Changes have not saved. Keep Folio open and retry.", Modifier.weight(1f))
+                Text(state.saveFailureReason ?: "Changes haven't saved. Keep Folio open and retry.", Modifier.weight(1f))
                 TextButton(model::retrySave, enabled = !state.retryingSave) { Text(if (state.retryingSave) "Retrying…" else "Retry save") }
             }
         }
@@ -66,27 +64,16 @@ import org.json.JSONObject
     val configured by rememberPref(prefs, LibraryAutoBackup.TREE_URI) { it.getString(LibraryAutoBackup.TREE_URI, null) != null }
     val openBackup = LocalOpenBackupSettings.current
     val progress by LibraryAutoBackup.progress.collectAsState()
-    val study by (context.applicationContext as FolioApplication).focalStudy.state.collectAsState()
-    val mistakeModel: MistakesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val mistakes by mistakeModel.state.collectAsState()
-    FolioPanel("Saving, sync and backups", onDismiss) {
+    FolioPanel("Saving and backups", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("On this device", style = MaterialTheme.typography.titleSmall)
-            Text(if (state.saveFailed) state.saveFailureReason ?: "Save failed. Your latest changes remain open." else if (state.saving) "Saving your latest changes…" else "All current edits have been saved on this device.")
+            Text(if (state.saveFailed) state.saveFailureReason ?: "Save failed. Your latest changes remain open." else if (state.saving) "Saving latest changes…" else "All current edits are saved on this device.")
             if (state.saveFailed) Button(model::retrySave, enabled = !state.retryingSave) { Text("Retry save") }
-            Text("Focal study sync", style = MaterialTheme.typography.titleSmall)
-            Text(study.syncStatus)
-            Text("${study.pendingCount} study records waiting to sync.")
-            Text("Focal mistake sync", style = MaterialTheme.typography.titleSmall)
-            Text(mistakes.status)
-            mistakes.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            TextButton({ mistakeModel.requestSync(force = true) }, enabled = mistakes.userId != null && !mistakes.busy) { Text("Retry mistake sync") }
-            Text("Focal sync covers study records and mistake review. Your notebook files need a library backup.")
             Text("Library backup", style = MaterialTheme.typography.titleSmall)
             Text(if (last == 0L) "No successful automatic backup recorded." else "Last successful automatic backup: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(last))}")
             if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
             if (state.activeId in state.backupExcludedNotebookIds) Text("This notebook is excluded from library backups.", color = MaterialTheme.colorScheme.error)
-            Text("Library backups include local practice notebooks and exclude Trash and the separate music collection. Reusable snippets and workspace preferences are also device-local. Manage the backup folder, exclusions and restore points in Settings › Backup.")
+            Text("Library backups include local practice notebooks and exclude Trash and the separate music collection. Reusable snippets and workspace preferences stay on this device. Manage your backup folder, exclusions, and restore points in Settings › Backup.")
             if (progress != null) Text(progress!!, style = MaterialTheme.typography.bodySmall)
             Button({ LibraryAutoBackup.requestNow(context) }, enabled = configured && progress == null) { Text("Back up now") }
             if (!configured) Text("Choose a backup folder in Settings › Backup first.")
@@ -100,7 +87,7 @@ import org.json.JSONObject
     val entries = model.undoDescriptions()
     FolioPanel("Undo history", onDismiss) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Next action is first. Page ink history applies to the current page; document and page-organisation actions follow their recorded order.")
+            Text("Most recent action is first. Page ink history applies to this page; document and page-organisation edits follow their recorded order.")
             if (entries.isEmpty()) Text("Nothing to undo on this page.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             entries.forEachIndexed { index, label -> Text("${index + 1}. $label") }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -117,7 +104,7 @@ import org.json.JSONObject
     var busy by remember { mutableStateOf(false) }
     FolioPanel("Align and distribute", onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Each selected stroke, text box or picture is an item. On a spanning selection, items are aligned within each page. All affected pages change in one undoable action.")
+            Text("Each selected stroke, text box, or picture counts as one item. Spanning selections align within each page and commit in a single undo step.")
             if (snapshots.values.none { it.second.size >= 2 }) Text("Select two or more items on a page to align them; select three to distribute them.")
             listOf("Left", "Centre horizontally", "Right", "Top", "Centre vertically", "Bottom", "Distribute horizontally", "Distribute vertically").forEach { action ->
                 TextButton({ busy = true; scope.launch {
@@ -161,8 +148,8 @@ import org.json.JSONObject
                     name = ""; refresh()
                 } catch (e: Exception) { model.reportError("Couldn't save snippet: ${e.message.orEmpty()}") } finally { busy = false }
             } }, enabled = selection.isNotEmpty() && name.isNotBlank() && !busy) { Text("Save selection") }
-            if (selection.isEmpty()) Text("Select ink, text or pictures to save a new snippet.")
-            if (entries.isEmpty()) Text("Saved snippets appear here and work across notebooks. They are kept on this device separately from library backups.")
+            if (selection.isEmpty()) Text("Select ink, text, or pictures to save a snippet.")
+            if (entries.isEmpty()) Text("Saved snippets appear here and work across notebooks. They stay on this device, outside library backups.")
             entries.forEach { file ->
                 val json by produceState<JSONObject?>(null, file) { value = withContext(Dispatchers.IO) { runCatching { JSONObject(file.readText()) }.getOrNull() } }
                 val entry = json

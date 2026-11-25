@@ -31,9 +31,11 @@ import org.json.JSONObject
 /** One notebook result waiting to be confirmed; every field is editable text until it is saved. */
 private data class ResultDraft(val id: String, val source: String, val notebookId: String?, val include: Boolean,
     val title: String, val subject: String, val provider: String, val year: String, val paper: String,
-    val score: String, val max: String, val date: String) {
+    val score: String, val max: String, val date: String, val paperTypeLabel: String) {
+    private val explicitPaperType get() = PaperType.entries.find { it.label == paperTypeLabel }
+    val paperType get() = explicitPaperType ?: PaperType.parse(paper)
     val facts get() = ResultFacts(subject.trim(), provider.trim(), title.trim(), year.trim().toIntOrNull(), paper.trim(),
-        score.trim().toDoubleOrNull(), max.trim().toDoubleOrNull(), runCatching { LocalDate.parse(date.trim()) }.getOrNull(), notebookId)
+        score.trim().toDoubleOrNull(), max.trim().toDoubleOrNull(), runCatching { LocalDate.parse(date.trim()) }.getOrNull(), notebookId, paperType)
 
     fun problem(): String? {
         val earned = score.trim().toDoubleOrNull(); val total = max.trim().toDoubleOrNull(); val y = year.trim().toIntOrNull()
@@ -53,14 +55,15 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
         val original = JSONObject(source)
         // Always a plain YYYY-MM-DD: Focal's web app cannot read a full timestamp here.
         return original.put("title", title.trim()).put("subject", subject.trim()).put("provider", provider.trim())
-            .put("examYear", year.trim().toInt()).put("paper", paper.trim())
+            .put("examYear", year.trim().toInt()).put("paper", paper.trim()).putPaperType(explicitPaperType)
             .put("completedAt", date.trim())
             .put("rawScore", score.trim().toDouble()).put("rawMax", max.trim().toDouble())
     }
 
     companion object {
         fun from(e: LoggedExam, include: Boolean) = ResultDraft(e.id, e.originalJson, e.notebookId, include, e.title, e.subject, e.provider,
-            e.examYear.toString(), e.paper, plain(e.rawScore), plain(e.rawMax), e.completedAt.take(10))
+            e.examYear.toString(), e.paper, plain(e.rawScore), plain(e.rawMax), e.completedAt.take(10),
+            PaperType.fromWire(e.json.optString("paperType"))?.label ?: INFER_PAPER_TYPE)
         private fun plain(v: Double) = if (v % 1 == 0.0) v.toLong().toString() else v.toString()
     }
 }
@@ -168,6 +171,7 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                                         label = { Text("Year") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                                     OutlinedTextField(d.paper, { v -> update(d.id) { it.copy(paper = v) } }, Modifier.weight(1f), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Next), label = { Text("Paper") }, singleLine = true)
                                 }
+                                ChoiceField("Paper type", d.paperTypeLabel, paperTypeLabels, { v -> update(d.id) { it.copy(paperTypeLabel = v) } })
                                 Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                                     OutlinedTextField(d.score, { v -> update(d.id) { it.copy(score = v) } }, Modifier.weight(1f), label = { Text("Marks") },
                                         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))

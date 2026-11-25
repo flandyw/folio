@@ -1,164 +1,58 @@
 # Pen feel
 
-How a stylus stroke looks and feels while it is written. Nothing here changes the storage format: the
-saved samples are ordinary `InkPoint`s, and every option is either a render-time look or a different way of
-choosing the numbers that were always stored.
+How a stylus stroke looks and responds while writing. None of these features alter the storage format: saved strokes remain ordinary `InkPoint` lists, and each option is either a render-time look or a different way of computing the stored coordinates and pressures.
 
 ## Latency
 
-- **Predicted tail.** `InkView` feeds every stylus event to `PenTipPrediction.record`, which wraps AndroidX
-  `MotionEventPredictor` (platform model on newer Android, a Kalman filter before). After each move
-  `InkView.refreshPrediction` asks it for the predicted path and `StrokePrediction.clip` (pure) shifts it to start at the
-  *drawn* tip (the pen filter can hold that a pixel behind the real pen) and cuts it at 28 screen pixels.
-  `PenTipPrediction.drawTail` paints it past the tip; it never enters the stroke. While the predictor has nothing
-  yet (the first samples of a stroke) the old two-sample linear guess (`StrokePrediction.predict`) is used.
-- **Low-latency ink (on by default; not yet device-verified).** `AppPrefs.LOW_LATENCY_INK`
-  (`input.lowLatencyInk`) reads `DEFAULT_LOW_LATENCY_INK`, which is `true`, so a missing preference is on.
-  The pen tool's Behaviour page offers the switch (Settings no longer repeats it), and only when
-  `SDK_INT` is at least 29. The preference is read in `InkView.startLowLatency` when a stroke begins.
-  Turning it off disposes the layer on the next contact that reaches that function. Eraser and laser
-  return earlier, so they leave an existing layer in place until the next pen or highlighter contact.
-  Turning it on creates the layer on the next qualifying ballpoint stylus stroke. `ready` stays false
-  until `surfaceCreated`, so that first stroke can still be drawn by the page alone.
-
-  `LowLatencyInk` keeps one transparent `SurfaceView` per window (`setZOrderOnTop`) and draws each new piece
-  of the stroke into an `androidx.graphics` `CanvasFrontBufferedRenderer` front buffer. The layer starts only
-  for a stylus `Tool.PEN` ballpoint (`draft.style.isBrush` is false) that begins on the page: `inkOpacity` at
-  least 0.99, `rulerEdge == 0`, not read-only, and `InkView.frontBuffer` still true. No host sets
-  `frontBuffer` false. The mistake-review exam sheet filters the printed paper and leaves the paperless ink
-  view on the default, so the overlay can run there in the selected ink colour. Highlighter, eraser, laser,
-  finger ink, translucent pen, fountain, pencil, marker, calligraphy, a ruler-locked stroke and a stroke that
-  starts on a sticky note stay on the page path. Below API 29, when `attach` throws, or while the surface is
-  not ready, the page draws the stroke alone. There is no error UI.
-
-  The overlay tail is `PenTipPrediction.tail` after `StrokePrediction.clip` (28 screen pixels). The two-sample
-  guess stays on the page canvas, and only while the predictor is idle. Each chunk clears the previous tail's
-  box, redraws the real segments under it, then draws the new tail at the tip width. Real samples use
-  `penPressureScale` and the start taper. The page draws the same stroke underneath. The lift sample clears
-  the tail; `end` wipes the layer about 48 ms later. `cancel` wipes immediately when a pen-down hold
-  borrows the highlighter or eraser, and on the next pointer event after a shape preview appears.
-  Hold-to-erase leaves the layer up until that wipe: the page tints the ink being deleted while the overlay
-  can still show the scrub. Nothing from the layer is stored or added to undo. Panes in one window share
-  the layer. The clip is the view's visible rect, intersected with the paper on a finite page. Notes and
-  floating chrome do not clip it. Manual plan: [low-latency ink device checks](low-latency-ink-device-checks.md).
+- **Predicted tail:** `InkView` feeds stylus events to `PenTipPrediction.record` (wrapping AndroidX `MotionEventPredictor`). After each move, `StrokePrediction.clip` (pure) anchors the predicted path at the *drawn* tip and clips it to 28 screen pixels; `PenTipPrediction.drawTail` draws it without ever saving it. Before the predictor warms up, a two-sample linear guess (`StrokePrediction.predict`) fills in.
+- **Low-latency ink (on by default; not yet device-verified):** `AppPrefs.LOW_LATENCY_INK` (`input.lowLatencyInk`, default `true`) is controlled on the pen tool's **Behaviour** page on Android 10 (API 29) and newer. `LowLatencyInk` maintains one transparent `SurfaceView` per window backed by `CanvasFrontBufferedRenderer`, activating only for opaque (`≥ 0.99`) ballpoint (`!StrokeStyle.isBrush`) stylus strokes starting on an editable page (not ruler-locked, not on a sticky note; Mistake **Paper** is eligible). All other tools, brushes, translucent strokes, finger ink, ruler strokes, and sticky-note ink stay on the page path.
+  - The page draws the same stroke underneath and owns all saved samples, undo, and journal entries. The overlay clears ~48 ms after lift (or immediately on `cancel`, pen-start borrow, or shape preview). Panes in one window share the layer, clipped to the visible page rect (not notes or floating chrome). See [Low-latency ink device checks](low-latency-ink-device-checks.md).
 
 ## Smoothing
 
-`PenSmoothing` (see `pen-smoothing.md`) also reads the **turn** at each sample: two legs of 4+ screen pixels
-turning by more than ~55° shrink the lag budget and raise the cutoff for a few samples, so t-bars, e-loops and
-a's keep their points at high smoothing. Tremor on short legs is not a corner, and the first ten samples of a
-stroke never count (pen-down wobble must be smoothed, not passed through). An earlier version also relaxed
-smoothing when the pen braked; that let pen-lift jitter through as a hook at stroke ends and was removed.
+`PenSmoothing` ([Pen smoothing](pen-smoothing.md)) protects sharp corners: two legs of 4+ screen pixels turning >55° raise the cutoff and tighten lag for several samples so `t`-bars, `e`-loops, and `a`s stay crisp at high smoothing. Short-leg tremor and the first ten pen-down samples never trigger a corner.
 
 ## Hold at stroke start
 
-Settings › Pen & touch › **Hold at stroke start** chooses Highlighter (default), Eraser or Off
-(`AppPrefs.PEN_START_HOLD`). With the pen selected, keep the stylus within 8 dp of its landing point
-for 500 ms to arm that tool (a haptic tick confirms), then move off the radius to borrow it until
-lift. Lifting while still inside the radius keeps the ordinary pen dot, however long the press, so a
-slow dot never highlights or erases. Finger ink, the hardware eraser and the stylus eraser button
-retain their usual behavior. Moving beyond the radius before the 500 ms, including a historical
-sample, disarms switching for the whole contact, so an ordinary end hold still recognises pen shapes.
-`PenStartHold` keeps this rule independent of Android.
+**Settings → Pen & touch → Hold at stroke start** (`AppPrefs.PEN_START_HOLD`) picks **Highlighter** (default), **Eraser**, or **Off**. Holding the pen tip within 8 dp of pen-down for 500 ms arms the tool (confirmed by a haptic tick); moving outside the radius borrows it until lift. Lifting inside the radius keeps an ordinary pen dot. Moving past the radius before 500 ms disarms switching for the rest of the contact so end-of-stroke shape hold still works. `PenStartHold` is pure.
 
-The borrowed tool uses its saved options, including notebook-local options. Conversion replaces the
-uncommitted pen draft and restarts document capture with the new tool; no pen dot or extra undo step
-is saved. The eraser uses its own diameter, pressure and whole-stroke settings, including over sticky
-notes and across pages. The highlighter keeps its colour, opacity, width and optional contact tilt;
-with **Tidy up shapes** and **Straighten highlighter** enabled, a separate end hold straightens it
-and supports the usual adjustment and undo. Lift, cancellation and tool changes clear the borrowed tool.
+The borrowed tool uses its saved options (including notebook-local options), replaces the uncommitted pen draft without leaving a dot or extra undo step, and supports eraser settings, highlighter tilt, and end-hold straightening. Finger ink, hardware erasers, and stylus eraser buttons keep their normal behaviour.
 
 ## Tool popover and brushes
 
-The tool popover has two pages: **Style** (sample, brush, width, opacity, colours, line style, presets) and
-**Behaviour** (smoothing, soft ends, speed, pressure, low-latency ink, shape assist, scribble to erase).
-Only the open page is composed. Option changes reach the page at once, but `EditorToolState.changeOptions`
-writes the preference 250 ms after the last change (flushed on tool change and when the editor leaves), and
-the smoothing and soft-ends sliders commit on release, since a taper change restyles every pen stroke.
+The tool popover splits into **Style** (preview, brush, width, opacity, colours, line style, presets) and **Behaviour** (smoothing, soft ends, speed, pressure, low-latency ink, shape assist, scribble to erase), composing only the open page. Option writes debounce by 250 ms; smoothing and soft-ends commit on release.
 
-**Brush** is per stroke: the pen offers Ballpoint / Fountain / Pencil / Marker / Calligraphy and the
-highlighter Round / Chisel (`StrokeStyle.brushes`). The brush is stored in the stroke's existing `style` name
-(appended `StrokeStyle` entries, so no format change; an older build reads an unknown name as `SOLID` and draws
-its plain pen), so a page can mix brushes and changing brush never restyles old ink. Each brush card, the
-popover sample and the width-slot sample are drawn by the real renderer (`InkSample`). Each pen brush keeps
-its own three width slots (`WidthPresets.group(tool, style)`); picking a brush keeps the width if it is one of
-that brush's slots, else takes its middle slot. The quick bar has a brush button, the pen's toolbar icon shows
-its brush, presets save the brush, and Restyle selection can change it (`InkGeometry.restyle(…, brush)`, which
-never puts a line pattern on freehand ink).
+**Brushes** are stored per stroke in `StrokeStyle` (appended entries, no format change; older builds read unknown styles as plain `SOLID` pen):
+- **Pen:** Ballpoint, Fountain, Pencil, Marker, Calligraphy. **Highlighter:** Round, Chisel.
+- Each pen brush keeps its own three width slots (`WidthPresets.group`); presets save the brush and **Restyle selection** can change it.
+- *Soft stroke ends* and *Thinner when fast* apply to Ballpoint only. Fountain has no distance taper and always thins with speed; Pencil varies opacity with pressure; Marker ignores pressure. Every brush uses Ballpoint's pressure width so a normal press draws the same width across brushes.
 
-*Soft stroke ends* and *Thinner when fast* belong to the Ballpoint only. The fountain pen has no distance taper (it
-would shrink dots and taper tidied shapes and erased halves); it swings wider with pressure and always thins when fast (`InkView` bakes speed into
-its stored pressure like the Ballpoint setting). Pencil pressure darkens it; the marker ignores pressure.
-Every brush takes the Ballpoint's pressure width, so a normal press is the same width whichever brush is chosen.
-The low-latency overlay is Ballpoint-only; other brushes draw the predicted tip through their own mesh.
+## Width and stroke rendering
 
-## Width
+- **Pressure response (`PenPressure.sample`):** Raises raw readings to `curve` before sensitivity; Light / Normal / Firm presets fill the sliders per tool.
+- **Thinner when fast (`input.penSpeedWidth`):** Smooths screen speed (`px/ms`) into a 0.25–1 factor baked into stored pressure.
+- **Tilt widens the highlighter (`input.highlighterTilt`):** Captures `AXIS_TILT` at pen-down to set the stroke's constant width.
+- **Soft stroke ends (`input.inkTaper`, 0 = off):** Render-only thinning of the first and last 3–14 page units down to 25% width (`InkTaper.version` invalidates cached rasters).
+- **AndroidX Ink:** Pen, highlighter, and solid shapes render through AndroidX Ink with Folio's smoothed centreline and `pressure × taper` width; `InkOutline` remains the automatic fallback. See [AndroidX Ink rendering](androidx-ink.md).
+- **`StrokeEnds.settle`:** Copies neighbour pressure onto pen-down and pen-up samples (preventing Android's full-pressure endpoint blobs) without trimming positions.
 
-- **Response curve + Light / Normal / Firm** (pen tool options › Pressure). `PenPressure.sample` raises the raw
-  reading to `curve` before sensitivity; the presets only fill the sliders. Stored per tool in `ToolOptions`.
-- **Thinner when fast** (`input.penSpeedWidth`). `PenPressure.SpeedWidth` smooths speed in screen px/ms and
-  feeds a 0.25–1 factor into the pressure maths, so it composes with (or replaces, when pressure is off) the
-  pressure width. It is baked into each sample's stored pressure.
-- **Tilt widens the highlighter** (`input.highlighterTilt`). A highlighter has one width per stroke, so the
-  tilt (`AXIS_TILT`) at pen-down sets the stroke width (`PenPressure.tiltScale`). There is no pencil tool yet.
-- **Soft stroke ends** (`input.inkTaper`, 0 = off). `InkTaper` thins the first and last 3–14 page units down to a quarter of the width. AndroidX Ink consumes the per-point pressure × taper width through a custom brush. It is
-  render-only, so it restyles old ink too; `InkTaper.version` makes every `InkView` drop geometry and rasters
-  built under the old look. The live stroke only thins its start (the end is unknown until pen-up), and the
-  live-geometry hand-off to the cache is skipped when taper is on.
+## Stored strokes and handwriting tidy
 
-## Drawing the stroke
-
-Pen, highlighter and solid shapes render through AndroidX Ink, including live strokes, sticky ink,
-rasters, thumbnails and exports. Folio still supplies the smoothed centreline and pressure × taper
-width; a passthrough input model avoids applying a second smoothing or pressure response. Live
-strokes append their settled prefix and replace their provisional tail. Completed geometries cache
-an immutable native mesh. Patterned shapes, selection halos and the navigation preview keep their
-Canvas paths, and `InkOutline` remains the fallback if AndroidX Ink fails. See [AndroidX Ink rendering](androidx-ink.md) for scope and device checks.
-
-`StrokeEnds.settle` runs when a pen stroke is stored: the pen-down and lift samples take their neighbours'
-pressure (Android often reports a full reading there, which drew a blob, a neck, then the stroke). Positions
-are never trimmed: an earlier version dropped short sharp turns at the ends as pen skids, which cut the close
-off an "o" and broke cursive joins. The live stroke fixes its first sample's pressure as soon as the second arrives.
-
-## Stored strokes
-
-- **Keep notebooks small** (`input.refitStrokes`, default on; it no longer has a switch in Settings). `InkView.refitted` runs `StrokeRefit.simplify` as a
-  plain pen stroke is finished: Douglas–Peucker at 0.04 page units, no kept gap over 3 units (the renderer
-  stops smoothing across 5), pressure drift counted. On synthetic handwriting (0.6-unit steps) it dropped about 60–80% of samples.
-  `HandwritingInkTest` checks the rendered curve stays within 0.2 units of the original.
-
-## Tidy up handwriting
-
-Lasso › … › **Tidy up handwriting…** (also the document-selection menu). `HandwritingTidy` (pure) groups pen
-strokes into lines, levels each by sliding strokes vertically along a Theil–Sen slope of their centres
-(max ~10°), and eases uneven letter and word gaps halfway by sliding clusters of strokes sideways. Strokes
-only translate. `HandwritingSelectionTidy` turns that into one positional page edit; `HandwritingTidyPanel`
-previews it and commits through `commitDocumentEdits` with the same revision checks as shape cleanup.
-
-## Checks
-
-- `node tools/pen-smoothing-smoke.cjs`, `node tools/handwriting-smoke.cjs`, `node tools/shapes-smoke.cjs` (pure maths; need a prior build for the Kotlin compiler cache).
-- `./gradlew :app:testDebugUnitTest --tests '*HandwritingInkTest*'` (refit vs. the real renderer, tidy through the journal).
-
-On a device (OnePlus Pad 3, ColorOS) — none of this can be seen in the smoke tests:
-
-1. **Prediction:** write fast loops, small `e`/`a`, and sharp zigzags with the tail on; no spikes beyond the tip, no tail left after lifting or after the pen pauses.
-2. **Corners:** at 100% smoothing write `t`, `+`, `V`, `Z` quickly; apexes should stay sharp, and a held pen should not shiver.
-3. **Pressure feel:** Light / Normal / Firm on the same sentence; Reset restores Normal.
-4. **Thinner when fast:** with pressure on and off; slow writing keeps the chosen width.
-5. **Soft ends:** on, off, and a notebook with old ink; dots stay dots; toggling while the editor is open restyles the page; PDF/PNG export follows the setting.
-6. **Highlighter tilt:** upright vs. flat contact widths; the stroke width does not change mid-stroke.
-7. **Keep notebooks small:** write a page, close and reopen, undo/redo, export: it must look the same; compare the `.fps` size with the preference off (set `input.refitStrokes` by hand; it has no switch).
-8. **Tidy up handwriting:** lasso a few tilted lines with an underline and a highlighter; preview, apply, undo once; a locked layer is untouched.
-9. **Low-latency ink:** on by default, and not yet device-verified. Run [low-latency ink device checks](low-latency-ink-device-checks.md) on a stylus tablet and a finger-only phone. This list item is not a completed device pass.
-10. **Start hold:** choose Highlighter, hold at pen-down, draw and hold again at the end with shape assist enabled. Check saved highlighter colour/width/opacity, straightening and adjustment, undo/redo, then write immediately: the next stroke is pen ink. Repeat with notebook-local tool settings, tilt and the ruler, on a canvas, in split/music/zoom layouts, across a page seam and on a sticky note. Choose Eraser; check its saved diameter, pressure, whole-stroke mode and undo, both on notes and across pages, with no initial pen dot. Quick dots, immediate writing, finger ink, the hardware eraser and eraser button must keep working. Move away and return to the start, pause at a pen stroke's end, cancel a contact, switch tools and leave the editor during the hold: none may trigger a late switch. Off disables the shortcut. Device verification remains required for the physical gesture and haptics.
+- **Keep notebooks small (`input.refitStrokes`, default on, no Settings switch):** Runs `StrokeRefit.simplify` (Douglas–Peucker at 0.04 page units, max gap 3 units, pressure-aware) at pen-up, dropping ~60–80% of samples on typical handwriting while staying within 0.2 units of the original curve (`HandwritingInkTest`).
+- **Tidy up handwriting:** **Lasso → … → Tidy up handwriting…** runs pure `HandwritingTidy` (levels lines along a Theil–Sen slope ≤10° and eases uneven letter/word spacing by translating strokes only), previews via `HandwritingTidyPanel`, and commits with revision checks.
 
 ## Writing feedback (OnePlus / OPPO Pencil Pro)
 
-With Settings › Pen & touch › *Buzz while writing* on (`AppPrefs.WRITING_FEEDBACK`, default on; independent of the Bluetooth double-tap buzz), `PenWritingFeedback` asks ColorOS's open capability service for `IPE_PENCIL_CLIENT` and, once granted, calls the pen service's `startFeedBackVibration`/`stopFeedBackVibration` on pen down/up (`InkView.writingFeedback`). Each tool group has its own `WritingFeel` preference (`AppPrefs.WRITING_FEEL`, `WRITING_FEEL_HIGHLIGHTER`, `WRITING_FEEL_ERASER`); an unset choice means Match the tool (ballpoint, marker, eraser respectively), never inheritance from the pen's choice. Explicit saved choices are preserved. Settings shows the live `FeedbackStatus`. Folio asks under the licensed app names (`LICENSED_APPS`: HiPaint, then StarNote), never its own name. If all are refused, it stays silent.
+**Settings → Pen & touch → Buzz while writing** (`AppPrefs.WRITING_FEEDBACK`, default on) binds ColorOS's open capability service for `IPE_PENCIL_CLIENT` under licensed app identities (`HiPaint`, then `StarNote`; never calling direct `IServiceBroker` transaction 1, which checks Folio's own UID). Each bind uses a unique intent category so Android's `Intent.filterEquals` cache never skips OCS authentication. Each tool group (`WRITING_FEEDBACK`, `WRITING_FEEL`, `WRITING_FEEL_HIGHLIGHTER`, `WRITING_FEEL_ERASER`) defaults to matching its tool. Settings displays live `FeedbackStatus`.
 
-The tablet's supplied `ocs.apk` distinguishes two authentication paths. The bind-intent path (`s2.a` → `h.b` → `t2.d.e`) reads the stated package's installed manifest AUTH_CODE and signing certificate; the app must therefore be installed with a valid licence. Error **1004** means an empty target package or a missing AUTH_CODE. The direct `IServiceBroker` transaction 1 instead resolves the real Binder caller's UID (`service.b.g` → `h.a`) and checks that app, so calling it from Folio produces a Folio authentication attempt regardless of the bind extras. Do not call that broker as a fallback.
+## Verification
 
-Each bind adds a fresh category because Android caches bindings using intent filter equality, which ignores extras. Reusing only the capability's MIME type can return a cached broker without running OCS's `onBind` authentication again. The category keeps each identity attempt and editor visit separate while preserving the capability type and extras. See Android's [bound service lifecycle](https://developer.android.com/develop/background-work/services/bound-services) and [Intent.filterEquals](https://developer.android.com/reference/android/content/Intent#filterEquals(android.content.Intent)). This explains a possible silent binding; it does not establish why StarNote itself stopped vibrating.
-
-On success OCS's `l3.m` notifies the protected pen manager with the licence's permits, PID, UID and package (transaction `16777215`), then returns its binder to the listener. This APK does not contain the pen manager's enforcement code, so an installed licensed app and a successful callback do not prove physical feedback will work. Device check: keep HiPaint (`net.huanci.hsjpro`) or global StarNote (`com.onyx.galaxy.global.note`) installed, open a notebook and inspect `adb logcat -s PenWritingFeedback`. Check that each attempt receives an authentication result; repeated `1004` means the stated installed package lacks the required licence. Once connected, write, erase and highlight and confirm the buzz runs only while the tip is down, stops on lift, palm cancel, second finger, page detach and app backgrounding, and never runs with lasso/hand/text/laser. If authentication succeeds but vibration fails, inspect the matching pen-manager APK/logs next.
+- **Automated:** `node tools/pen-smoothing-smoke.cjs`, `node tools/handwriting-smoke.cjs`, `node tools/shapes-smoke.cjs`, and `./gradlew :app:testDebugUnitTest --tests '*HandwritingInkTest*'`.
+- **On device (OnePlus Pad 3, ColorOS):**
+  1. **Prediction:** Fast loops, small `e`/`a`, sharp zigzags: no tip spikes or lingering tails.
+  2. **Corners:** At 100% smoothing, write `t`, `+`, `V`, `Z` quickly: sharp apexes, no held-tip shiver.
+  3. **Pressure, speed, soft ends, tilt:** Test Light/Normal/Firm + Reset, **Thinner when fast** (pressure on/off), **Soft stroke ends** (dots stay dots; live restyle; export parity), and highlighter tilt.
+  4. **Refit & tidy:** Verify reopen/undo/export parity and `.fps` size reduction; lasso tilted lines + underline + highlighter, preview, apply, undo once, and verify locked layers stay untouched.
+  5. **Low-latency ink:** Run [Low-latency ink device checks](low-latency-ink-device-checks.md).
+  6. **Start hold:** Test Highlighter (with end-hold straightening, notebook-local options, tilt, ruler, canvas, split/music/zoom, seams, stickies) and Eraser (diameter, pressure, whole-stroke, no initial dot), plus quick dots, hardware eraser, cancellation, and Off.
+  7. **Writing feedback:** With HiPaint (`net.huanci.hsjpro`) or global StarNote (`com.onyx.galaxy.global.note`) installed, inspect `adb logcat -s PenWritingFeedback` (`1004` = missing licence) and verify buzz starts on tip-down, stops on lift/cancel/second finger/detach/background, and never runs on lasso/hand/text/laser.

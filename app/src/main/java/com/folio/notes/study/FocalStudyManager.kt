@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -54,7 +55,7 @@ class FocalStudyManager(context: Context) {
         val serverMillis = value?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: return
         serverClockAnchor = focalObserveServerClock(serverClockAnchor, serverMillis, SystemClock.elapsedRealtime())
     }
-    private val file = AtomicFile(File(context.filesDir, "focal-study.json"))
+    private val file = AtomicFile(File(context.filesDir, SESSIONS_FILE))
     private val gate = Mutex()
     // Study sessions and mistake review share one Supabase client and one account.
     private val connection = FocalSupabaseConnection.of(context)
@@ -66,7 +67,7 @@ class FocalStudyManager(context: Context) {
     val state = _state.asStateFlow()
     private val foreground = MutableStateFlow(false)
     private val syncRequests = Channel<Unit>(Channel.CONFLATED)
-    private fun requestSync() { syncRequests.trySend(Unit) }
+    private fun requestSync() { if (lifecycle.enabled.value) syncRequests.trySend(Unit) }
     private var remoteNoticeReadyUser: String? = null
     // Change ids this device authored, so their echo in the feed is never read as another device.
     private val ownChangeIds = LinkedHashSet<String>()
@@ -90,7 +91,7 @@ class FocalStudyManager(context: Context) {
 
     fun setForeground(value: Boolean) {
         foreground.value = value
-        if (value) lifecycle.retry()
+        if (value && lifecycle.enabled.value) { lifecycle.retry(); requestSync() }
         // Android may kill a stopped process before the next periodic heartbeat. Background
         // study keeps running in memory, but its recoverable copy is saved right now.
         if (!value) persist()
@@ -108,7 +109,16 @@ class FocalStudyManager(context: Context) {
     init {
         // Auth refresh and foreground changes may cancel their collectors, never this
         // worker's RPC or receipt handling. Bursts of realtime wakeups share one pull.
-        scope.launch { for (request in syncRequests) sync() }
+        scope.launch {
+            lifecycle.enabled.collectLatest { enabled ->
+                if (enabled) {
+                    requestSync()
+                    for (request in syncRequests) try { sync() } catch (e: CancellationException) { ensureActive() }
+                } else {
+                    parkFocus(FocalFocus.PARK_AWAY)
+                }
+            }
+        }
         scope.launch {
             lifecycle.state.collect { account ->
                 account.user?.let { user ->
@@ -129,24 +139,30 @@ class FocalStudyManager(context: Context) {
             }
         }
         scope.launch {
-            combine(_state.map { it.userId }.distinctUntilChanged(), foreground) { user, visible -> user to visible }
+            combine(_state.map { it.userId }.distinctUntilChanged(), foreground, lifecycle.enabled) { user, visible, enabled -> user to (visible && enabled) }
                 .collectLatest { (user, visible) ->
                     if (visible && user != null) { requestSync(); watchFocalFeed(client, "folio-study-$user", listOf("study_sessions", "custom_subjects"), ::requestSync) }
                 }
         }
         scope.launch {
-            while (true) {
-                delay(FOCUS_CHECKPOINT_INTERVAL_MS)
-                if (_state.value.focus?.resumedAt != null || _state.value.entries.any {
-                    it.active && !it.paused && it.metadata != null
-                }) persist()
+            lifecycle.enabled.collectLatest { enabled ->
+                if (!enabled) return@collectLatest
+                while (true) {
+                    delay(FOCUS_CHECKPOINT_INTERVAL_MS)
+                    if (_state.value.focus?.resumedAt != null || _state.value.entries.any {
+                        it.active && !it.paused && it.metadata != null
+                    }) persist()
+                }
             }
         }
         scope.launch {
-            while (true) {
-                delay(30_000)
-                if (_state.value.userId != null && (foreground.value ||
-                    _state.value.entries.any { !it.synced && (it.userId == null || it.userId == _state.value.userId) })) requestSync()
+            lifecycle.enabled.collectLatest { enabled ->
+                if (!enabled) return@collectLatest
+                while (true) {
+                    delay(30_000)
+                    if (_state.value.userId != null && (foreground.value ||
+                        _state.value.entries.any { !it.synced && (it.userId == null || it.userId == _state.value.userId) })) requestSync()
+                }
             }
         }
     }
@@ -157,10 +173,14 @@ class FocalStudyManager(context: Context) {
         val rows = data.optJSONArray("entries") ?: JSONArray()
         val entries = (0 until rows.length()).mapNotNull { index -> runCatching {
             val row = rows.getJSONObject(index)
+            val payload = row.optString("remotePayload").ifBlank { null }
+            val kind = row.getString("kind")
+            val cachedSac = kind == "exam" && payload != null &&
+                runCatching { JSONObject(payload).optString("kind") == "sac" }.getOrDefault(false)
             FocalStudyEntry(
                 id = row.getString("id"), changeId = row.getString("changeId"),
                 notebookId = row.optString("notebookId").ifBlank { null }, title = row.getString("title"),
-                subjectId = row.optString("subjectId").ifBlank { null }, kind = row.getString("kind"),
+                subjectId = row.optString("subjectId").ifBlank { null }, kind = if (cachedSac) "sac" else kind,
                 startedAt = row.getLong("startedAt"), endedAt = row.getLong("endedAt"),
                 activeMillis = row.getLong("activeMillis"), notes = row.optString("notes"),
                 confidence = row.optInt("confidence").takeIf { it in 1..5 },
@@ -172,7 +192,7 @@ class FocalStudyManager(context: Context) {
                     }.getOrDefault(false) }, deleted = row.optBoolean("deleted"),
                 paused = row.optBoolean("paused"), examPhase = row.optString("examPhase").lowercase().ifBlank { null },
                 examPhaseBeforePause = row.optString("examPhaseBeforePause").lowercase().ifBlank { null },
-                remotePayload = row.optString("remotePayload").ifBlank { null },
+                remotePayload = payload,
                 planDraft = row.optString("planDraft").ifBlank { null },
                 metadata = row.optString("metadata").ifBlank { null },
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },
@@ -593,6 +613,8 @@ class FocalStudyManager(context: Context) {
         val started = timer.startedAt ?: return
         if (!timer.active) return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
+        if (!lifecycle.enabled.value && (existing == null ||
+                (existing.paused == timer.paused && existing.examPhase == timer.phase.name.lowercase()))) return
         if (existing?.completed == true || existing?.deleted == true) return
         // A heartbeat is not a resume/pause button. Let the shared-state collector
         // reconcile a remote pause before another checkpoint can undo it.
@@ -608,6 +630,7 @@ class FocalStudyManager(context: Context) {
     fun finishExam(note: Notebook, timer: ExamTimerState, now: Long = this.now(), phaseAt: Long? = null) {
         val started = timer.startedAt ?: return
         val existing = _state.value.entries.firstOrNull { it.notebookId == note.id && it.startedAt == started }
+        if (!lifecycle.enabled.value && existing == null) return
         if (existing?.completed == true || existing?.deleted == true || (existing == null && timer.elapsedActiveMillis(now) <= 0L)) return
         val entry = examStudyEntry(note, timer, now, existing, completed = true, subjects = _state.value.subjects)
         updateExam(focalAppendExamBoundaries(entry, focalExamBoundariesFor(existing, timer, now,
@@ -621,7 +644,7 @@ class FocalStudyManager(context: Context) {
             state.copy(entries = if (present) state.entries.map { if (it.id == entry.id) entry else it }
                 else listOf(entry) + state.entries, error = null)
         }
-        if (persist()) scope.launch { publishEntry(entry) }
+        if (persist() && lifecycle.enabled.value) scope.launch { publishEntry(entry) }
     }
     fun logManual(note: Notebook?, subjectId: String?, minutes: Int, notes: String,
                   confidence: Int?, now: Long = this.now()): Boolean {
@@ -729,7 +752,7 @@ class FocalStudyManager(context: Context) {
         return saved
     }
     fun retry() {
-        if (_state.value.needsSignIn) return
+        if (!lifecycle.enabled.value || _state.value.needsSignIn) return
         lifecycle.retry()
         if (_state.value.syncing) return
         _state.update { it.copy(syncing = true, syncDetail = if (it.localSaveFailed)
@@ -747,6 +770,9 @@ class FocalStudyManager(context: Context) {
     }
 
     companion object {
+        private const val SESSIONS_FILE = "focal-study.json"
+        internal fun hasSavedSessions(context: Context): Boolean =
+            File(context.filesDir, SESSIONS_FILE).exists() || File(context.filesDir, "$SESSIONS_FILE.bak").exists()
         private const val FOCUS_CHECKPOINT_INTERVAL_MS = 5_000L
         private const val EXAM_SYNC_INTERVAL_MS = 30_000L
         private const val MAX_OWN_CHANGE_IDS = 200
@@ -781,7 +807,7 @@ class FocalStudyManager(context: Context) {
         scope.launch {
             try {
                 lifecycle.awaitRestoration()
-                client.auth.resetPasswordForEmail(email.trim())
+                lifecycle.whileEnabled { client.auth.resetPasswordForEmail(email.trim()) }
                 _state.update { it.copy(authMessage = "If this email has an account, a password reset link is on its way.") }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { _state.update { it.copy(error = "Could not request a reset. Check your connection and try again.") } }
@@ -901,6 +927,7 @@ class FocalStudyManager(context: Context) {
      * them, and retain the canonical answer. A failed request leaves the entry unsynced.
      */
     private suspend fun publishEntry(entry: FocalStudyEntry) {
+        if (!lifecycle.enabled.value) return
         val user = _state.value.userId ?: return
         if (!_state.value.configured) return
         gate.withLock {

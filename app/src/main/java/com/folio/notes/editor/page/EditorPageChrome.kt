@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.folio.notes.editor.dialogs.editorPaperLabel
 import com.folio.notes.editor.follow.WritingFollowControl
 import com.folio.notes.editor.toolbar.FolioPopover
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.displayTitle
 import com.folio.notes.ui.FolioPopover

@@ -18,7 +18,7 @@ import com.folio.notes.ink.recognition.HandwritingTidyPanel
 import com.folio.notes.ink.recognition.InkConversionDraft
 import com.folio.notes.ink.recognition.InkConversionPreview
 import com.folio.notes.ink.shapes.ShapeCleanupPanel
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.displayTitle
 import com.folio.notes.ui.FolioPanel

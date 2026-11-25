@@ -14,9 +14,7 @@ import com.folio.notes.exam.ScoreDialog
 import com.folio.notes.exam.TimingPanel
 import com.folio.notes.marking.MarkZone
 import com.folio.notes.marking.MarkZones
-import com.folio.notes.progress.ExamRecordReview
 import com.folio.notes.progress.countsAsExam
-import com.folio.notes.study.FocalStudyPanel
 
 internal data class EditorMarkingPresentation(val assist: Boolean, val busy: Boolean, val status: String?,
     val zones: List<MarkZone>, val color: Int)
@@ -26,19 +24,16 @@ internal data class EditorMarkingPresentation(val assist: Boolean, val busy: Boo
     val note = state.active ?: return
     val page = state.page ?: return
     var timerPanel by overlays.timer
-    var studyPanel by overlays.study
     var examPanel by overlays.exam
     var markDialog by overlays.markDialog
-    var focalReview by overlays.focalReview
     val markAssist = marking.assist
     val markScanBusy = marking.busy
     val markScanStatus = marking.status
     val markZones = marking.zones
     val markingColor = marking.color
+    val focalResult = com.folio.notes.app.LocalFocalResult.current
     if (timerPanel) TimingPanel(
         timer = state.timer,
-        note = note,
-        onOpenStudy = { studyPanel = true },
         onDismiss = { timerPanel = false },
         onStartTimer = model::startTimer,
         onStopTimer = { model.stopTimer() },
@@ -46,7 +41,6 @@ internal data class EditorMarkingPresentation(val assist: Boolean, val busy: Boo
         onSkipTimer = model::skipTimerPhase,
         onPauseTimer = model::toggleTimerPause
     )
-    if (studyPanel) FocalStudyPanel(note, state.timer, onDismiss = { studyPanel = false })
     if (examPanel) ExamDetailsPanel(
         note = note,
         onDismiss = { examPanel = false },
@@ -54,9 +48,10 @@ internal data class EditorMarkingPresentation(val assist: Boolean, val busy: Boo
         onRecordMark = { attempt -> model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id) },
         onDeleteAttempt = { attempt -> model.deleteAttempt(note.id, attempt.id) },
         suggestedSeconds = state.lastTimedSeconds,
-        onRecordAndSave = if (!note.countsAsExam) null else { attempt ->
+        onRecordAndSave = if (focalResult == null || !note.countsAsExam) null else { attempt ->
             model.recordAttempt(note.id, attempt, note.longResponse?.attemptFor(page.id)?.id)
-            focalReview = note to attempt
+            examPanel = false
+            focalResult(note, attempt)
         }
     )
     if (markDialog) ScoreDialog(
@@ -78,15 +73,12 @@ internal data class EditorMarkingPresentation(val assist: Boolean, val busy: Boo
             markDialog = false
         },
         // SACs, topic tests and notes never feed the exam log, so only real papers can be saved to Focal.
-        onRecordAndSave = if (!note.countsAsExam) null else { score, total, seconds, timed ->
+        onRecordAndSave = if (focalResult == null || !note.countsAsExam) null else { score, total, seconds, timed ->
             val attempt = ExamAttempt(score = score, total = total, secondsTaken = seconds, timed = timed)
             model.recordAttempt(note.id, attempt)
             markDialog = false
-            focalReview = note to attempt
+            focalResult(note, attempt)
         }
     )
-    focalReview?.let { (reviewed, attempt) ->
-        ExamRecordReview(reviewed, attempt) { focalReview = null }
-    }
 
 }

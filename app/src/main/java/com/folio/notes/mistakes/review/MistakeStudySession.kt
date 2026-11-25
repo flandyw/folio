@@ -22,7 +22,7 @@ internal class MistakeStudySession(private val userId: String) {
     fun resume(attempt: LocalMistakeReviewAttempt, card: ExamTrackMistake, context: ExamContext?,
                subjects: List<FocalSubject>, now: Long) {
         if (attempt.userId != userId || (intervals.isNotEmpty() && intervals.last().endAt == null)) return
-        val source = context?.subject.orEmpty().trim()
+        val source = card.subjectFor(context?.subject).orEmpty().trim()
         val subjectId = FocalSubjects.find(source, subjects)
         val subject = subjects.firstOrNull { it.id == subjectId }?.name ?: source
         val start = maxOf(now, intervals.lastOrNull()?.endAt ?: now)

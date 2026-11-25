@@ -33,12 +33,9 @@ import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
 import com.folio.notes.ui.folioEntrance
 
-/** One entry point for the exam countdown and the Focal-backed study stopwatch. */
 @Composable
 internal fun TimingPanel(
     timer: ExamTimerState,
-    note: Notebook?,
-    onOpenStudy: () -> Unit,
     onDismiss: () -> Unit,
     onStartTimer: (ExamTimerPreset) -> Unit,
     onStopTimer: (Int?) -> Unit,
@@ -46,43 +43,8 @@ internal fun TimingPanel(
     onSkipTimer: () -> Unit,
     onPauseTimer: () -> Unit
 ) {
-    val focalState by (LocalContext.current.applicationContext as FolioApplication).focalStudy.state.collectAsStateWithLifecycle()
-    var selectedTab by rememberSaveable { mutableIntStateOf(if (timer.phase == ExamTimerPhase.IDLE && focalState.visibleFocus != null) 1 else 0) }
-    FolioPanel(title = "Timer & stopwatch", onDismissRequest = onDismiss) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp24, vertical = FolioSpacing.dp4),
-            horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)
-        ) {
-            // Each tab says when its clock is live, so a running timer is never hidden behind the other tab.
-            val examState = when {
-                timer.phase == ExamTimerPhase.IDLE || timer.startedAt == null -> null
-                timer.phase == ExamTimerPhase.DONE -> "Time's up"
-                timer.paused -> "Paused"
-                timer.phase == ExamTimerPhase.READING -> "Reading"
-                else -> "Writing"
-            }
-            val focus = focalState.visibleFocus
-            val studyState = when {
-                focus == null -> null
-                focus.resumedAt != null -> "Running"
-                else -> "Paused"
-            }
-            FilterChip(
-                selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                label = { Text(examState?.let { "Exam timer · $it" } ?: "Exam timer") }, leadingIcon = { Icon(FolioIcons.Timer, null) }
-            )
-            FilterChip(
-                selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                label = { Text(studyState?.let { "Study stopwatch · $it" } ?: "Study stopwatch") }, leadingIcon = { Icon(FolioIcons.HourglassEmpty, null) }
-            )
-        }
-        Box(Modifier.weight(1f, fill = false).folioEntrance(selectedTab)) {
-            if (selectedTab == 0) {
-                ExamTimerContent(timer, onStartTimer, onStopTimer, onAdjustTimer, onSkipTimer, onPauseTimer)
-            } else {
-                StudyStopwatchContent(note, timer, onOpenStudy = { onDismiss(); onOpenStudy() })
-            }
-        }
+    FolioPanel(title = "Exam timer", onDismissRequest = onDismiss) {
+        ExamTimerContent(timer, onStartTimer, onStopTimer, onAdjustTimer, onSkipTimer, onPauseTimer)
     }
 }
 
@@ -156,7 +118,7 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                         val minutes = timer.finalWarningSeconds / 60
                         Surface(shape = FolioShapes.large, color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                "Final $minutes ${if (minutes == 1) "minute" else "minutes"} — start wrapping up",
+                                "Final $minutes ${if (minutes == 1) "minute" else "minutes"}: start wrapping up",
                                 modifier = Modifier.padding(FolioSpacing.dp16),
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 style = MaterialTheme.typography.titleMedium
@@ -182,10 +144,10 @@ internal fun ExamTimerContent(timer: ExamTimerState, onStart: (ExamTimerPreset) 
                             )
                             Text(
                                 when {
-                                    timer.paused && timer.autoParked -> "Stopped on its own — resume, or just keep writing"
-                                    timer.paused -> "Paused — resume, or just keep writing"
+                                    timer.paused && timer.autoParked -> "Stopped automatically. Resume, or keep writing"
+                                    timer.paused -> "Paused. Resume, or keep writing"
                                     active -> "The clock is running"
-                                    else -> "No pens yet — read the paper"
+                                    else -> "No pens yet. Read the paper"
                                 },
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
                             )

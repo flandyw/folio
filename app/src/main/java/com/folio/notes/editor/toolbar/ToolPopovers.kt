@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.ink.InkRenderer
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.ShapePickerTools

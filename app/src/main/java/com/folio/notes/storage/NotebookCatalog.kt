@@ -7,7 +7,6 @@ import com.folio.notes.backup.LibraryAutoBackup
 import com.folio.notes.exam.ExamAttempt
 import com.folio.notes.exam.ExamFilter
 import com.folio.notes.exam.ExamStatus
-import com.folio.notes.exam.ExamTagType
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.model.Folder
 import com.folio.notes.model.Notebook
@@ -181,25 +180,8 @@ internal class NotebookCatalog(private val runtime: FolioRuntime) {
         with(runtime) { updateNotes(setOf(noteId)) { it.copy(exam = tags) } }
     }
 
-    fun toggleExamTag(noteId: String, tag: ExamTagType) {
-        with(runtime) {
-            val note = _state.value.notes.notebook(noteId) ?: return
-            val tags = note.exam
-            val updated = if (tag in tags.tags) tags.copy(tags = tags.tags - tag) else tags.copy(tags = tags.tags + tag)
-            updateNote(note.copy(exam = updated))
-        }
-    }
-
     fun setExamFilter(filter: ExamFilter) {
         with(runtime) { _state.update { it.copy(examFilter = filter) } }
-    }
-
-    fun toggleRedoFlag() {
-        with(runtime) {
-            val page = _state.value.page ?: return
-            if (!page.loaded) return
-            replacePage(page.copy(redoFlag = !page.redoFlag))
-        }
     }
 
     fun recordAttempt(noteId: String, attempt: ExamAttempt, responseAttemptId: String? = null) {

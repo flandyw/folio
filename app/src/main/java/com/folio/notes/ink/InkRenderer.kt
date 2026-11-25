@@ -998,7 +998,7 @@ object InkRenderer {
         val label = mcLabelPaint
         val number = mcNumberPaint
         val clip = clipRectPool.get()!!.also { canvas.getClipBounds(it) }
-        if (clip.top <= 40) canvas.drawText("Section A — shade one bubble per question", 36f, 40f, label)
+        if (clip.top <= 40) canvas.drawText("Section A: shade one bubble per question", 36f, 40f, label)
         // Cull rows to the visible band instead of drawing ~170 circles + texts per frame.
         val firstIndex = max(1, ((clip.top - 78f) / 34f).toInt() + 1)
         var y = 78f + (firstIndex - 1) * 34f

@@ -233,7 +233,7 @@ class NotebookPdfs internal constructor(private val context: Context, private va
                 } ?: run { failures = targets.size }
             } finally { ocr.close() }
             report(if (failures == 0) null else
-                "Couldn’t read $failures pages. Turn printed marks off and on to retry; manual stamps still work.")
+                "Couldn't read $failures pages. Toggle printed marks to retry; manual stamps still work.")
             zones.toList()
         }
     }

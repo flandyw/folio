@@ -1,10 +1,22 @@
 package com.folio.notes.workspace
 
+import com.folio.notes.app.FolioState
 import com.folio.notes.model.Notebook
 import org.junit.Assert.*
 import org.junit.Test
 
 class SplitViewRulesTest {
+    @Test fun keyboardTabCyclingSkipsPracticeNotebooksHiddenByTheStrip() {
+        val a = Notebook(id = "a", title = "Methods notes")
+        val practice = Notebook(id = "p", title = "Practice", mistakePractice = true)
+        val b = Notebook(id = "b", title = "Chem SAC")
+        val notes = listOf(a, practice, b)
+        val state = FolioState(notes = notes, tabs = notes.map { EditorTab(it.id, it.id, "p1", it.title) }, activeId = a.id)
+        assertEquals(b.id, state.cycleTab(a.id, back = false)?.notebookId)
+        assertEquals(a.id, state.cycleTab(b.id, back = true)?.notebookId)
+        assertNull(state.copy(tabs = state.tabs.dropLast(1)).cycleTab(a.id, back = false))
+    }
+
     @Test fun releasingNearAnEdgeClosesTheSqueezedPane() {
         assertEquals(SplitRelease.CloseEditor, SplitPanes.release(0.1f))
         assertEquals(SplitRelease.CloseEditor, SplitPanes.release(SplitPanes.CLOSE_EDGE))

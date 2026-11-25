@@ -54,7 +54,7 @@ import com.folio.notes.ui.FolioSpacing
         colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth().longPressAction(hold) { menu = true }) {
         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-            Text(listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { if (mistake.attemptId.isEmpty()) "Uncategorised" else "Focal question" },
+            Text(listOfNotNull(mistake.subjectFor(context?.subject), context?.paper).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { if (mistake.attemptId.isEmpty()) "Uncategorised" else "Focal question" },
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(mistake.question, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -70,8 +70,8 @@ import com.folio.notes.ui.FolioSpacing
                     Text(dueText, Modifier.padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp4), style = MaterialTheme.typography.labelMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(mistake.category, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(mistake.category, mistake.topic, mistake.difficultyLabel).filter(String::isNotBlank).joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             HorizontalDivider()
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

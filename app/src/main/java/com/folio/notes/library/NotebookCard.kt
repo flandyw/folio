@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.folio.notes.library
 
+import com.folio.notes.ui.semanticsLabel
+
 import com.folio.notes.ui.FolioIcons
 import android.graphics.Bitmap
 import androidx.compose.foundation.*
@@ -57,7 +59,7 @@ import com.folio.notes.ui.folioSelected
                 // Covers stay clean: only a favorite wears its star, and tapping it takes it off again.
                 IconButton(star, modifier = Modifier.align(Alignment.TopEnd), shapes = IconButtonDefaults.shapes()) {
                     Surface(shape = FolioShapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
-                        Icon(FolioIcons.StarFilled, "Remove from favorites", Modifier.padding(FolioSpacing.dp4).size(16.dp))
+                        Icon(FolioIcons.StarFilled, "Remove from favourites", Modifier.padding(FolioSpacing.dp4).size(16.dp))
                     }
                 }
             }
@@ -86,7 +88,7 @@ import com.folio.notes.ui.folioSelected
                 PopoverTile(FolioIcons.FolderOpen, "Move", Modifier.weight(1f)) { run(move) }
                 PopoverTile(FolioIcons.Copy, "Duplicate", Modifier.weight(1f)) { run(duplicate) }
             }
-            star?.let { action -> PopoverRow(if (starred) FolioIcons.StarFilled else FolioIcons.Star, if (starred) "Remove from favorites" else "Add to favorites") { run(action) } }
+            star?.let { action -> PopoverRow(if (starred) FolioIcons.StarFilled else FolioIcons.Star, if (starred) "Remove from favourites" else "Add to favourites") { run(action) } }
             createLike?.let { action -> PopoverRow(FolioIcons.AddPage, "Create another like this") { run(action) } }
             pin?.let { action ->
                 PopoverRow(FolioIcons.Pin, if (pinned) "Unpin" else "Pin to top") { run(action) }

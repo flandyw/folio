@@ -91,7 +91,7 @@ private const val CONFETTI_MS = 1700
     val settings = content.preferences
     val finish = MistakePracticeProgress.finishes.find { it.id == settings.practiceFinish && progress.xp >= it.xp } ?: MistakePracticeProgress.finishes.first()
     val color = Color(finish.color)
-    val active = content.mistakes.filterNot { it.suspended }.filter { content.focus.isBlank() || content.contexts[it.attemptId]?.subject.orEmpty().ifBlank { MistakeToday.UNSORTED } == content.focus }
+    val active = content.mistakes.filterNot { it.suspended }.filter { content.focus.isBlank() || (it.subjectFor(content.contexts[it.attemptId]?.subject) ?: MistakeToday.UNSORTED) == content.focus }
     val slot = MistakePracticeProgress.nextWindow(settings, content.now)
     var collection by remember { mutableStateOf(false) }
     OutlinedCard(shape = FolioShapes.panel, modifier = Modifier.fillMaxWidth()) {

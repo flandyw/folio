@@ -39,10 +39,8 @@ with tempfile.TemporaryDirectory(prefix="folio-sync-") as work:
     groups = ["io.github.jan-tennert.supabase", "io.ktor", "org.jetbrains.kotlinx",
               "com.squareup.okhttp3", "com.squareup.okio", "org.slf4j", "co.touchlab", "com.russhwolf"]
     for group in groups:
-        for module in (cache / group).iterdir():
-            if module.name.endswith("-debug"):
-                continue
-            if group == "io.github.jan-tennert.supabase" and module.name not in (
+        for module in sorted((cache / group).iterdir()):
+            if group == "io.github.jan-tennert.supabase" and module.name.removesuffix("-debug") not in (
                 "auth-kt-android", "postgrest-kt-android", "supabase-kt-android"
             ):
                 continue
@@ -56,7 +54,9 @@ with tempfile.TemporaryDirectory(prefix="folio-sync-") as work:
             version = sdk if group == "io.github.jan-tennert.supabase" else versions[-1].name
             for artifact in (module / version).rglob("*"):
                 if artifact.suffix == ".aar":
-                    target = temp / f"{module.name}.jar"
+                    target = temp / f"{module.name.removesuffix('-debug')}.jar"
+                    if target.exists():
+                        continue
                     with zipfile.ZipFile(artifact) as archive:
                         target.write_bytes(archive.read("classes.jar"))
                     runtime.append(target)

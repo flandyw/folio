@@ -27,6 +27,9 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal const val INFER_PAPER_TYPE = "From paper name"
+internal val paperTypeLabels = listOf(INFER_PAPER_TYPE) + PaperType.entries.map { it.label }
+
 @Composable internal fun ChoiceField(label: String, value: String, options: List<String>, onChange: (String) -> Unit,
     editable: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
@@ -61,6 +64,9 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     var provider by rememberSaveable(initial) { mutableStateOf(source.optString("provider", "VCAA")) }
     var year by rememberSaveable(initial) { mutableStateOf(source.optString("examYear", LocalDate.now().year.toString())) }
     var paper by rememberSaveable(initial) { mutableStateOf(source.optString("paper", "Exam")) }
+    val initialPaperType = PaperType.fromWire(source.optString("paperType"))?.label ?: INFER_PAPER_TYPE
+    var paperTypeLabel by rememberSaveable(initial) { mutableStateOf(initialPaperType) }
+    val paperType = PaperType.entries.find { it.label == paperTypeLabel }
     var date by rememberSaveable(initial) { mutableStateOf(source.optString("completedAt", LocalDate.now().toString()).take(10)) }
     var score by rememberSaveable(initial) { mutableStateOf(source.optString("rawScore", "")) }
     var max by rememberSaveable(initial) { mutableStateOf(source.optString("rawMax", "100")) }
@@ -80,7 +86,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
     val scope = rememberCoroutineScope()
     val dirty = subject != source.optString("subject") || provider != source.optString("provider", "VCAA") ||
         year != source.optString("examYear", LocalDate.now().year.toString()) || paper != source.optString("paper", "Exam") ||
-        date != source.optString("completedAt", LocalDate.now().toString()).take(10) || score != source.optString("rawScore", "") ||
+        paperTypeLabel != initialPaperType || date != source.optString("completedAt", LocalDate.now().toString()).take(10) || score != source.optString("rawScore", "") ||
         max != source.optString("rawMax", "100") || comment != source.optString("comment") ||
         questionsRaw != (source.optJSONArray("questionResults")?.toString() ?: "[]") ||
         contextRaw != (source.optJSONObject("performanceContext")?.toString() ?: "{}") || timingRaw != (source.optJSONObject("timing")?.toString() ?: "{}")
@@ -112,6 +118,7 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
         val id = source.optString("id").ifBlank { UUID.randomUUID().toString() }
         val raw = JSONObject(source.toString()).put("id", id).put("subject", subject.trim())
             .put("provider", provider.trim().ifBlank { "Other" }).put("examYear", y).put("paper", paper.trim())
+            .putPaperType(paperType)
             .put("title", "${provider.trim().ifBlank { "Other" }} $y ${subject.trim()}")
             .put("completedAt", if (date == source.optString("completedAt").take(10)) source.getString("completedAt") else date)
             .put("rawScore", earned).put("rawMax", total).put("comment", comment.trim())
@@ -136,17 +143,23 @@ private data class QuestionDraft(val id: String, val label: String, val awarded:
                 OutlinedTextField(date, { date = it }, Modifier.weight(2f), label = { Text("Date · YYYY-MM-DD") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
             ChoiceField("Paper", paper, catalog.references.filter { comparisonName(it.subject) == comparisonName(subject) }.map { it.paper.replace("WRITTEN EXAMINATION", "Exam", true).replace("EXAMINATION", "Exam", true) }.distinct(), { paper = it }, true)
+            ChoiceField("Paper type", paperTypeLabel, paperTypeLabels, { paperTypeLabel = it })
             Row(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 OutlinedTextField(score, { score = it }, Modifier.weight(1f), label = { Text("Marks awarded") }, singleLine = true,
                     isError = score.toDoubleOrNull()?.let { a -> max.toDoubleOrNull()?.let { m -> a > m } } == true,
                     supportingText = { if (score.toDoubleOrNull()?.let { a -> max.toDoubleOrNull()?.let { m -> a > m } } == true) Text("More than the total") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
                 OutlinedTextField(max, { max = it }, Modifier.weight(1f), label = { Text("Out of") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = androidx.compose.ui.text.input.ImeAction.Next))
             }
-            val preview = remember(subject, paper, year, score, max, catalog) {
+            val effectiveType = paperType ?: PaperType.parse(paper)
+            paperMarkWarning(subject, effectiveType, max.toDoubleOrNull())?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val preview = remember(subject, paper, effectiveType, year, score, max, catalog) {
                 val a = score.toDoubleOrNull(); val m = max.toDoubleOrNull()
                 if (a != null && m != null && a.isFinite() && m.isFinite() && m > 0 && a in 0.0..m) {
-                    val reference = catalog.references.filter { comparisonName(it.subject) == comparisonName(subject) && it.year == year.toIntOrNull() }
-                        .let { list -> list.find { comparisonName(it.paper) == comparisonName(paper) } ?: list.singleOrNull() }
+                    val reference = year.toIntOrNull()?.let {
+                        referenceForPaper(subject, paper, effectiveType, source.optString("referenceId"), catalog.references, it)
+                    }
                     reference?.let { analyseScore(a / m * it.maxScore, it) }
                 } else null
             }

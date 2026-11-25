@@ -55,10 +55,10 @@ internal fun MistakeDetailCard(
     var showMetadata by rememberSaveable(mistake.id) { mutableStateOf(false) }
     var showDelete by rememberSaveable(mistake.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
-        context?.let {
-            Text(listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · "),
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        }
+        val contextLabel = listOfNotNull(mistake.subjectFor(context?.subject), context?.title, context?.paper)
+            .filter(String::isNotBlank).joinToString(" · ")
+        if (contextLabel.isNotBlank()) Text(contextLabel,
+            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text(mistake.question, style = MaterialTheme.typography.headlineLarge)
         // Status and the key facts in one line, so the answer to "why is this here?" never hides behind a toggle.
         val dueText = if (mistake.suspended) "Suspended in Focal" else schedule?.let { dueLabel(it.dueAt, now) } ?: "Ready to practise"
@@ -68,6 +68,8 @@ internal fun MistakeDetailCard(
                 add("−${trimMark(lost)}${mistake.totalMarks?.let { " / ${trimMark(it)}" }.orEmpty()} ${if (lost == 1.0 && mistake.totalMarks == null) "mark" else "marks"}")
             }
             mistake.category.takeIf { it.isNotBlank() }?.let(::add)
+            mistake.topic?.let(::add)
+            mistake.difficultyLabel?.let(::add)
         }
         Text(facts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium,
             color = if (!mistake.suspended && dueText.contains("overdue")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -204,10 +206,9 @@ private fun MistakeMetaGrid(mistake: ExamTrackMistake, schedule: MistakeSchedule
 
 @Composable internal fun QuestionContent(m: ExamTrackMistake, context: ExamContext?, user: String, attachments: MistakeAttachmentRepository, textScale: Float = 1f) {
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-        context?.let {
-            val crumb = listOf(it.subject, it.title, it.paper).filter(String::isNotBlank).joinToString(" · ")
-            if (crumb.isNotBlank()) Text(crumb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        }
+        val crumb = listOfNotNull(m.subjectFor(context?.subject), context?.title, context?.paper)
+            .filter(String::isNotBlank).joinToString(" · ")
+        if (crumb.isNotBlank()) Text(crumb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         Text(m.question, style = MaterialTheme.typography.headlineSmall.scaledBy(textScale))
         if (!m.questionText.isNullOrBlank()) {
             RichText(m.questionText!!, style = MaterialTheme.typography.bodyLarge.scaledBy(textScale))

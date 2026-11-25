@@ -2,8 +2,10 @@ package com.folio.notes.planner
 
 import com.folio.notes.progress.ExamReference
 import com.folio.notes.progress.LoggedExam
+import com.folio.notes.progress.PaperType
 import com.folio.notes.progress.analyseExam
 import com.folio.notes.progress.comparisonName
+import com.folio.notes.progress.objects
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -43,11 +45,11 @@ object StudyScore {
 
     private fun toRaw(percentile: Double) = clamp(30 + 7 * inverseNormalCdf(clamp(percentile, 0.1, 99.9) / 100), 0.0, 50.0)
 
-    private val twoPaper = Regex("mathematical methods|specialist mathematics", RegexOption.IGNORE_CASE)
-    fun defaultExamWeight(subject: String) = if (twoPaper.containsMatchIn(subject)) 60.0 else 50.0
-
-    private val paperRegex = Regex("(?:exam(?:ination)?|paper)\\s*([12])\\b", RegexOption.IGNORE_CASE)
-    private fun paperNumber(paper: String) = paperRegex.find(paper)?.groupValues?.get(1)?.toInt()
+    private fun twoPapers(subject: String) =
+        studyKey(subject) in setOf("general mathematics", "mathematical methods", "specialist mathematics")
+    /** Subjects whose exam weight is split across Exam 1 and Exam 2 and fixed, ignoring the typed exam weight. */
+    fun hasExamSplit(subject: String) = twoPapers(subject)
+    fun defaultExamWeight(subject: String) = if (twoPapers(subject)) 60.0 else 50.0
 
     private val aliases = mapOf("english eal" to "english as an additional language", "english esl" to "english as an additional language",
         "english sl" to "english", "further mathematics" to "general mathematics", "mathematical methods cas" to "mathematical methods")
@@ -61,10 +63,18 @@ object StudyScore {
 
     private fun compatible(exam: LoggedExam, references: List<ExamReference>, year: Int?): List<ExamReference> {
         val available = references.filter { sameStudy(it.subject, exam.subject) && (year == null || it.year == year) }
+        val type = exam.paperType
+        val two = twoPapers(exam.subject)
+        if (two && type == PaperType.COMBINED) return emptyList()
+        val number = type?.takeUnless { it == PaperType.COMBINED }
+        fun compatiblePaper(ref: ExamReference) = !two || number == null || PaperType.parse(ref.paper) == number
+        available.find { it.id == exam.json.optString("referenceId") && compatiblePaper(it) }?.let { return listOf(it) }
         val paper = comparisonName(exam.paper)
-        available.filter { comparisonName(it.paper) == paper }.takeIf { it.isNotEmpty() }?.let { return it }
-        paperNumber(exam.paper)?.let { n -> available.filter { paperNumber(it.paper) == n }.takeIf { it.isNotEmpty() }?.let { return it } }
-        references.find { it.id == exam.json.optString("referenceId") }?.let { return listOf(it) }
+        available.filter { comparisonName(it.paper) == paper && compatiblePaper(it) }.takeIf { it.isNotEmpty() }?.let { return it }
+        if (number != null) {
+            val numbered = available.filter { PaperType.parse(it.paper) == number }
+            if (numbered.isNotEmpty() || two) return numbered
+        }
         val perYear = available.groupingBy { it.year }.eachCount()
         return available.filter { perYear[it.year] == 1 }
     }
@@ -75,7 +85,7 @@ object StudyScore {
 
     private fun compare() = compareBy<LoggedExam>({ it.completedAt }, { it.json.optString("createdAt") }, { it.id })
 
-    private data class Raw(val exam: LoggedExam, val percentile: Double, val year: Int, val exact: Boolean)
+    private data class Raw(val exam: LoggedExam, val percentile: Double, val year: Int, val exact: Boolean, val paper: PaperType?)
     private fun weigh(items: List<Raw>) = items.sortedWith(compareBy(compare()) { it.exam }).mapIndexed { i, r ->
         Evidence(r.exam, r.percentile, 0.82.pow(items.size - i - 1), r.year, r.exact) }
 
@@ -93,15 +103,18 @@ object StudyScore {
         examWeightPercent: Double = defaultExamWeight(subject), distributionYear: Int? = null): Prediction? {
         val mine = exams.filter { sameStudy(it.subject, subject) }
         val linked = mine.mapNotNull { e -> referenceFor(e, references, distributionYear)?.let { r ->
-            analyseExam(e, r).percentile?.let { Raw(e, it, r.year, r.year == e.examYear) } } }
+            analyseExam(e, r).percentile?.let { Raw(e, it, r.year, r.year == e.examYear, PaperType.parse(r.paper)) } } }
         if (linked.isEmpty()) return null
         val all = weigh(linked); val overall = summarise(all)
         var evidence = all; var examPercentile = overall.percentile
         var weight = clamp(examWeightPercent, 0.0, 100.0)
         val contribution: Double; val uncertainty: Double; val components: List<Component>
-        if (twoPaper.containsMatchIn(subject)) {
-            val parts = listOf(Triple(1, "Exam 1", 20.0), Triple(2, "Exam 2", 40.0)).map { (n, label, w) ->
-                val matched = weigh(linked.filter { paperNumber(it.exam.paper) == n })
+        if (twoPapers(subject)) {
+            val general = studyKey(subject) == "general mathematics"
+            val weights = listOf(PaperType.EXAM_1 to if (general) 30.0 else 20.0, PaperType.EXAM_2 to if (general) 30.0 else 40.0)
+            val parts = weights.map { (type, w) ->
+                val label = type.label
+                val matched = weigh(linked.filter { it.paper == type })
                 Part(label, w, matched, if (matched.isEmpty()) overall else summarise(matched))
             }
             evidence = parts.flatMap { it.matched }
@@ -142,8 +155,10 @@ object StudyScore {
         }
     }
 
+    /** The raw study scores VTAC scaling covers. */
+    val SCALED_RAW = 20.0..50.0
     fun interpolate(raw: Double, points: List<Pair<Double, Double>>): Double? {
-        if (!raw.isFinite() || raw < 20 || raw > 50 || points.size < 2) return null
+        if (!raw.isFinite() || raw !in SCALED_RAW || points.size < 2) return null
         val ordered = points.sortedBy { it.first }
         ordered.find { it.first == raw }?.let { return it.second }
         val upper = ordered.indexOfFirst { it.first > raw }
@@ -212,6 +227,29 @@ object StudyScore {
         val lo = points[upper - 1]; val hi = points[upper]
         val atar = floor((lo.first + (aggregate - lo.second) / (hi.second - lo.second) * (hi.first - lo.first)) * 20 + 0.5) / 20
         return atar to String.format(Locale.US, "%.2f", atar)
+    }
+
+    internal fun atarResults(rows: List<JSONObject>, year: Int, data: VtacData, exams: List<LoggedExam>,
+        references: List<ExamReference>): List<Result> {
+        val studies = data.scaling.filter { it.year == year }.associateBy { it.code }
+        val predictions = mutableMapOf<String, Prediction?>()
+        return rows.mapNotNull { row ->
+            val study = studies[row.optString("code")] ?: return@mapNotNull null
+            val predicted = if (row.optBoolean("usePrediction")) {
+                val key = studyKey(study.studyName)
+                if (key !in predictions) predictions[key] = predict(study.studyName, exams, references)
+                predictions[key]?.studyScore?.toDouble()
+            } else null
+            fun scaledResult(raw: Double?): Result? = raw?.let { score ->
+                interpolate(score, study.points)?.let { Result(row.optString("id"), study.code, study.studyName, score, it) }
+            }
+            scaledResult(predicted) ?: scaledResult(row.optString("raw").trim().toDoubleOrNull())
+        }
+    }
+
+    internal fun liveAtar(scenario: JSONObject, data: VtacData, exams: List<LoggedExam>, references: List<ExamReference>): AtarEstimate? {
+        val year = scenario.optInt("year")
+        return estimateAtar(atarResults(scenario.optJSONArray("rows")?.objects().orEmpty(), year, data, exams, references), year, data)
     }
 
     fun estimateAtar(results: List<Result>, year: Int, data: VtacData): AtarEstimate? {

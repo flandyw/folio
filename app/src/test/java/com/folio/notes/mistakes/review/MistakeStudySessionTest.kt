@@ -91,10 +91,24 @@ class MistakeStudySessionTest {
         val spans = focalSubjectSpans(done, done.intervals, now + 60_000)
         assertEquals(listOf("mm", "custom-law"), spans.map { it.second })
         assertEquals(listOf(30_000L, 20_000L), spans.map { requireNotNull(it.first.endAt) - it.first.startAt })
+        assertEquals(mapOf("mm" to 30_000L, "custom-law" to 20_000L), focalSubjectMillis(done))
         val questions = JSONObject(done.metadata!!).getJSONObject("examtrack").getJSONArray("questions")
         assertEquals("mm", questions.getJSONObject(0).getString("subjectId"))
         assertEquals("custom-law", questions.getJSONObject(1).getString("subjectId"))
         assertEquals("eng-lang", FocalSubjects.find("eng-lang"))
+    }
+
+    @Test fun standaloneMistakeContributesItsSyncedSubjectToStudy() {
+        val payload = JSONObject(card("a").originalJson).put("attemptId", "").put("subject", "Maths Methods")
+            .put("topic", "Calculus").put("difficulty", 4)
+        val mistake = requireNotNull(ExamTrackMistakeCodec.decode(payload.toString()))
+        assertEquals("Calculus", mistake.topic)
+        assertEquals(4, mistake.difficulty)
+        assertEquals(payload.toString(), ExamTrackMistakeCodec.encode(mistake))
+        val session = MistakeStudySession("user")
+        session.resume(attempt("a"), mistake, null, FocalSubjects.builtIn, now)
+        session.pause(now + 60_000)
+        assertEquals("mm", session.entry(now + 60_000, true)!!.subjectId)
     }
 
     @Test fun checkpointFinishesOnlyTheRecoverableCopyAtTheLastHeartbeat() {

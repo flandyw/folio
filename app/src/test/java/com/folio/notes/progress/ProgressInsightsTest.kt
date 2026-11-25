@@ -2,11 +2,23 @@ package com.folio.notes.progress
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ProgressInsightsTest {
     private fun exam(id: String, subject: String, completedAt: String, score: Double, max: Double = 100.0) =
         LoggedExam(id, subject, "VCAA", "Exam", 2024, "Paper $id", completedAt, score, max, "{}")
+
+    @Test fun officialDraftDoesNotOverrideAnEditedPaperName() {
+        val resource = ExamResource("2024 Mathematical Methods Exam 1", "methods.pdf", "exam", 2024)
+        val draft = OfficialExam(OfficialStudy("Mathematical Methods", "", listOf(resource)), resource).draft()
+        assertEquals("Exam 1", draft.getString("paper"))
+        assertFalse(draft.has("paperType"))
+        val renamed = draft.put("paper", "Exam 2")
+        val attempt = exam("1", "Mathematical Methods", "2026-03-01", 50.0, 80.0)
+            .copy(paper = renamed.getString("paper"), originalJson = renamed.toString())
+        assertEquals(PaperType.EXAM_2, attempt.paperType)
+    }
 
     @Test fun oneAttemptHasNoChange() {
         val only = subjectBests(listOf(exam("a", "Methods", "2026-03-01", 72.0))).single()

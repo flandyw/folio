@@ -88,7 +88,7 @@ data class ToolbarOptions(
     val undo: UndoButtons = UndoButtons.BOTH,
     /** Pinned presets sit beside the tools (they stay pinned when this is off). */
     val pinnedPresets: Boolean = true,
-    /** The exam timer and Focal chips sit on the bar when there is room, otherwise in the notebook menu. */
+    /** The timer controls sit on the bar when there is room, otherwise in the notebook menu. */
     val timer: Boolean = true,
     /** The ink options bar (widths and colours) starts open when a notebook opens. */
     val inkOptionsOpen: Boolean = false,

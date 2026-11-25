@@ -43,7 +43,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
  * drills into a page; a tablet keeps the list beside the page. Search finds a setting by name and
  * scrolls to it. Every control saves as it changes.
  */
-@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onFocal: () -> Unit = {}, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, aiContent: @Composable () -> Unit = {}, aiRequest: Int = 0, onReclassify: () -> Unit = {}) {
+@Composable fun SettingsScreen(themeMode: ThemeMode, onThemeMode: (ThemeMode) -> Unit, themePalette: ThemePalette, onThemePalette: (ThemePalette) -> Unit, amoled: Boolean, onAmoled: (Boolean) -> Unit, finger: Boolean, onFinger: (Boolean) -> Unit, stylus: StylusShortcut, onStylus: (StylusShortcut) -> Unit, haptics: Boolean, onHaptics: (Boolean) -> Unit, @Suppress("UNUSED_PARAMETER") shapeRecognition: Boolean, @Suppress("UNUSED_PARAMETER") onShapeRecognition: (Boolean) -> Unit, onCheckForUpdates: () -> Unit, updateChecking: Boolean, onBack: () -> Unit, onCheckGitHub: () -> Unit = onCheckForUpdates, onBackupLibrary: () -> Unit = {}, onRestoreLibrary: () -> Unit = {}, onChooseBackupFolder: () -> Unit = {}, onBackupNow: () -> Unit = {}, onDisableAutoBackup: () -> Unit = {}, backupBusy: Boolean = false, onRestoreAutomaticBackup: () -> Unit = {}, backupExcludedCount: Int = 0, onBackupExclusions: () -> Unit = {}, updateBusy: Boolean = updateChecking, updateContent: @Composable () -> Unit = {}, folders: List<Folder> = emptyList(), startWithWritingFollow: Boolean = false, startWithBackup: Boolean = false, aiContent: @Composable () -> Unit = {}, aiRequest: Int = 0, onReclassify: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = rememberPrefs()
     val focus = LocalFocusManager.current
@@ -72,7 +72,7 @@ internal val LocalOpenWritingFollowSettings = staticCompositionLocalOf<(() -> Un
         backupTree, backupFolderName, backupLastSuccess, backupLastError, backupBusy || backupProgress != null, backupExcludedCount,
         onChooseBackupFolder, onBackupNow, onDisableAutoBackup, onBackupLibrary, onRestoreLibrary, onRestoreAutomaticBackup, onBackupExclusions, backupProgress,
     )
-    val account = AccountSettings(onFocal, onCheckForUpdates, onCheckGitHub, updateChecking, updateBusy, updateContent)
+    val account = AccountSettings(onCheckForUpdates, onCheckGitHub, updateChecking, updateBusy, updateContent)
 
     val open: (SettingsPage) -> Unit = { focus.clearFocus(); page = it; query = "" }
     val summary: (SettingsPage) -> String = {
@@ -212,9 +212,9 @@ internal enum class SettingsPage(val title: String, val summary: String, val ico
     FOLLOW("Writing follow", "Move the page as you write", FolioIcons.Book),
     LIBRARY("Library", "Reclassify, new notebooks, covers, quick notes and swipes", FolioIcons.Book),
     BACKUP("Backup & restore", "Automatic backup and library files", FolioIcons.CloudUpload),
-    STUDY("Study", "Exam timer and mistake practice", FolioIcons.Timer),
+    STUDY("Study", "Exam timer", FolioIcons.Timer),
     AI("AI", "Providers, API keys and models for Page review and Reclassify", FolioIcons.Sparkle),
-    ACCOUNT("Account & updates", "Focal account and app updates", FolioIcons.Account),
+    ACCOUNT("Integrations & updates", "Optional integrations and app updates", FolioIcons.Account),
 }
 
 /**
@@ -228,7 +228,7 @@ internal object SettingsIndex {
         SettingsPage.APPEARANCE to listOf(
             "Theme" to "light dark system mode night", "Pure black dark" to "amoled oled", "Colours" to "color palette sage ocean plum warm mono black white wallpaper dynamic",
             "Interface font" to "typography typeface allo system sans serif monospace", "Accent colour" to "color tint highlight", "Text size" to "font bigger smaller scale", "Larger controls" to "accessibility touch targets buttons",
-            "Show tool names" to "labels icons", "Sidebar" to "navigation rail bottom bar hide mistakes study progress music vcaa", "Fullscreen" to "status bar immersive", "Keep screen on" to "sleep awake",
+            "Show tool names" to "labels icons", "Sidebar" to "navigation rail bottom bar hide music vcaa", "Fullscreen" to "status bar immersive", "Keep screen on" to "sleep awake",
         ),
         SettingsPage.PEN to listOf(
             "Draw with a finger" to "touch scroll", "Palm rejection" to "resting hand", "Pan speed" to "fast navigation drag fling", "Two-finger tap to undo" to "gesture redo three",
@@ -237,7 +237,7 @@ internal object SettingsIndex {
             "Tidy up shapes" to "shape assist recognition hold line circle rectangle", "Scribble to erase" to "scrub",
         ),
         SettingsPage.EDITOR to listOf(
-            "Tools and order" to "toolbar customise hide reorder", "Undo and redo" to "toolbar buttons", "Document tabs" to "toolbar open notebooks", "Timer on the toolbar" to "exam focal",
+            "Tools and order" to "toolbar customise hide reorder", "Undo and redo" to "toolbar buttons", "Document tabs" to "toolbar open notebooks", "Timer on the toolbar" to "exam",
             "Starting tool" to "default pen highlighter", "Remember tools per notebook" to "last tool", "Pull past the end to add a page" to "scroll blank", "Maximum zoom" to "pinch limit",
             "Snap moved selections" to "align grid margins", "Typed text size" to "font text box", "Sticky note text size" to "font", "Tool letter shortcuts" to "keyboard keys",
             "Customise tool keys" to "keyboard remap", "Share button long-press" to "export pdf png copy",
@@ -258,14 +258,13 @@ internal object SettingsIndex {
         ),
         SettingsPage.STUDY to listOf(
             "Custom timer" to "exam minutes duration", "Reading time" to "exam minutes", "Resume on pen down" to "timer pause", "Stop after inactivity" to "timer idle",
-            "Paper guide" to "mistake practice", "Starting zoom" to "mistake practice handwriting size", "Confirm answer reveal and skip" to "mistake review single tap",
         ),
         SettingsPage.AI to listOf(
             "Saved providers and accounts" to "ai review feedback sign in chatgpt switch provider openrouter nvidia nim amd token factory vercel cloudflare",
             "Use an API key" to "ai key openrouter nvidia nim amd token factory vercel cloudflare", "Classification model" to "ai reclassify import check model reasoning",
         ),
         SettingsPage.ACCOUNT to listOf(
-            "Focal account" to "sign in sync", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
+            "Focal integration" to "sign in sync hide disable", "Check on launch" to "automatic updates", "Experimental builds" to "beta channel", "Updates" to "check version github release",
         ),
     ).flatMap { (page, rows) -> rows.map { (title, keywords) -> Hit(page, title, keywords) } }
 

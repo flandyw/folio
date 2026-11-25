@@ -39,7 +39,11 @@ data class FocalAccountState(
  * SDK 3.0.3's auto-refresh deletes credentials on temporary HTTP 408/429 responses; it is disabled.
  * The mutex also prevents a late refresh from replacing a new login or undoing a local sign-out.
  */
-class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val sessions: SessionManager) {
+class ExamTrackSessionLifecycle(
+    private val client: SupabaseClient,
+    private val sessions: SessionManager,
+    internal val enabled: kotlinx.coroutines.flow.StateFlow<Boolean> = MutableStateFlow(true),
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Mutex()
     private val restored = CompletableDeferred<Unit>()
@@ -51,12 +55,27 @@ class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val 
     private var restorePending = true
     @Volatile private var pendingSave: UserSession? = null
 
+    internal suspend fun <T> whileEnabled(action: suspend () -> T): T = kotlinx.coroutines.coroutineScope {
+        if (!enabled.value) throw CancellationException("Focal integration is disabled")
+        val operation = async(start = CoroutineStart.LAZY) {
+            if (!enabled.value) throw CancellationException("Focal integration is disabled")
+            action()
+        }
+        val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+            enabled.first { !it }
+            operation.cancel()
+        }
+        try { operation.await() } finally { watcher.cancel() }
+    }
+
     init {
         scope.launch {
             try { gate.withLock { restoreLocked() } }
             finally { restored.complete(Unit) }
             while (isActive) {
+                enabled.first { it }
                 gate.withLock {
+                    if (!enabled.value) return@withLock
                     if (restorePending && System.currentTimeMillis() >= retryAt) restoreLocked()
                     val session = client.auth.currentSessionOrNull()
                     if (!state.value.needsSignIn && session != null &&
@@ -99,22 +118,30 @@ class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val 
     }
 
     private suspend fun refreshLocked() {
+        if (!enabled.value && pendingSave == null) return
         val old = client.auth.currentSessionOrNull() ?: return
         mutable.value = state.value.copy(status = FocalAccountStatus.RECONNECTING)
         try {
-            val refreshed = pendingSave ?: withTimeout(30_000) { client.auth.refreshSession(old.refreshToken) }
-            // A rotated refresh token must reach durable storage even if the requesting screen leaves.
-            withContext(NonCancellable) {
-                pendingSave = refreshed
-                client.auth.importSession(refreshed, autoRefresh = false, source = SessionSource.Refresh(old))
-                sessions.saveSession(refreshed)
-                pendingSave = null
-                failures = 0
-                retryAt = 0
-                mutable.value = FocalAccountState(FocalAccountStatus.CONNECTED, refreshed.user)
+            suspend fun save(refreshed: UserSession) {
+                // A rotated refresh token must reach durable storage even if the requesting screen leaves.
+                withContext(NonCancellable) {
+                    pendingSave = refreshed
+                    client.auth.importSession(refreshed, autoRefresh = false, source = SessionSource.Refresh(old))
+                    sessions.saveSession(refreshed)
+                    pendingSave = null
+                    failures = 0
+                    retryAt = 0
+                    mutable.value = FocalAccountState(FocalAccountStatus.CONNECTED, refreshed.user)
+                }
             }
+            val unsaved = pendingSave
+            if (unsaved != null) save(unsaved)
+            else whileEnabled { save(withTimeout(30_000) { client.auth.refreshSession(old.refreshToken) }) }
         } catch (e: TimeoutCancellationException) { holdForRetry() }
-        catch (e: CancellationException) { throw e }
+        catch (e: CancellationException) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (enabled.value) holdForRetry()
+        }
         catch (e: Exception) {
             if (focalRefreshRequiresSignIn(e)) {
                 mutable.value = FocalAccountState(FocalAccountStatus.SIGN_IN_REQUIRED, old.user)
@@ -130,6 +157,7 @@ class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val 
     }
 
     suspend fun awaitSession(accountId: String) {
+        if (!enabled.value) throw CancellationException("Focal integration is disabled")
         awaitRestoration()
         retry()
         val account = withTimeoutOrNull(15_000) {
@@ -148,7 +176,7 @@ class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val 
     suspend fun <T> withSession(accountId: String, request: suspend () -> T): T {
         awaitSession(accountId)
         val token = client.auth.currentAccessTokenOrNull()
-        try { return request() }
+        try { return whileEnabled(request) }
         catch (e: CancellationException) { throw e }
         catch (e: RestException) { if (e.statusCode != 401) throw e }
         // Finish exchange + persistence in the account owner, not in a cancelable view's job.
@@ -160,7 +188,7 @@ class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val 
         }.await()
         awaitSession(accountId)
         if (client.auth.currentAccessTokenOrNull() == token) throw FocalSessionRefreshingException()
-        return request()
+        return whileEnabled(request)
     }
 
     suspend fun signIn(email: String, password: String) = changeAccount {
@@ -174,17 +202,19 @@ class ExamTrackSessionLifecycle(private val client: SupabaseClient, private val 
     private suspend fun changeAccount(action: suspend () -> Unit) {
         awaitRestoration()
         scope.async { gate.withLock {
-            action()
-            client.auth.currentSessionOrNull()?.let {
-                restorePending = false
-                mutable.value = FocalAccountState(FocalAccountStatus.RECONNECTING, it.user)
-                pendingSave = it
-                try { withContext(NonCancellable) { sessions.saveSession(it) } }
-                catch (e: Exception) { holdForRetry(); throw e }
-                pendingSave = null
-                failures = 0
-                retryAt = 0
-                mutable.value = FocalAccountState(FocalAccountStatus.CONNECTED, it.user)
+            whileEnabled {
+                action()
+                client.auth.currentSessionOrNull()?.let {
+                    restorePending = false
+                    mutable.value = FocalAccountState(FocalAccountStatus.RECONNECTING, it.user)
+                    pendingSave = it
+                    try { withContext(NonCancellable) { sessions.saveSession(it) } }
+                    catch (e: Exception) { holdForRetry(); throw e }
+                    pendingSave = null
+                    failures = 0
+                    retryAt = 0
+                    mutable.value = FocalAccountState(FocalAccountStatus.CONNECTED, it.user)
+                }
             }
         } }.await()
         retry()

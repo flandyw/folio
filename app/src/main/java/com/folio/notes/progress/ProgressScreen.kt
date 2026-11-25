@@ -36,7 +36,6 @@ import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
 import com.folio.notes.model.Notebook
 import com.folio.notes.study.FocalScreenHeading
-import com.folio.notes.study.FocalAccountPanel
 import com.folio.notes.ui.EmptyHint
 import com.folio.notes.ui.FolioButtonGroup
 import com.folio.notes.ui.FolioDestinationInset
@@ -63,7 +62,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     item(key, span = { GridItemSpan(maxLineSpan) }, content = content)
 
 @Composable fun ProgressScreen(notes: List<Notebook>, model: FolioViewModel, modifier: Modifier = Modifier,
-    onSettings: () -> Unit, onMistakes: () -> Unit, onStudy: () -> Unit, onOpenNotebook: (String) -> Unit) {
+    onSettings: () -> Unit, onMistakes: () -> Unit, onOpenNotebook: (String) -> Unit) {
     val context = LocalContext.current
     val manager = remember(context) { (context.applicationContext as FolioApplication).focalProgress }
     val state by manager.state.collectAsStateWithLifecycle()
@@ -85,7 +84,6 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var mistakeId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
-    var showAccount by rememberSaveable { mutableStateOf(false) }
     var showPlan by rememberSaveable { mutableStateOf(false) }
     var showResults by rememberSaveable { mutableStateOf(false) }
     var showDifficulty by rememberSaveable { mutableStateOf(false) }
@@ -165,8 +163,7 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
         }
     }
     Column(modifier.fillMaxSize()) {
-        ProgressHeader(state, enabled = enabled && exams.isNotEmpty(), onSync = manager::sync, onShare = ::shareReport,
-            onAccount = { showAccount = true }, onSettings = onSettings)
+        ProgressHeader(state, enabled = enabled && exams.isNotEmpty(), onSync = manager::sync, onShare = ::shareReport, onSettings = onSettings)
         FolioSectionTabs(PROGRESS_TABS, destination, { destination = it })
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val gridState = rememberLazyGridState()
@@ -280,7 +277,6 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
             }
         }
     }
-    if (showAccount) FocalAccountPanel({ showAccount = false }, onMistakes, onStudy)
     if (showPlan) ProgressionDialog(state.cache.progression?.toString(), state.catalog, exams, manager, state.userId, { showPlan = false })
     if (showResults) {
         val unlogged = remember(local, state.cache.rows) { local.filterNot { "attempts:${it.id}" in state.cache.rows } }
@@ -311,10 +307,10 @@ internal fun LazyGridScope.wide(key: Any? = null, content: @Composable LazyGridI
 // ---- Header and navigation ---------------------------------------------------------------------
 
 @Composable private fun ProgressHeader(state: ProgressState, enabled: Boolean, onSync: () -> Unit, onShare: () -> Unit,
-    onAccount: () -> Unit, onSettings: () -> Unit) {
+    onSettings: () -> Unit) {
     val (statusIcon, status) = state.syncStatus()
     FocalScreenHeading("Progress", statusIcon, status, state.syncing, canSync = state.userId != null && !state.loading, onSync = onSync,
-        onAccount = onAccount, trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty())) {
+        trouble = state.userId != null && (state.error != null || state.cache.conflicts.isNotEmpty())) {
         IconButton(onShare, enabled = enabled, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Share, "Export progress report") }
         IconButton(onSettings, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Tune, "Settings") }
     }

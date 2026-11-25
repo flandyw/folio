@@ -41,7 +41,7 @@ import com.folio.notes.library.libraryLastEditedLabel
 import com.folio.notes.ui.FolioActionPopover
 import com.folio.notes.ui.PopoverRow
 import androidx.compose.ui.graphics.Color
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioExpand
 import com.folio.notes.ui.FolioMenuItem
@@ -116,7 +116,7 @@ import com.folio.notes.ui.FolioSpacing
         val order = scores.mapIndexed { index, score ->
             buildString {
                 append(index + 1).append(". ").append(score.displayTitle())
-                if (score.composer.isNotBlank()) append(" — ").append(score.composer)
+                if (score.composer.isNotBlank()) append(" - ").append(score.composer)
             }
         }.joinToString("\n")
         val share = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
@@ -205,7 +205,7 @@ import com.folio.notes.ui.FolioSpacing
                     keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
             }
             Column(Modifier.fillMaxSize()) {
-                FolioScreenHeading(selectedSet?.name ?: selectedFolder?.name ?: if (favorites) "Favorites" else "Music",
+                FolioScreenHeading(selectedSet?.name ?: selectedFolder?.name ?: if (favorites) "Favourites" else "Music",
                     leading = if (selectedSet != null || selectedFolder != null) { {
                         IconButton({ setId = null; folderId = null }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.Back, "Back to all music") }
                     } } else null) {
@@ -276,7 +276,7 @@ import com.folio.notes.ui.FolioSpacing
                                     { Text(if (selectedFolder == null) "All · ${library.scores.size}" else "All") },
                                     leadingIcon = { Icon(FolioIcons.MusicLibrary, null, Modifier.size(16.dp)) })
                                 FilterChip(favorites, { favorites = !favorites },
-                                    { Text(if (starredCount > 0) "Favorites · $starredCount" else "Favorites") },
+                                    { Text(if (starredCount > 0) "Favourites · $starredCount" else "Favourites") },
                                     leadingIcon = { Icon(FolioIcons.Star, null, Modifier.size(16.dp)) })
                                 FilterChip(annotatedOnly, { annotatedOnly = !annotatedOnly }, { Text("Annotated") },
                                     leadingIcon = { Icon(FolioIcons.Pen, null, Modifier.size(16.dp)) })

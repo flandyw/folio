@@ -14,7 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
 import com.folio.notes.mistakes.ReviewRating

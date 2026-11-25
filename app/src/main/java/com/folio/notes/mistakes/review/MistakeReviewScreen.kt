@@ -173,7 +173,7 @@ import kotlinx.coroutines.launch
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(actionMessage, attempt.reviewId) { actionMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(state.saveFailed) {
-        if (state.saveFailed) snackbar.showSnackbar("Saving failed — retry saving your response before rating.", duration = SnackbarDuration.Long)
+        if (state.saveFailed) snackbar.showSnackbar("Saving failed. Retry saving your response before rating.", duration = SnackbarDuration.Long)
     }
     Scaffold(
         containerColor = colors.surface,
@@ -338,7 +338,7 @@ import kotlinx.coroutines.launch
                         Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp4)) {
                             val note = when {
                                 pendingAction == "skipTop" -> "Tap the Skip button above again to confirm."
-                                state.saveFailed -> "Save failed — retry saving your response, then rate."
+                                state.saveFailed -> "Save failed. Retry saving your response, then rate."
                                 busy -> "Saving your review…"
                                 else -> null
                             }

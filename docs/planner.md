@@ -1,53 +1,32 @@
 # Planner (Focal parity)
 
-One sidebar destination (`SidebarItem.PLANNER`, `LibrarySection.PLANNER`, `planner/PlannerScreen.kt`) holds the Focal
-features Folio did not have. Everything lives in rows Focal already syncs, edited through `ExamProgressManager`
-(`save` / `saveValue`), so there is no Folio-only store and no storage-format change.
+A single sidebar destination (`SidebarItem.PLANNER`, `LibrarySection.PLANNER`, `planner/PlannerScreen.kt`) brings Focal's planning views into Folio. Everything reads and writes existing Focal-synced rows through `ExamProgressManager` (`save` / `saveValue`), with no Folio-only store or storage-format changes.
 
 | Tab | Focal source | Synced row |
-|-----|--------------|------------|
-| Calendar | `calendar-page`, `day-plan.ts`, `event-dialog` | `events:<id>` (CalendarEvent), `user_state:learning` (`tasks`), `timetable_config:timetable_config` |
+| --- | --- | --- |
+| Calendar | `calendar-page`, `day-plan.ts`, `event-dialog` | `events:<id>` (`CalendarEvent`), `user_state:learning` (`tasks`), `timetable_config:timetable_config` |
 | SACs | `sac.ts`, `sac-page` | `user_state:sacRecords` (whole list) |
 | Stoplight | `stoplight.ts`, `stoplight-page` | `user_state:learning` (`curriculumAreas`) |
 | Goals | `learning-workspace.ts`, `goals-page` | `user_state:learning` (`goals`) |
 | Score | `study-score.ts`, `scaling.ts`, `atar.ts` | `user_state:atarEstimates` (newest first) |
-| Grades | `vcaa-explorer` | read-only (`assets/progress/vcaa-grade-distributions.json`) |
+| Grades | `vcaa-explorer` | Read-only (`assets/progress/vcaa-grade-distributions.json`) |
 
-- `PlannerRules.kt` (SACs, learning workspace, stoplight, goals) and `CalendarRules.kt` (events, class timetable) edit
-  raw `JSONObject`s, so fields a newer Focal adds survive a Folio save. **Focal drops a whole list when one record
-  fails its validation** (`migrateSacRecords`, `isLearningWorkspace`), so every write is validated first.
-- `StudyScore.kt` is a line-for-line port of Focal's study score, scaling and ATAR code. `assets/planner/vtac-scaling.json`
-  is generated from Focal's `public/vtac-scaling-reports.json` (references only) plus `src/lib/atar-data.ts`; regenerate it
-  when Focal adds a scaling year.
-- The Calendar tab follows Focal's `calendar-page.tsx`: a pure day plan (`Calendar.dayPlan` / `Calendar.month`, a port of `day-plan.ts`)
-  over tasks, SACs, events, Focal study sessions (`FocalStudyManager`), logged exams and due mistakes, with Focal's totals rules
-  (merged session minutes, a task covered by a same-titled session, events and the review queue as markers). Finished events
-  fold into "done" (Focal keeps them open). The shared `StudyTimeline` sits under it and follows the selected day.
-- Read event/timetable fields with `JSONObject.text`, never `optString`: Focal rows carry `"deleted_at": null`, which Android's
-  `optString` returns as `"null"` (the JVM tests' org.json returns ""), and that once hid every event. `ExamProgressManager`'s
-  `FEED_VERSION` makes an older cache re-read the feed once; bump it whenever `SYNCED_ENTITIES` grows.
-- Timetable import rejects malformed day/period array members and non-integer cycle/day numbers before replacing the current
-  timetable. Repeated day labels still merge their periods in time order, and existing holidays and view settings are kept.
-- Calendar event spans exclude an exact midnight end from the next day's display. The edit form uses the actual stored end
-  date instead of the last displayed day, so editing an overnight or multi-day event preserves its finish.
-- Checked by `PlannerTest`, `StudyScoreTest`, `CalendarTest` (`./gradlew :app:testDebugUnitTest --tests 'com.folio.notes.planner.*'`).
-  Expected values in `StudyScoreTest` / `CalendarTest` were produced by running Focal's own TypeScript (`bun`) on the same input.
+## Implementation notes
+
+- **Raw JSON preservation:** `PlannerRules.kt` (SACs, learning workspace, stoplight, goals) and `CalendarRules.kt` (events, class timetable) edit raw `JSONObject`s so fields added by newer Focal builds survive Folio saves. Because **Focal drops an entire list if any single record fails validation** (`migrateSacRecords`, `isLearningWorkspace`), every write validates first.
+- **Study score and scaling:** `StudyScore.kt` mirrors Focal's study-score, scaling, and ATAR logic line for line. `assets/planner/vtac-scaling.json` is generated from Focal's `public/vtac-scaling-reports.json` (references only) plus `src/lib/atar-data.ts`; regenerate it whenever Focal adds a scaling year.
+- **Calendar:** Mirrors Focal's `calendar-page.tsx` via pure `Calendar.dayPlan` / `Calendar.month` over tasks, SACs, events, Focal study sessions (`FocalStudyManager`), logged exams, and due mistakes, using Focal's totals rules. Finished events fold into "done" (Focal leaves them open). The shared `StudyTimeline` sits beneath and tracks the selected day.
+- **Null-safe parsing:** Always read event/timetable fields with `JSONObject.text`, never `optString`: Focal sends `"deleted_at": null`, which Android's `optString` turns into `"null"` (unlike JVM `org.json`'s `""`). Bump `ExamProgressManager.FEED_VERSION` whenever `SYNCED_ENTITIES` grows so older caches re-read the feed once.
+- **Timetable import & midnight spans:** Timetable import rejects malformed day/period arrays and non-integer cycle/day numbers before replacing the timetable; repeated day labels merge periods in time order, preserving holidays and view settings. Calendar spans exclude exact midnight ends from the following day, while the edit form preserves the stored end date for overnight and multi-day events.
 
 ## Not ported
 
-SAC timer, chatbot "revise" and "link mistakes" (Stoplight), calendar chatbot import, event subject picker, repeating events,
-VCE exam timetable markers, marking a study session done from the day pane (open Study instead), timetable holiday/period editing (holidays set in Focal are preserved), grade-boundary chart, friends
-and chat. Mistake reviews do not move Stoplight ratings (Focal does that on its side from `itemIds`).
+SAC timer, chatbot "revise" and "link mistakes" (Stoplight), calendar chatbot import, event subject picker, repeating events, VCE exam timetable markers, marking a study session done from the day pane (use Study), timetable holiday/period editing (holidays from Focal are preserved), grade-boundary chart, friends, and chat. Mistake reviews do not update Stoplight ratings (Focal updates them from `itemIds`).
 
-## Device check
+## Verification
 
-Sign in, add a SAC / event / task / goal and a stoplight import, sync, and confirm each appears in Focal (web or desktop)
-and that an edit made in Focal arrives here. A SAC list Focal cannot validate disappears there entirely, so check this
-first after changing `Planner.validateSac`.
-
-Accessibility and layout (manual, not automated): at 320 dp / a narrow split pane and at the largest font size, the
-Stoplight actions, legend and rating chips wrap instead of running off screen, and a filter with no matches shows
-*Show all*. In light and dark themes the amber chip label is black and readable. With TalkBack, a calendar day reads
-"Today" and its selected state, the checklist's chosen subject reads as selected, the ATAR *Use predicted score*
-switch names its study, and a SAC form error (try a mark of `abc`) is announced. Editing a SAC titled `SAC 2.0`
-keeps the `.0`.
+- **Automated:** `./gradlew :app:testDebugUnitTest --tests 'com.folio.notes.planner.*'` (`PlannerTest`, `StudyScoreTest`, `CalendarTest`, `PlannerFormsTest`; expected outputs generated with Focal's TypeScript via `bun`).
+- **Sync check on device:** Sign in, add a SAC, event, task, goal, and stoplight import, sync, and confirm each appears in Focal (web/desktop) and remote edits arrive in Folio. Always test SAC sync first after modifying `Planner.validateSac`.
+- **Layout and accessibility (manual):** At 320 dp / narrow split pane and maximum font scale, verify Stoplight actions, legend, and rating chips wrap cleanly, empty filters show *Show all*, and amber chips keep dark readable labels in both themes. With TalkBack, confirm calendar days announce "Today" and selected state, the checklist subject reads as selected, the ATAR *Use predicted score* switch names its study, and invalid SAC marks (e.g. `abc`) announce an error. Editing a SAC titled `SAC 2.0` must retain `.0`.
+- **Saves and deletes (manual):** Planner forms close only after the durable write succeeds. In airplane mode or with a forced save failure, *Delete SAC*, *Delete event* (both confirm first) and *Archive task* must keep the form open with a spoken error and a working retry; Save, Cancel and the destructive action are disabled while one runs. A successful checklist import closes its form. Tapping *Save estimate* rapidly adds one saved estimate and announces *Estimate saved.*
+- **Score inputs (manual):** A SAC percentile or exam weight of `abc`, `120` or `Infinity` shows a field error and hides the prediction; a blank percentile is fine. Methods and Specialist show the exam weight read-only at 60%. ATAR rows that are blank, non-numeric, outside 20–50 or missing that year's scaling say why they are not counted.

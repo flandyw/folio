@@ -64,10 +64,6 @@ internal class EditorTextController(private val runtime: FolioRuntime) {
         with(runtime) { val page = _state.value.page ?: return; texts(page.id, page.texts + box.copy(layer = activeLayerOf(page))) }
     }
 
-    fun updateText(box: TextBox) {
-        with(runtime) { val page = _state.value.page ?: return; texts(page.id, page.texts.map { if (it.id == box.id) box else it }) }
-    }
-
     fun commitText(pageId: String, box: TextBox) {
         with(runtime) {
             val page = findPageContent(pageId) ?: return

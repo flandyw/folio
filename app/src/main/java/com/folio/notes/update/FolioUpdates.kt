@@ -39,7 +39,7 @@ class FolioUpdates(context: Context) {
             val ready = withContext(Dispatchers.IO) { checker.restoreDownload() }
             mutableState.update { it.copy(ready = ready) }
         } catch (_: Exception) {
-            message("Could not restore the downloaded update.")
+            message("Couldn't restore the downloaded update.")
         } finally {
             mutableState.update { it.copy(initializing = false) }
         }
@@ -79,7 +79,7 @@ class FolioUpdates(context: Context) {
                 prefs.edit().putLong(lastCheckKey, System.currentTimeMillis()).remove(retryKey).apply()
                 mutableState.update { it.copy(available = result, message = if (manual) {
                     when {
-                        result == null -> if (experimental) "No newer experimental build is available." else "You’re up to date."
+                        result == null -> if (experimental) "No newer experimental build is available." else "You're up to date."
                         result.versionCode <= (it.ready?.update?.versionCode ?: 0) -> "The latest update is already downloaded."
                         else -> null
                     }
@@ -89,7 +89,7 @@ class FolioUpdates(context: Context) {
                 if (rateRetry != null) prefs.edit().putLong(retryKey, rateRetry).apply()
                 else if (!manual) prefs.edit().putLong(lastCheckKey,
                     System.currentTimeMillis() - AUTO_UPDATE_CHECK_INTERVAL_MILLIS + UPDATE_FAILURE_RETRY_MILLIS).apply()
-                if (manual) message(error.message ?: "Could not check for updates.")
+                if (manual) message(error.message ?: "Couldn't check for updates.")
             } finally {
                 mutableState.update { it.copy(checking = false) }
             }
@@ -106,7 +106,7 @@ class FolioUpdates(context: Context) {
                 }
                 mutableState.update { it.copy(ready = DownloadedUpdate(update, file)) }
             } catch (error: Exception) {
-                message(error.message ?: "The update could not be downloaded.")
+                message(error.message ?: "Couldn't download the update.")
             } finally {
                 mutableState.update { it.copy(downloading = null) }
             }
@@ -122,7 +122,7 @@ class FolioUpdates(context: Context) {
                 withContext(Dispatchers.IO) { checker.discardDownload(ready) }
                 mutableState.update { it.copy(ready = null, message = "Downloaded update deleted.") }
             } catch (_: Exception) {
-                message("Could not delete the downloaded update. Try again.")
+                message("Couldn't delete the downloaded update. Try again.")
             } finally {
                 mutableState.update { it.copy(initializing = false) }
             }

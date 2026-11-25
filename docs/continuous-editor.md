@@ -1,30 +1,25 @@
 # Continuous document editor
 
-Finite notebooks use a single paper column with 6 dp seams, one document camera and shared page navigation. The counter opens the page browser. The page browser and the page's long-press menu expose page actions; TalkBack also gets a page-options action and a numbered native surface label. Tabs follow the toolbar's tabs preference, and both ordinary pages and PDFs retain their page spacing. PDFs keep their original aspect ratios.
+Finite notebooks render as a single vertical paper column with 6 dp seams, one document camera, and shared page navigation. Tapping the page counter opens the page browser; both the browser and a page's long-press menu expose page actions (TalkBack also gets a page-options action and a numbered native surface label). Tabs follow the toolbar's tabs preference, and ordinary pages and PDFs keep their natural aspect ratios and spacing.
 
-The fast-scroll thumb sits 2 dp from the workspace's right edge. Its grab zone is 24 dp wide and only spans the visible thumb; tapping elsewhere on the track no longer jumps pages. Scrubbing starts only after a vertical drag exceeds Android's touch slop. On device, verify that a tap or slight movement on the thumb preserves the current page offset, dragging it still reaches both ends, and edge scrolling and pinching away from the thumb work normally. Adding another finger or a pen must cancel a scrub.
+The fast-scroll thumb sits 2 dp from the right edge with a 24 dp grab zone spanning only the visible thumb (tapping elsewhere on the track no longer jumps). Scrubbing begins once vertical drag passes touch slop, and adding another finger or a pen cancels the scrub.
 
 ## Ownership
 
-- `EditorScreen` is the notebook-keyed route. It creates `EditorSession` and provides its surface registry to the layouts. `EditorWorkspaceContent` composes the existing tool, follow and feature controls; the follow bar and its options menu are `editor/follow/WritingFollowToolbar.kt`, the peek view is `editor/EditorPeekOverlay.kt`, and the marking assist/zones state is `editor/EditorMarkingState.kt`. `InkView` keeps input and page state; its chrome is drawn by `SelectionChromePainter`, `FollowOverlayPainter`, `RulerPainter` and `LaserTrail` (all in `ink/`), and crop geometry is the pure `ink/ImageCropFrame.kt`.
-- `EditorSession` owns shared tools, per-tool options, the single-stroke eraser return target, the document and fitted-page cameras, interactions, browser state and overlay drafts. Saveable presentation state contains no notebook content.
-- `ContinuousDocumentHost` owns the existing stylus-aware document gesture, fast scrubbing, carry overlays, edge scrolling and pull feedback. `ContinuousDocument` virtualizes keyed pages. `SinglePageCanvas`, `InfiniteCanvas` and `MusicCanvas` retain their existing pager/native-camera behavior.
-- `EditorViewportCoordinator` uses `PageNavigation`, `DocumentViewport` and `DocumentMotion`. Explicit destinations retain priority until landing. The continuous camera survives fitted-page visits. Reading positions carry a page ID and page-local vertical offset through resize, tabs and saved-state restoration. A deep link replaces that anchor deliberately.
-- `DocumentPageGeometry` is Android-free. It separates paper bounds from workspace bounds, converts window/page coordinates and provides indexed seam targets and document anchors. `EditorTransferCoordinator` tracks visible geometry and calls the existing destination-first selection/sticky transfer methods.
-- `EditorPreferences` observes one shared snapshot of input/navigation preferences. `EditorFollowCoordinator` binds answer-area preferences; `EditorFollowState` retains the explicit canvas response and overview visit. Global follow settings still cannot start canvas motion.
-- `EditorPage` handles the paper workspace and focused overlays. `PageAssets` retains asynchronous, repository-cached PDF/image loading and background guide detection. `InkViewHost` is the Compose/native bridge, using `InkSurfaceConfig`, `PagePresentation` and `EditorPageActions`. The registry releases handles on native detach and Compose release and updates identity when a retained view changes page.
-- `PdfRenderCache` keeps recent parsed PDFs and shared backgrounds within fixed budgets. Rendering runs separately from PDFBox metadata scans; editor and thumbnail surfaces reuse sufficiently sharp backgrounds. Ownership rules and checks are in [PDF rendering](pdf-rendering.md).
-- The browser, rename/move/delete dialogs, paper picker, text/PDF search, study/mark dialogs, mark popovers and toolbar container are separate components.
+- **`EditorScreen` & `EditorWorkspaceContent`:** Notebook-keyed route creating `EditorSession` and providing its surface registry. Supporting UI lives in `editor/follow/WritingFollowToolbar.kt`, `editor/EditorPeekOverlay.kt`, and `editor/EditorMarkingState.kt`. `InkView` owns input and page state while `SelectionChromePainter`, `FollowOverlayPainter`, `RulerPainter`, and `LaserTrail` (`ink/`) paint chrome and `ink/ImageCropFrame.kt` holds pure crop geometry.
+- **`EditorSession`:** Owns shared tools, per-tool options, single-stroke eraser return targets, document/fitted cameras, browser state, and overlay drafts. Saveable state holds no notebook content.
+- **`ContinuousDocumentHost` & `ContinuousDocument`:** Own stylus-aware document gestures, fast scrubbing, carry overlays, edge scrolling, pull feedback, and keyed page virtualisation. `SinglePageCanvas`, `InfiniteCanvas`, and `MusicCanvas` keep their own pager/native-camera behaviour.
+- **`EditorViewportCoordinator`:** Combines `PageNavigation`, `DocumentViewport`, and `DocumentMotion`. Explicit destinations hold priority until landing, continuous cameras survive fitted-page visits, and reading positions persist page ID plus local vertical offset across resize, tabs, and restoration (deep links deliberately override the anchor).
+- **`DocumentPageGeometry` & `EditorTransferCoordinator`:** Pure geometry separating paper and workspace bounds, window/page transforms, seam targets, and anchors; `EditorTransferCoordinator` drives destination-first selection and sticky transfers.
+- **`EditorPreferences`, `EditorFollowCoordinator`, `EditorFollowState`:** Shared preference snapshot, answer-area binding, and explicit canvas-response/overview state (global follow settings never start canvas motion).
+- **`EditorPage`, `PageAssets`, `InkViewHost`:** Paper workspace, cached async PDF/image loading and guide detection, and the Compose/native bridge (`InkSurfaceConfig`, `PagePresentation`, `EditorPageActions`). Handles detach cleanly and update identity when reused.
+- **`PdfRenderCache`:** LRU cache of recent parsed PDFs and shared backgrounds separate from PDFBox metadata scans; see [PDF rendering](pdf-rendering.md).
 
-`FolioViewModel` and the repository remain the only content/persistence owners. Native pressure samples, history, prediction, cancellation and raster caching keep their original path. Cross-page contacts are captured by `DocumentInputCoordinator` and committed through recoverable document transactions. Existing notebooks retain their storage versions until grouped history is used. Reading-position JSON only gains optional presentation fields; old positions remain readable.
-
-Cross-page drawing, shapes, graphs, ruler strokes, erasing and document-spanning lasso use frozen paper/sticky geometry and shared native previews. Single sheets and canvases share the sticky boundary rules; laser trails are forwarded without persistence. Shared selection actions and grouped Undo/Redo commit every affected page together. Details, compatibility and recovery checks are in [document transactions](document-transactions.md). Existing sticky carries and single-page selection transfers retain their independent per-page undo effects.
+`FolioViewModel` and `NoteRepository` remain the sole content and persistence owners. Cross-page drawing, shapes, graphs, ruler strokes, erasing, and spanning lasso run through `DocumentInputCoordinator` and commit via recoverable grouped transactions; see [Document transactions](document-transactions.md). Reading-position JSON adds only optional presentation fields, keeping old positions readable.
 
 ## Automated checks
 
-The navigation smoke runner now compiles document geometry and viewport math from source. It covers mixed PDF sizes, margin notes, coordinate round trips at multiple scales, exact seam boundaries, invalid frames, reordered/deleted anchors, 10,000-page prefix geometry, most-visible-page selection and the existing explicit-navigation races. Backup smoke also covers pressure interpolation at seams, mixed page scales, spanning lasso, fault-injected group recovery, history folding and portable backup restoration.
-
-Run:
+`node tools/page-navigation-smoke.cjs` tests mixed PDF sizes, margin notes, multi-scale coordinate round-trips, seam boundaries, invalid frames, reordered/deleted anchors, 10,000-page prefix geometry, most-visible-page selection, and navigation races. Run:
 
 ```sh
 ./build.sh -n -- :app:bundleReleaseClassesToCompileJar :app:prepareBackupSmoke
@@ -36,19 +31,17 @@ node tools/music-smoke.cjs
 node tools/graph-smoke.cjs
 ```
 
-Backup/graph runners select the newest available release/debug classes so the canonical signed build can supply the code under test. No lint or debug APK assembly is required.
+Backup and graph runners pick up the newest release or debug classes automatically; no lint or separate debug APK build is required.
 
 ## Device acceptance and performance record
 
-No device was connected during implementation. Native stylus, TalkBack and performance results remain unmeasured; compilation and pure smoke checks do not establish those results.
+Compare the previous build and the new experimental build on the same device and notebooks:
 
-On the same device and the same notebooks, record the previous build and the new experimental build:
-
-1. Write, highlight, erase, hold a shape and use Undo/Redo on adjacent ruled pages and PDF answer areas. Test pen pressure/history, a palm resting across a seam, ACTION_CANCEL and Android-canceled contacts. No partial or duplicate stroke should appear after a layout switch.
-2. Pinch around a finger near a seam, pan from the workspace and release into inertia. Jump rapidly through short and tall PDF pages, search hits, contents, bookmarks and add/undo/delete. Explicit jumps must land before derived page selection resumes.
-3. Scroll halfway through a page at enlarged zoom; enter single-page mode, turn pages and return. Verify the continuous position and zoom. Rotate, resize a split pane, reorder or insert a preceding page, switch tabs rapidly, close/reopen and restart the app. Check deep links land on their requested page rather than an old anchor.
-4. Create and resize sticky notes across seams and outside paper edges; paper, selection outline and corner grip must stay visible during the gesture and after release at every zoom. Leave a note centered on a gap so it overlaps both pages: page spacing must remain unchanged, both halves must accept ink/eraser and note taps, scrolling must preserve the overlap, and reopening must restore it. Shrink a note below the old 90 × 60 page-unit limit, then reopen and confirm its size. Carry sticky notes and selections across seams and beyond paper edges, auto-scroll both directions and release. Source pages must remain pinned, locked/hidden layers must stay protected, and each page must Undo its own transfer half. Reopen and compare content.
-5. Open zoom writing and peek on dense ink/PDF pages. Switch the active page, close/reopen each surface and switch notebooks; commands must target only currently hosted surfaces. Check response columns, natural line breaks, overview return and automatic answer-area detection.
-6. Read and annotate one/two-sheet music layouts and a split/reference companion. Confirm independent cameras and annotation persistence, without notebook imports/backups absorbing music collection files.
-7. With TalkBack and larger font scaling, verify page numbers, page options, browser controls and selected tools remain discoverable. Tabs and the normal spacing between pages stay visible; the overflow menu omits page navigation, page options and reset zoom.
-8. Compare pen-to-pixel recordings, scroll frame timing, memory after opening/revisiting dense pages, PDF load time and sustained-writing save completion. Use the same dense notebook, long mixed-size PDF and multi-view session. Record measurements rather than claiming a speed improvement from the refactor alone.
+1. Write, highlight, erase, hold a shape, and Undo/Redo across adjacent ruled pages and PDF answer areas. Test pressure/history, a palm resting across a seam, `ACTION_CANCEL`, and Android-cancelled contacts. No partial or duplicate strokes should remain after a layout switch.
+2. Pinch near a seam, pan from the workspace, and fling. Jump rapidly across short/tall PDFs, search hits, outline entries, bookmarks, and add/undo/delete; explicit jumps must land before derived selection resumes.
+3. Scroll halfway through a zoomed page, switch to single-page mode, turn pages, and return; confirm continuous position and zoom. Rotate, resize a split pane, reorder/insert preceding pages, switch tabs rapidly, reopen, and restart; verify deep links override old anchors.
+4. Create, resize, and overlap sticky notes across seams and past paper edges (including below 90 × 60 page units); confirm both halves accept ink/eraser/taps, spacing stays fixed, and state survives reopen. Carry sticky notes and selections across seams with auto-scroll; confirm source pinning, locked/hidden layer protection, and per-page undo.
+5. Open zoom writing and peek on dense ink/PDF pages, switch active pages/notebooks, and confirm commands only hit hosted surfaces. Check response columns, natural line breaks, overview return, and automatic answer-area detection.
+6. Test one- and two-sheet music layouts and split/reference panes for independent cameras and isolated persistence.
+7. With TalkBack and large font scale, verify page numbers, page options, browser controls, and tools stay discoverable. Confirm fast-scroll taps preserve offset, dragging reaches both ends, and a second finger or pen cancels a scrub.
+8. Record pen-to-pixel latency, scroll frame timing, dense-page memory, PDF load time, and sustained-writing save times rather than assuming improvements from refactors.
