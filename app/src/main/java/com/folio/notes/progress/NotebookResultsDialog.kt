@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.FolioApplication
 import com.folio.notes.exam.ExamAttempt
