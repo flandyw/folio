@@ -60,10 +60,6 @@ internal class EditorTextController(private val runtime: FolioRuntime) {
         }
     }
 
-    fun addText(box: TextBox) {
-        with(runtime) { val page = _state.value.page ?: return; texts(page.id, page.texts + box.copy(layer = activeLayerOf(page))) }
-    }
-
     fun commitText(pageId: String, box: TextBox) {
         with(runtime) {
             val page = findPageContent(pageId) ?: return

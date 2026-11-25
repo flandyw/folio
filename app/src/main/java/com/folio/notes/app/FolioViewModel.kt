@@ -159,7 +159,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     internal suspend fun awaitChatGptMath(comments: List<String>): Unit = runtime.awaitChatGptMath(comments)
     internal fun applyChatGptFeedback(feedback: ChatGptFeedback): Boolean = runtime.applyChatGptFeedback(feedback)
     fun texts(pageId: String, texts: List<TextBox>): Unit = runtime.texts(pageId, texts)
-    fun addText(box: TextBox): Unit = runtime.addText(box)
     fun commitText(pageId: String, box: TextBox): Unit = runtime.commitText(pageId, box)
     fun removeText(id: String): Unit = runtime.removeText(id)
     fun duplicateText(id: String, draft: TextBox? = null): Unit = runtime.duplicateText(id, draft)
