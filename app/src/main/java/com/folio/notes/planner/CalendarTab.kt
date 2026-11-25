@@ -42,6 +42,9 @@ import com.folio.notes.progress.examDate
 import com.folio.notes.progress.objects
 import com.folio.notes.progress.text
 import com.folio.notes.study.StudyTimeline
+import com.folio.notes.study.FocalStudyInterval
+import com.folio.notes.study.focalSessionBlocks
+import com.folio.notes.study.focalSubjectSpans
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
@@ -107,9 +110,14 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
     val clock = if (studyState.visibleEntries.any { it.active }) now else 0L
     val sessions = remember(studyState.entries, studyState.userId, clock, names) {
         studyState.visibleEntries.map { e ->
-            val blocks = (e.pendingBlocks ?: e.intervals).map { it.startAt to (it.endAt ?: now) }
-                .ifEmpty { listOf(e.startedAt to if (e.active) now else maxOf(e.endedAt, e.startedAt)) }
-            Calendar.Session(e.id, e.title, e.subjectId?.let { names[it] ?: it }.orEmpty(), blocks, e.completed && !e.planned, e.active)
+            val blocks = if (e.active) e.intervals.ifEmpty {
+                listOf(FocalStudyInterval(e.startedAt, if (e.paused) e.endedAt else null))
+            } else focalSessionBlocks(e)
+            val pieces = focalSubjectSpans(e, blocks, now)
+            val bySubject = pieces.groupBy({ (_, id) -> id?.let { names[it] ?: it } ?: "General study" },
+                { (block, _) -> block.startAt to (block.endAt ?: now) })
+            Calendar.Session(e.id, e.title, e.sittingLabel.orEmpty(),
+                blocks.map { it.startAt to (it.endAt ?: now) }, e.completed && !e.planned, e.active, bySubject)
         }
     }
     val logged = remember(exams) { exams.mapNotNull { x -> x.date?.let { date ->

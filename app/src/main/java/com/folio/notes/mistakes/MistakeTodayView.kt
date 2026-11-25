@@ -242,13 +242,15 @@ private fun TodayQueueCard(
         QueueKind.OVERDUE -> Triple(MaterialShapes.SoftBurst.toShape(), scheme.errorContainer, scheme.onErrorContainer)
         QueueKind.DUE -> Triple(MaterialShapes.Cookie9Sided.toShape(), scheme.secondaryContainer, scheme.onSecondaryContainer)
     }
-    val where = listOfNotNull(context?.subject, context?.paper).filter { it.isNotBlank() }.joinToString(" · ")
+    val where = listOfNotNull(mistake.subjectFor(context?.subject), context?.paper).filter { it.isNotBlank() }.joinToString(" · ")
         .ifBlank { if (mistake.attemptId.isEmpty()) "Uncategorised" else "Focal question" }
     val facts = buildList {
         schedule?.let { add(dueLabel(it.dueAt, now)) }
         mistake.marksLost?.let { add("−${trimMark(it)} ${if (it == 1.0) "mark" else "marks"}") }
         if (attempts > 0) add(countLabel(attempts, "attempt"))
         mistake.category.takeIf { it.isNotBlank() }?.let(::add)
+        mistake.topic?.let(::add)
+        mistake.difficultyLabel?.let(::add)
     }.joinToString(" · ")
     Box {
         Card(

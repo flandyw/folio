@@ -16,6 +16,7 @@ import java.time.YearMonth
 import java.time.ZoneOffset
 import java.time.ZoneId
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /** Calendar events (`events` rows) and the class timetable (`timetable_config`), the shapes Focal and its desktop app share. */
 object Calendar {
@@ -81,7 +82,8 @@ object Calendar {
     class Item(val kind: Kind, val id: String, val title: String, val detail: String, val minutes: Double, val time: String,
         val done: Boolean, val counts: Boolean, val fixed: Boolean = false, val skipped: Boolean = false, val live: Boolean = false)
 
-    class Session(val id: String, val title: String, val detail: String, val blocks: List<Pair<Long, Long>>, val done: Boolean, val live: Boolean)
+    class Session(val id: String, val title: String, val detail: String, val blocks: List<Pair<Long, Long>>, val done: Boolean, val live: Boolean,
+        val bySubject: Map<String, List<Pair<Long, Long>>> = emptyMap())
     class Logged(val id: String, val title: String, val detail: String, val date: LocalDate, val minutes: Double)
     class Sources(val tasks: List<JSONObject> = emptyList(), val sacs: List<JSONObject> = emptyList(), val events: List<JSONObject> = emptyList(),
         val sessions: List<Session> = emptyList(), val logged: List<Logged> = emptyList(), val dueMistakes: Map<LocalDate, Int> = emptyMap(),
@@ -119,10 +121,19 @@ object Calendar {
         val sessionTitles = mutableSetOf<String>()
         val dayStart = date.atStartOfDay(zone).toInstant().toEpochMilli(); val dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         for (session in src.sessions) {
-            val clipped = session.blocks.mapNotNull { (s, e) -> (maxOf(s, dayStart) to minOf(e, dayEnd)).takeIf { it.second > it.first } }
+            fun clip(blocks: List<Pair<Long, Long>>) =
+                blocks.mapNotNull { (s, e) -> (maxOf(s, dayStart) to minOf(e, dayEnd)).takeIf { it.second > it.first } }
+            val clipped = clip(session.blocks)
             if (clipped.isEmpty()) continue
             sessionTitles += session.title
-            items += Item(Kind.SESSION, session.id, session.title, session.detail, mergedMinutes(clipped),
+            val subjects = session.bySubject.mapNotNull { (subject, blocks) ->
+                val own = clip(blocks)
+                if (own.isEmpty()) null else subject to mergedMinutes(own)
+            }
+            val detail = (listOf(session.detail) + subjects.map { (subject, minutes) ->
+                if (session.bySubject.size == 1) subject else "$subject ${minutes.roundToInt()} min"
+            }).filter(String::isNotBlank).joinToString(" · ")
+            items += Item(Kind.SESSION, session.id, session.title, detail, mergedMinutes(clipped),
                 Instant.ofEpochMilli(clipped.minOf { it.first }).atZone(zone).toLocalTime().withNano(0).toString().take(5), session.done, true, live = session.live)
         }
         for (task in src.tasksByDay[date.toString()].orEmpty()) {

@@ -6,6 +6,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 
+internal fun focalSubjectMillis(entry: FocalStudyEntry): Map<String?, Long> =
+    focalSubjectSpans(entry, focalSessionBlocks(entry), entry.endedAt)
+        .groupingBy { it.second }.fold(0L) { sum, (block, _) ->
+            sum + ((block.endAt ?: entry.endedAt) - block.startAt).coerceAtLeast(0L)
+        }
+
 /** Focal's built-in subject IDs are stable sync IDs, not Folio enum names. */
 data class FocalSubject(val id: String, val name: String)
 

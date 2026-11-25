@@ -261,8 +261,8 @@ Source:
 
     data class GoalProgress(val current: Double?, val progress: Double, val gap: Double?, val label: String, val evidence: String)
 
-    /** [atarEstimates] is `user_state:atarEstimates`, newest first; study-score goals need Focal's predictor, which Folio does not have yet. */
-    fun goalProgress(goal: JSONObject, exams: List<LoggedExam>, atarEstimates: JSONArray?): GoalProgress {
+    fun goalProgress(goal: JSONObject, exams: List<LoggedExam>, atarEstimates: JSONArray?,
+        references: List<com.folio.notes.progress.ExamReference>, vtac: StudyScore.VtacData?): GoalProgress {
         val target = goal.getDouble("target"); val subject = goal.optString("subject")
         var current: Double? = null; var label = "Current"; var evidence = "No compatible evidence yet."
         when (goal.optString("kind")) {
@@ -271,12 +271,26 @@ Source:
                 label = "Average exam result"
                 if (matched.isNotEmpty()) { current = matched.sumOf { it.percentage } / matched.size; evidence = "Based on ${matched.size} recorded paper(s)." }
             }
-            "study-score" -> { label = "Predicted raw study score"; evidence = "Open this goal in Focal for a predicted study score." }
+            "study-score" -> {
+                label = "Predicted raw study score"
+                StudyScore.predict(subject, exams, references)?.let {
+                    current = it.studyScore.toDouble()
+                    val papers = it.evidence.size
+                    evidence = "${it.confidence} confidence · likely ${it.low}–${it.high} · $papers paper${if (papers == 1) "" else "s"}."
+                }
+            }
             "atar" -> {
-                val saved = atarEstimates?.objects()?.firstOrNull()
-                label = "Latest saved ATAR estimate"
-                current = saved?.optString("atarLabel")?.filter { it.isDigit() || it == '.' }?.toDoubleOrNull()
-                evidence = if (current != null) "Saved ${saved?.optString("savedAt").orEmpty().take(10)}." else "Save an ATAR estimate in Focal to establish a baseline."
+                val saved = atarEstimates?.objects()?.maxByOrNull { it.optString("savedAt") }
+                val live = if (saved != null && vtac != null) StudyScore.liveAtar(saved, vtac, exams, references) else null
+                label = if (live != null) "Live ATAR estimate" else "Latest saved ATAR estimate"
+                current = (live?.atar ?: if (vtac == null) saved?.optString("atarLabel")?.toDoubleOrNull() else null)
+                    ?.takeIf { it in 0.0..99.95 }
+                evidence = when {
+                    live != null -> "Scenario saved ${saved?.optString("savedAt").orEmpty().take(10)}, recalculated with current scores."
+                    saved != null && vtac != null -> "Your newest scenario no longer has enough scores for an estimate."
+                    saved != null -> "Saved ${saved.optString("atarLabel")} on ${saved.optString("savedAt").take(10)}."
+                    else -> "Save an ATAR estimate to establish a baseline."
+                }
             }
         }
         return GoalProgress(current, current?.let { (it / target * 100).coerceIn(0.0, 100.0) } ?: 0.0,

@@ -44,7 +44,7 @@ fun FocalStudyChip(timer: ExamTimerState, notebookId: String?, onLongClick: (() 
     val examActive = timer.active && timer.startedAt != null
     val focus = state.visibleFocus
     // A sitting recorded from a notebook's timer belongs to that notebook; the sessions dialog lists it everywhere.
-    val sharedActive = entries.firstOrNull { it.active && (it.kind != "exam" || it.notebookId == notebookId) }
+    val sharedActive = entries.firstOrNull { it.active && (!it.timedSitting || it.notebookId == notebookId) }
     val activeElapsed = when {
         focus != null -> focus.elapsed(now)
         sharedActive != null -> focalEntryElapsed(sharedActive, now)
