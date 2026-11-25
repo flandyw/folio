@@ -14,6 +14,23 @@ class PlannerTest {
         assertNull(items[1].type)
     }
 
+    @Test fun importSaveClosesOnlyAfterADurableSave() = kotlinx.coroutines.runBlocking {
+        var calls = 0
+        // The callback's null is success, not "nothing imported".
+        assertNull(Planner.importChecklist(" Methods ", reply) { subject, items -> calls++; assertEquals("Methods", subject); assertEquals(2, items.size); null })
+        assertEquals("Could not save the checklist. Try again.", Planner.importChecklist("Methods", reply) { _, _ -> calls++; "Could not save the checklist. Try again." })
+        assertEquals("No items found in that reply.", Planner.importChecklist("Methods", "{\"groups\":[]}") { _, _ -> calls++; null })
+        assertEquals("Paste the chatbot's JSON reply.", Planner.importChecklist("Methods", "no json here") { _, _ -> calls++; null })
+        assertNotNull(Planner.importChecklist("Methods", "{\"groups\": [}") { _, _ -> calls++; null })
+        assertEquals("Choose a subject.", Planner.importChecklist(" ", reply) { _, _ -> calls++; null })
+        assertEquals(2, calls)
+        // Cancellation from the save is not turned into a form message.
+        assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            kotlinx.coroutines.runBlocking { Planner.importChecklist("Methods", reply) { _, _ -> throw kotlinx.coroutines.CancellationException("left") } }
+        }
+        Unit
+    }
+
     @Test fun reimportKeepsRatingsAndIds() {
         val (first, added) = Planner.merge(Planner.learning(null), "Methods", Planner.parseImport(reply))
         assertEquals(2, added)

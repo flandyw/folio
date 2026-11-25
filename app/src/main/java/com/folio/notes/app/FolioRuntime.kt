@@ -19,7 +19,6 @@ import com.folio.notes.editor.selection.EditorSelectionController
 import com.folio.notes.exam.ExamAttempt
 import com.folio.notes.exam.ExamFilter
 import com.folio.notes.exam.ExamSessionManager
-import com.folio.notes.exam.ExamTagType
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.exam.ExamTimerState
@@ -265,9 +264,7 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun companionPage(index: Int): Unit = workspaceManager.companionPage(index)
 
-    fun searchCompanionPdf(query: String): Unit = workspaceManager.searchCompanionPdf(query)
 
-    fun clearCompanionPdfSearch(): Unit = workspaceManager.clearCompanionPdfSearch()
 
     fun updateCompanionViewport(viewport: WorkspaceViewport): Unit = workspaceManager.updateCompanionViewport(viewport)
 
@@ -283,11 +280,9 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     fun updateExamTags(noteId: String, tags: ExamTags): Unit = notebookCatalog.updateExamTags(noteId, tags)
 
-    fun toggleExamTag(noteId: String, tag: ExamTagType): Unit = notebookCatalog.toggleExamTag(noteId, tag)
 
     fun setExamFilter(filter: ExamFilter): Unit = notebookCatalog.setExamFilter(filter)
 
-    fun toggleRedoFlag(): Unit = notebookCatalog.toggleRedoFlag()
 
     fun recordAttempt(noteId: String, attempt: ExamAttempt, responseAttemptId: String? = null): Unit = notebookCatalog.recordAttempt(noteId, attempt, responseAttemptId)
 
@@ -350,7 +345,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal fun applyChatGptFeedback(feedback: ChatGptFeedback): Boolean = editorTextController.applyChatGptFeedback(feedback)
     fun texts(pageId: String, texts: List<TextBox>): Unit = editorTextController.texts(pageId, texts)
     fun addText(box: TextBox): Unit = editorTextController.addText(box)
-    fun updateText(box: TextBox): Unit = editorTextController.updateText(box)
     fun commitText(pageId: String, box: TextBox): Unit = editorTextController.commitText(pageId, box)
     fun removeText(id: String): Unit = editorTextController.removeText(id)
     fun duplicateText(id: String, draft: TextBox? = null): Unit = editorTextController.duplicateText(id, draft)
@@ -467,7 +461,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal fun historyState(): Unit = documentEngine.historyState()
     fun retrySave(): Unit = documentWriteCoordinator.retrySave()
     fun searchPdf(query: String): Unit = workspaceManager.searchPdf(query)
-    fun clearPdfSearch(): Unit = workspaceManager.clearPdfSearch()
     internal var pdfInspectionJob: Job?
         get() = backupService.pdfInspectionJob
         set(value) { backupService.pdfInspectionJob = value }

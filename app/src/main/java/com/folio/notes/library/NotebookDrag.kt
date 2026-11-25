@@ -144,7 +144,7 @@ internal class NotebookDragScrollZone {
                     drag.snackbar.currentSnackbarData?.dismiss()
                     val message = when (destination) {
                         is NotebookDropDestination.Folder -> "Moved ${payload.title} to ${if (destination.id == null && payload is NotebookDragPayload.Folder) "the top level" else destination.label}"
-                        NotebookDropDestination.Favorites -> "Added ${payload.title} to Favorites"
+                        NotebookDropDestination.Favorites -> "Added ${payload.title} to Favourites"
                         is NotebookDropDestination.Tag -> "Tagged ${payload.title} · ${destination.tag}"
                     }
                     if (drag.snackbar.showSnackbar(message, "Undo", withDismissAction = true) == SnackbarResult.ActionPerformed) undo()
@@ -295,7 +295,7 @@ private class NotebookDragShadow(view: View, private val title: String, private 
         if (drag.active) Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Text(drag.hover?.destination?.let { if (drag.accepts(it)) "Release to drop · ${it.label}" else "Choose another destination · ${it.label}" }
-                ?: "Drag to a folder, tag or Favorites · Hold to open folders",
+                ?: "Drag to a folder, tag, or Favourites · Hold to open folders",
                 Modifier.padding(horizontal = FolioSpacing.dp16, vertical = FolioSpacing.dp12), style = MaterialTheme.typography.labelLarge,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }

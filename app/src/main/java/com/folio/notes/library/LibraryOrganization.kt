@@ -41,7 +41,7 @@ fun organizeNotebooks(
 }
 
 /** Where the library is looking when no folder is open. A tag or an open folder overrides it. */
-enum class LibraryPlace(val label: String) { ALL("All notebooks"), FAVORITES("Favorites"), UNFILED("Unfiled") }
+enum class LibraryPlace(val label: String) { ALL("All notebooks"), FAVORITES("Favourites"), UNFILED("Unfiled") }
 
 enum class LibraryPinScope { ALL, FOLDER }
 

@@ -43,7 +43,7 @@ import com.folio.notes.ink.InkView
 import com.folio.notes.ink.LocalPenPointer
 import com.folio.notes.input.LocalStylusActivity
 import com.folio.notes.input.holdPenFromScrolling
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.settings.rememberPref
 import com.folio.notes.settings.rememberPrefs
 import com.folio.notes.ui.FolioShapes

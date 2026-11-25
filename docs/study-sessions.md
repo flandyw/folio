@@ -1,215 +1,43 @@
-# Study session recovery
+# Study sessions and recovery
 
-The editor stopwatch counts only while the pages are visible. Leaving the editor,
-backgrounding Folio or turning the screen off parks it; returning to the pages does
-not resume it automatically. Sessions started from Study keep counting while the
-app process stays alive in the background. Both recover paused after process death,
-at the last successful local checkpoint, so time while Folio was closed is excluded.
-Rotation preserves the running session.
+## Timer durability and checkpoints
 
-`FocalStudyManager` keeps the live timer in the application scope. Each successful
-write to `focal-study.json`, including sync receipts, takes a recoverable copy of the
-focus and its session entry at the same instant. That copy closes the open interval
-and retains its active time and an unsynced pause intent; it does not pause or dirty
-the live timer. Running focus sessions checkpoint every five seconds, independently
-of the thirty-second sync loop, and immediately when the Activity stops. Android
-can defer background work, so recovery always uses the last successful write rather
-than promising a fixed loss limit during sleep.
+- **Editor stopwatch:** Counts only while pages are visible. Leaving the editor, backgrounding Folio, or turning off the screen parks it without auto-resuming on return.
+- **Study page timer:** Keeps counting while the process stays alive in the background. Both timers recover paused after process death at the last local checkpoint (time while closed is excluded). Screen rotation preserves running timers.
+- **Checkpointing:** `FocalStudyManager` keeps live timers in application scope. Every atomic write to `focal-study.json` (and every 5-second heartbeat plus Activity stop) writes a recoverable copy that closes the open interval with an unsynced pause intent without pausing the live timer.
+- **Reconciliation:** Pause, resume, finish, discard, and account detachment update focus and entry atomically. Pending local pauses beat stale remote running echoes, and remote running checkpoints only contribute closed intervals so open intervals are never double-counted.
+- **Exam timers:** Commit preferences synchronously on every state change and heartbeat; disk restoration parks running timers at their last-visible heartbeat using the Focal-adjusted clock.
 
-Pause, resume, finish, discard and account detachment update the focus and entry in
-one state change before the atomic file write. Old running saves without a heartbeat
-close their open interval at its start in both models. Resuming appends a fresh
-interval; offline replay retains each pause/resume boundary. A pending local pause
-beats an old running server echo. Remote running checkpoints contribute only closed
-intervals to the timer's accumulated base, preventing the open interval from being
-counted twice.
-
-Exam timers synchronously commit their notebook preferences on each state change
-and heartbeat, including clearing a stopped sitting. Disk restoration always parks
-a running timer at its saved last-visible heartbeat before advancing the countdown,
-even for an immediate restart. An in-memory sitting retains the existing grace
-period. A manually paused sitting preserves its pause and elapsed time.
-Restoration uses the same Focal-adjusted clock as recording, including in-memory
-notebook switches.
-
-These changes keep the existing session JSON fields and notebook storage formats.
+No session JSON fields or notebook storage formats change.
 
 ## Planned study
 
-Study and the study sessions panel manage unfinished focus sessions shared with
-Focal: create, edit, duplicate, delete and reschedule plans with a subject, notes,
-topics and up to 100 non-overlapping blocks (each up to 24 hours). The editor timer
-dialog starts the same plans and links to the full sessions panel. Plans are
-searchable by title/subject/topics and filterable by subject and all/today/overdue/
-upcoming, sorted by scheduled start. Connect the same Focal account and refresh to
-receive website changes. Exam/SAC plans are excluded from regular study.
+Study and the sessions panel manage unfinished focus sessions shared with Focal (subject, notes, topics, and up to 100 non-overlapping blocks up to 24 h each; exam/SAC plans stay separate). Plans are searchable and filterable by subject and scope (all / today / overdue / upcoming).
 
-Starting a plan reuses its ID and revision, title, subject and metadata, optionally
-attaching the selected/open notebook. Scheduled blocks are never worked intervals:
-the stopwatch starts at zero with a fresh interval. The original schedule remains
-in metadata as the duration goal, shown alongside elapsed study; reaching it never
-automatically finishes the session. The durable command queue publishes `start`
-against the planned row, followed by any offline pause/resume/complete boundaries.
-Study and sessions-panel starts count in the background; editor timer starts pause
-when leaving the pages. A current focus, another running session or local exam
-blocks starting a plan. Focal's calendar now starts this same row too.
-
-Local plan edits live in optional `planDraft` in `focal-study.json`, separate from
-the last canonical `remotePayload`. Create/save-progress send the canonical blocks
-and metadata, with no timer boundary fields. Accepted receipts clear the draft;
-refused edits retain it for review rather than silently retrying over another
-device's reschedule. A conflicted draft is synced-but-retained and cannot start
-until reviewed and explicitly saved. Atomic local plan mutations check the current
-account, lifecycle and revision. No notebook/journal/backup format changes.
-
-The timeline moves and resizes individual blocks of both plans and completed study,
-including completed sessions started from plans. Other blocks and break gaps stay
-intact; overlapping edits and completed time in the future are refused. Blocks
-clipped across midnight cannot be dragged. Unsent timer boundaries must sync first,
-and conflicted plan drafts must be reviewed in Edit before timeline changes.
-
-Device checks:
-
-- Drag the body and both resize handles of a multi-block plan, then complete it
-  and repeat. Verify the other blocks, break gaps and details survive refresh
-  and restart. Check blocks starting/ending at midnight and rejected overlaps.
-- Create a multi-block plan in each client; verify its subject, notes, topics and
-  break gaps on the other. Edit, duplicate, move to today/now, and delete it.
-- Start a website plan from each Folio entry point and Focal's calendar/timer;
-  verify the same row completes with only measured active time and its original
-  title/subject/details/schedule. Pause and confirm the duration goal stays fixed.
-- Repeat offline, with several pauses and a process restart before reconnecting;
-  verify no duplicate row, billed break or automatic resume. Focal must retain
-  cached account plans after an offline browser reload.
-- Reschedule a plan elsewhere while editing it, and verify the stale save is
-  refused. In Folio reopen the retained draft, review and explicitly save it.
-  Starting/completing/deleting a plan elsewhere must stop local plan editing.
-- Reject zero-length/overlapping blocks; preserve drafts and block dates through
-  rotation. Check portrait, landscape and phone layouts, midnight and time zones.
+- **Starting a plan:** Reuses the plan's ID, revision, title, subject, and metadata, optionally linking a notebook. Scheduled blocks become the duration goal (never worked time); the stopwatch starts at zero and never auto-finishes at the goal.
+- **Drafts and conflicts:** Local plan edits live in `planDraft` inside `focal-study.json`, separate from `remotePayload`. Accepted receipts clear the draft; refused edits keep it for manual review and block starting until resolved.
+- **Timeline editing:** Moves and resizes individual blocks of plans and completed study (leaving breaks intact, refusing overlaps, future completed time, or midnight-clipped drags). Unsent timer boundaries must sync first.
 
 ## Study page behaviour
 
-Pure rules for the screens live in `StudyTimerRules.kt` (no Android imports) and are
-checked by `StudyTimerRulesTest` (`./gradlew :app:testDebugUnitTest`): duration and
-clock labels, history grouped by local day, this week's total (from Monday), the
-day streak, plan scope/search filters, plan "when" labels and per-block plan problems.
+Pure rules live in `StudyTimerRules.kt` (`StudyTimerRulesTest`): duration/clock labels, local-day grouping, Monday-based weekly total, day streak, plan filters, "when" labels, and per-block validation.
 
-- Start offers the notebook's subject, else the subject studied most recently, and
-  names it on the button. Blocked starts say why (exam timer, another session).
-- A running or paused session can change subject (`changeFocusSubject`): one
-  `save_progress` on the same row; the generated "<subject> Focus" title follows,
-  a plan's own title does not. Recorded time is untouched.
-- The Study page keeps the screen awake while its clock runs (a View flag, released
-  on pause or leaving). The editor stopwatch does not.
-- Saving, logging, discarding and deleting show a short confirmation. Discard and
-  delete confirmations state the time that will be removed.
-- History is grouped by day with daily study totals (exams listed, never counted).
-  Tapping a study row shows its day on the timeline; it can be deleted after
-  confirmation (`deleteSession`, a tombstone, so no undo).
-- Plan filters appear once there are more than three plans. Search matches every
-  word in any order. Plan cards show when they are due ("Starts in 20 min",
-  "Overdue · Yesterday").
-- The plan editor marks the block to fix (backwards, over 24 h, overlapping) and
-  only enables Save when there is none; a blank title saves as "<subject> study";
-  closing with unsaved edits asks first (`FolioPanel(canDismiss)`); a plan changed
-  elsewhere shows a banner and cannot be saved over.
-- The timeline works to the minute everywhere: drawing a block, dragging a block or an edge, the razor,
-  "Move to now" and the Start/End steppers (− / + one minute; tap the time for the system time picker)
-  on both the draft and a selected block. It zooms in to a ten-minute window with minute ticks. The ruler
-  sits above the track and shows the exact range while anything is dragged, plus the current time.
-  A week strip (Monday to Sunday around the shown day) has a bar per day's counted study and a ring where
-  a plan is still waiting; tap a day to show it. A move or resize offers Undo while its message shows
-  (it restores that session's previous blocks). The selected block keeps Start / Continue / Edit / Mark
-  done in view and puts Zoom, Split, Select to merge, Repeat and Remove in its menu.
-- The timeline follows today past midnight, opens a date picker from its title,
-  resets tools when the day changes, and lets result messages fade. Split and
-  "Repeat" keep a plan's notes and topics.
+- **Starting & switching:** Start defaults to the notebook's subject (or most recently studied) and explains blocks (active exam or session). `changeFocusSubject` updates a running/paused session on the same row without touching elapsed time. The Study page keeps the screen awake while running; the editor stopwatch does not.
+- **History & confirmation:** History groups by day with daily totals (exams listed, not counted); tapping jumps to that day on the timeline; deletion confirms time removed and writes a tombstone (no undo).
+- **Plan editor:** Flags invalid blocks inline (backwards, >24 h, overlapping), defaults blank titles to `<subject> study`, confirms before discarding unsaved edits, and blocks overwriting plans changed elsewhere.
+- **Timeline:** Minute-accurate everywhere (drawing, dragging, resizing, razor, *Move to now*, ±1 min steppers, system time picker, 10-minute zoom with minute ticks). Includes a Monday–Sunday week strip, undo for moves/resizes, midnight rollover, and split/repeat preserving notes and topics.
+- **Past study & accessibility:** Manual minutes (`studyManualMinutes`) accept only whole integers `1..1440` with inline validation. Section/day titles are accessibility headings; delete and date/time buttons name their target.
 
-- Log past study keeps the minutes exactly as typed and accepts only a plain whole
-  number from 1 to 1,440 (`studyManualMinutes`; spaces around it are ignored). "1.5",
-  "-5", "1,000" or an overlong number are explained inline, and Save and keyboard Done
-  share that check, so nothing is quietly turned into a different duration.
-- A plan ends at its last block's end: at that instant it counts as overdue, not
-  upcoming (a break between blocks is still upcoming).
-- Plan and history search use the keyboard's Search key (it closes the keyboard and
-  keeps the query). History search has its own clear button that keeps the date range.
-- Section and day titles are accessibility headings; history delete buttons and plan
-  editor date/time buttons name their session or block. Confidence chips, plan block
-  date/time buttons and the plan editor's Duplicate/Delete wrap on narrow panes.
+## Short session merging and duplicate interval recovery
 
-Device checks for the above (narrow split pane and largest font, TalkBack on): paste
-"1.5" and "-5" into Minutes studied and confirm the error and that Save and Done do
-nothing; clear history search with a date range set and confirm the dates stay;
-press Search in both search fields; confirm headings, delete names and block button
-names are read out and nothing is clipped or squeezed.
-
-Device checks: start/pause/change subject while online and offline and confirm Focal
-shows the new subject with the same time; leave the Study page running and confirm
-the screen stays on, then pause and confirm it can sleep; delete a history session
-and confirm it disappears on Focal; leave the Study page open over midnight.
-
-## Short session merging
-
-Focal migration `0022_merge_short_study_sessions.sql` combines completed focus
-fragments under two minutes for the same subject when the gap is at most five
-minutes. Groups can keep growing as more fragments arrive. Overlapping sessions,
-unknown subjects, exam sittings and intervening work on another subject stay
-separate. Breaks remain gaps between the original intervals, not active time.
-Groups stop at 100 intervals or the command metadata size limit.
-
-The server keeps the receiving session ID and publishes the absorbed sessions as
-deleted tombstones. Original titles and metadata are retained in
-`metadata.auto_merge_sources`, and the original rows remain in the database.
-The migration also groups existing fragments. Folio adopts the complete merged
-timeline from both mutation receipts and remote updates, including its earlier
-start time. Merging happens when sessions sync; offline entries remain separate
-until then. Both clients must use the migrated Supabase database.
-
-## Duplicate interval recovery
-
-Focus command batches are frozen in durable preferences under the account and
-session ID before any RPC. Requests keep their mutation IDs, revisions and timing
-across timeouts and process restarts. Each acknowledged prefix advances the saved
-batch; newer local actions wait until that batch finishes. Previously, rebuilding
-a partly accepted batch minted new IDs for later pause/resume commands and could
-replay them as extra intervals. Timed commands are never rebased onto a conflicting
-server timeline.
-
-Focal migration `0023` cleans completed focus history and subsequent completions:
-it removes sub-second intervals and exact copies within or across sessions of the
-same subject, then recalculates active time. Sessions left empty are deleted via
-the normal tombstone feed. Folio adopts the cleaned canonical receipt immediately.
-Minute labels alone are not duplicate evidence; distinct real intervals remain.
-
-Migration `0024` applies cleanup to paused/running exams and SACs too. It preserves
-the open interval and pause/timing timestamps. Bursts of three or more closed
-intervals under 30 seconds in one minute from the same phase/device are removed
-as chatter; isolated short intervals remain. Existing paused exams are repaired
-without completing or deleting the sitting. Folio adopts the pruned intervals
-from settled exam receipts. A background checkpoint must wait for an acknowledged
-remote pause to reach the countdown, rather than publishing an automatic resume.
-Finishing a paused exam does not append an interval with no new active time.
+- **Auto-merge (`0022_merge_short_study_sessions.sql`):** On sync, Focal merges completed focus fragments under 2 minutes of the same subject separated by ≤5 minutes (up to 100 intervals), preserving breaks as gaps and publishing absorbed rows as tombstones. Overlapping sessions, exams, and intervening subjects stay separate.
+- **Frozen batches:** Focus command batches freeze in durable prefs before RPC so retries keep identical mutation IDs, revisions, and timestamps instead of minting duplicate intervals.
+- **Cleanup (`0023` & `0024`):** Server migrations strip sub-second/exact duplicate intervals on completed sessions (`0023`) and chatter bursts (≥3 closed intervals <30 s in one minute) on paused/running exams (`0024`). Folio adopts canonical receipts immediately; background checkpoints wait for remote pauses and finishing a paused exam appends no zero-time interval.
 
 ## Verification
 
-`node tools/focal-study-smoke.cjs` exercises the actual pure models and helpers:
-checkpoint consistency and repeated recovery, pause/resume cycles, offline command
-replay, remote reconciliation, and immediate/long exam restarts. The canonical
-signed build is `./build.sh -p`.
-
-On a device:
-
-- Start the editor stopwatch, pause, close Folio, reopen and resume. Verify the
-  elapsed time stays fixed during the pause and increases only after resuming.
-- Leave the editor, switch apps and turn the screen off with an editor stopwatch
-  running. Verify it returns parked and time away is excluded. Rotate while running
-  and verify rotation does not pause it.
-- Start from Study, switch apps and return while Folio remains alive. Verify it kept
-  counting. Swipe Folio away or force-stop it, reopen and verify recovery is paused
-  at its last saved time; repeat after several pause/resume cycles.
-- Repeat offline, reconnect and verify Focal receives the same active time and
-  pause/resume boundaries, with no duplicate session or automatic recovery resume.
-- While syncing, pause, resume and finish quickly. Verify a late receipt neither
-  revives a finished session nor doubles elapsed time.
-- Repeat background, force-stop and immediate-restart checks with an exam timer in
-  reading and writing phases, including a manually paused sitting and a stopped one.
+- **Automated:** `node tools/focal-study-smoke.cjs`, `StudyTimerRulesTest`, and `./build.sh -p`.
+- **On device:**
+  - Test editor stopwatch pause/close/reopen, backgrounding, screen-off, and rotation; test Study timer backgrounding and force-stop recovery (online and offline).
+  - Test rapid pause/resume/finish during sync (no revived sessions or doubled time) and exam timer reading/writing restarts.
+  - Drag/resize multi-block plans and completed sessions on the timeline; test offline plan starts, stale-edit conflict review, subject switching, history deletion, midnight rollover, and narrow-pane/TalkBack validation (`"1.5"`, `"-5"`, search clear with date range).

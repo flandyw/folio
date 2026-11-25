@@ -4,28 +4,44 @@
 
 ## Library
 
-The Library is Folio's notebook browser. Create notebooks or import PDFs and `.folio` files, then organize notebooks with folders, tags, stars and covers. Search and browse by place, folder or tag. On wider screens the library has a sidebar and folder tiles; notebook drag and drop uses the same organization rules. The Files destination browses files on the device separately from Folio's notebook library.
+The Library is Folio's notebook browser. Create notebooks or import PDFs and `.folio` backups, then organise them with folders, tags, favourites, and custom covers. Browse by place, folder, or tag, or search across titles and content.
 
-Deleting a notebook moves it to **Trash**, where it stays until restored or permanently deleted. Restore returns it to its original folder if that folder still exists, otherwise to the library root. Removing a folder moves its notebooks to the parent. Trash is device-local and excluded from library backups; external tablet files have a separate permanent-delete flow. See [Trash](../trash.md).
+On wider screens, the Library displays a collapsible sidebar and folder tiles, and supports drag-and-drop organisation using the same rules. **Files** is a separate destination for browsing files on your device outside Folio's library.
+
+Deleting a notebook moves it to **Trash**, where you can restore it or delete it permanently. Restoring returns the notebook to its original folder if it still exists, or to the library root otherwise. Removing a folder moves its notebooks up to the parent folder. Trash is device-local and excluded from library backups; external device files use a separate permanent-delete flow. See [Trash](../trash.md).
 
 ## Pages and navigation
 
-A notebook contains finite pages or infinite canvases. Paper options include plain, ruled, dots, grids and specialist guides. Pages can be added, inserted, duplicated, deleted, reordered, bookmarked and given paper or title changes. Use the page browser and thumbnails to move around a notebook; the continuous editor scrolls through finite pages. Infinite canvases pan and zoom freely.
+Notebooks hold either finite pages or infinite canvases. Built-in paper styles include plain, ruled, dotted, grid, and specialist guides. You can add, insert, duplicate, delete, reorder, bookmark, and rename pages, or change a page's paper style at any time.
 
-Undo and redo include page content and structural actions. Content history is persisted, including grouped edits across pages; page structure history is kept for the current session. Page navigation, viewport anchors and device checks are described in [page navigation](../page-navigation.md) and [continuous editor](../continuous-editor.md).
+The continuous editor scrolls smoothly through finite pages, while the page browser and thumbnails let you jump quickly. Infinite canvases pan and zoom freely in every direction.
 
-A **peek view** pins a region of a page for reference while working elsewhere: hold to glance or tap to keep it open. The saved anchor belongs to the notebook.
+Undo and redo cover both page content and structural edits. Content history (including grouped cross-page edits) is saved to disk; page structure history is kept for the current session. See [Page navigation](../page-navigation.md) and [Continuous editor](../continuous-editor.md) for viewport anchors and device checks.
 
-## PDFs and reference material
+A **peek view** pins a region of a page for quick reference while you work elsewhere: hold to glance, or tap to keep it open. The saved peek anchor belongs to the notebook.
 
-Importing a PDF creates a PDF-backed notebook that can be written on with the normal editor. PDF text, links and outline support navigation and search where the source provides them. The PDF reference view provides a read-only pane with search, contents, page jump, fit/zoom and link following. Export pages as PDF or PNG, or use `.folio` for a portable notebook with editable content and history. See [PDF rendering](../pdf-rendering.md).
+## PDFs and reference view
+
+Importing a PDF creates a PDF-backed notebook you can annotate with the full editor. Embedded text, links, and outlines power search and navigation when the source PDF provides them.
+
+The **PDF reference view** opens a read-only pane with contents, text search, page jump, zoom/fit, and link following. Export annotated pages as PDF or PNG, or save a `.folio` backup to preserve editable content and history. See [PDF rendering](../pdf-rendering.md).
 
 ## Tabs and split view
 
-Open notebooks in tabs; drag tabs sideways to reorder them. The open tabs and their order are remembered. Use the editor's split button or notebook menu to open a chooser beside the current document. Choose the same notebook, an open tab or a recent notebook. The layout stacks on narrower windows. Drag the divider to resize or to an edge to close a pane.
+Open multiple notebooks in tabs and drag tabs sideways to reorder them; open tabs and their order persist across launches.
 
-Both panes use the editor's document surface. A pen can write in either pane with shared ink tools; a pen using an editor-only tool such as lasso moves the toolbar's editor focus to that pane. Finger navigation does not switch focus. A split is parked when its host notebook is left and restored when that notebook is reopened. See [split view](../split-view.md) for shortcuts, details and device checks.
+Use the toolbar's split button or notebook menu to open a second pane beside the current document. Pick the same notebook, another open tab, or a recent notebook. On narrow screens, panes stack vertically. Drag the divider to resize panes, or drag it to an edge to close a pane.
+
+Both panes run on the editor's document surface:
+- A stylus can write in either pane with shared ink tools.
+- Using an editor-only tool (such as lasso) with a stylus shifts toolbar focus to that pane; finger navigation never switches focus.
+- Leaving a split notebook parks its companion pane and restores it when you return.
+
+See [Split view](../split-view.md) for shortcuts, details, and device checks.
 
 ## For maintainers
 
-`library/LibraryScreen.kt`, `LibraryBrowser.kt` and `LibraryOrganization.kt` own browsing; `library/files/` handles device files. `workspace/` owns tabs, split layout and saved workspaces. The editor route starts in `editor/EditorScreen.kt`; `storage/NotebookPdfs.kt` handles imported PDF data. The [application architecture](../application-architecture.md) explains the shared document engine.
+- `library/LibraryScreen.kt`, `LibraryBrowser.kt`, and `LibraryOrganization.kt` own browsing; `library/files/` handles device files.
+- `workspace/` owns tabs, split layout, and saved workspaces.
+- `editor/EditorScreen.kt` is the editor route; `storage/NotebookPdfs.kt` handles imported PDF metadata and rendering.
+- See [Application architecture](../application-architecture.md) for the shared document engine.

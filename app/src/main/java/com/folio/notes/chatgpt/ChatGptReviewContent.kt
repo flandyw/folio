@@ -242,7 +242,7 @@ import com.folio.notes.ui.FolioSpacing
                             cursorColor = ink, focusedBorderColor = ink, unfocusedBorderColor = ink.copy(alpha = .4f), focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent, errorTextColor = ink))
                     else SelectionContainer {
-                        KaTeXText(draft.text.ifBlank { "Empty note — edit it or leave it unselected." },
+                        KaTeXText(draft.text.ifBlank { "Empty note; edit it or leave it unselected." },
                             Modifier.padding(horizontal = FolioSpacing.dp12, vertical = FolioSpacing.dp8),
                             textStyle = MaterialTheme.typography.bodyMedium.copy(color = ink))
                     }

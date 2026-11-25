@@ -12,7 +12,6 @@ import com.folio.notes.editor.EditorPageMutations
 import com.folio.notes.editor.EnginePageMutations
 import com.folio.notes.exam.ExamAttempt
 import com.folio.notes.exam.ExamFilter
-import com.folio.notes.exam.ExamTagType
 import com.folio.notes.exam.ExamTags
 import com.folio.notes.exam.ExamTimerPreset
 import com.folio.notes.export.PageExportRequest
@@ -114,8 +113,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun swapPaneSides(): Unit = runtime.swapPaneSides()
     fun setEditorOnRight(right: Boolean): Unit = runtime.setEditorOnRight(right)
     fun companionPage(index: Int): Unit = runtime.companionPage(index)
-    fun searchCompanionPdf(query: String): Unit = runtime.searchCompanionPdf(query)
-    fun clearCompanionPdfSearch(): Unit = runtime.clearCompanionPdfSearch()
     fun updateCompanionViewport(viewport: WorkspaceViewport): Unit = runtime.updateCompanionViewport(viewport)
     fun swapCompanion(): Unit = runtime.swapCompanion()
     fun rename(note: Notebook, title: String): Unit = runtime.rename(note, title)
@@ -125,9 +122,7 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun setCover(note: Notebook, cover: Int): Unit = runtime.setCover(note, cover)
     fun setPageCover(note: Notebook, pageCover: Boolean): Unit = runtime.setPageCover(note, pageCover)
     fun updateExamTags(noteId: String, tags: ExamTags): Unit = runtime.updateExamTags(noteId, tags)
-    fun toggleExamTag(noteId: String, tag: ExamTagType): Unit = runtime.toggleExamTag(noteId, tag)
     fun setExamFilter(filter: ExamFilter): Unit = runtime.setExamFilter(filter)
-    fun toggleRedoFlag(): Unit = runtime.toggleRedoFlag()
     fun recordAttempt(noteId: String, attempt: ExamAttempt, responseAttemptId: String? = null): Unit = runtime.recordAttempt(noteId, attempt, responseAttemptId)
     fun deleteAttempt(noteId: String, attemptId: String): Unit = runtime.deleteAttempt(noteId, attemptId)
     fun updateAttempt(noteId: String, attempt: ExamAttempt): Unit = runtime.updateAttempt(noteId, attempt)
@@ -165,7 +160,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     internal fun applyChatGptFeedback(feedback: ChatGptFeedback): Boolean = runtime.applyChatGptFeedback(feedback)
     fun texts(pageId: String, texts: List<TextBox>): Unit = runtime.texts(pageId, texts)
     fun addText(box: TextBox): Unit = runtime.addText(box)
-    fun updateText(box: TextBox): Unit = runtime.updateText(box)
     fun commitText(pageId: String, box: TextBox): Unit = runtime.commitText(pageId, box)
     fun removeText(id: String): Unit = runtime.removeText(id)
     fun duplicateText(id: String, draft: TextBox? = null): Unit = runtime.duplicateText(id, draft)
@@ -227,7 +221,6 @@ class FolioViewModel(application: Application, savedState: SavedStateHandle) : A
     fun stopTimer(): Unit = runtime.stopTimer()
     fun retrySave(): Unit = runtime.retrySave()
     fun searchPdf(query: String): Unit = runtime.searchPdf(query)
-    fun clearPdfSearch(): Unit = runtime.clearPdfSearch()
     fun preparePdfImport(uris: List<Uri>): Unit = runtime.preparePdfImport(uris)
     fun updatePdfImport(item: PendingPdfImport): Unit = runtime.updatePdfImport(item)
     fun removePdfImport(uri: Uri): Unit = runtime.removePdfImport(uri)

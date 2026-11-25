@@ -18,7 +18,7 @@ import com.folio.notes.app.AppPrefs
 import com.folio.notes.editor.toolbar.EditorQuickPrefs
 import com.folio.notes.ink.InkView
 import com.folio.notes.input.LocalStylusActivity
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.InkPoint
 import com.folio.notes.model.NotePage
 import com.folio.notes.model.Paper
@@ -74,12 +74,12 @@ import kotlin.math.roundToInt
             Text("More deliberate", style = MaterialTheme.typography.labelSmall)
             Text("Easier to trigger", style = MaterialTheme.typography.labelSmall)
         }
-        Text("Raise sensitivity if scrubbing takes too much effort. Lower it if handwriting erases ink. A clear pen scrub (several tight back-and-forth lines over ink) erases straight away, even offline. Shorter or looser scrubs, and the highlighter, are checked by Google’s scribble recognition and stay as ink until that model is ready.",
+        Text("Raise sensitivity if scrubbing takes too much effort; lower it if ordinary handwriting erases ink. A clear pen scrub (several tight back-and-forth lines) erases immediately, even offline. Shorter or looser scrubs, and highlighter scrubs, use Google's on-device recognition and stay as ink until the model is ready.",
             style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Hold to erase", style = MaterialTheme.typography.titleSmall)
-                Text("Scrub, then keep the pen still until the ink turns red. Lifting erases it every time, without waiting for recognition; moving on cancels. Uses the shape hold speed.",
+                Text("Scrub, then hold the pen still until the ink turns red. Lifting erases immediately without waiting for recognition; moving on cancels. Uses your shape-hold speed.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(hold, {
@@ -110,7 +110,7 @@ private fun scribblePracticePage() = NotePage(
     var feedback by remember { mutableStateOf("Try scrubbing across the blue ink, or write your own sample.") }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
         Text("Test your scribble", style = MaterialTheme.typography.titleSmall)
-        Text("Use your pen or finger here. This test area is not saved to your notes.", style = MaterialTheme.typography.bodySmall)
+        Text("Use your pen or finger here. Nothing in this test area is saved.", style = MaterialTheme.typography.bodySmall)
         AndroidView(
             factory = { context -> InkView(context).apply {
                 tool = Tool.PEN; fingerDrawing = true; shapeRecognition = false
@@ -130,7 +130,7 @@ private fun scribblePracticePage() = NotePage(
                     val erased = page.strokes.size - strokes.size
                     feedback = when {
                         erased > 0 -> "Erased $erased ${if (erased == 1) "stroke" else "strokes"}."
-                        !enabled -> "Kept as ink — scribble to erase is off."
+                        !enabled -> "Kept as ink (scribble to erase is off)."
                         else -> "Kept as ink. Scrub over existing ink, or raise sensitivity."
                     }
                     page = page.copy(strokes = strokes, revision = page.revision + 1)

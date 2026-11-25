@@ -17,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -25,8 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -38,7 +38,6 @@ import com.folio.notes.app.FolioViewModel
 import com.folio.notes.app.NameDialog
 import com.folio.notes.input.guardUiTouches
 import com.folio.notes.library.libraryLastEditedLabel
-import com.folio.notes.library.semanticsLabel
 import com.folio.notes.storage.SharedStorageRules
 import com.folio.notes.ui.FolioDestinationInset
 import com.folio.notes.ui.FolioMenuItem
@@ -238,7 +237,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                     if (current == null && !fullAccess) Surface(shape = FolioShapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer) {
                         Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                             Text("Browse your whole tablet", style = MaterialTheme.typography.titleMedium)
-                            Text("Enable all files access once to browse internal storage, Downloads and available SD or USB storage.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Enable all files access once to browse internal storage, Downloads, and connected SD or USB storage.", style = MaterialTheme.typography.bodyMedium)
                             Button({ requestAccess() }, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.FolderOpen, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Enable all files access") }
                         }
                     }
@@ -291,13 +290,13 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                 LaunchedEffect(current, query, sort, pdfOnly, showHiddenFolders) { scroll.scrollToItem(0) }
                 LazyColumn(state = scroll, modifier = Modifier.weight(1f), contentPadding = PaddingValues(FolioDestinationInset), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                     if (current == null) {
-                        item { Text("Browse tablet storage or connect a cloud folder. PDFs and Folio notebooks can be copied into your library; other files open in their usual app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        item { Text("Browse tablet storage or connect a cloud folder. Copy PDFs and Folio backups into your library; other files open in their default app.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         items(locations, key = { it.tree }) { location ->
                             var menu by remember { mutableStateOf(false) }
                             ExplorerRow(location.name, if (location.available) "Tap to browse files and subfolders" else "Reconnect to restore access", FolioIcons.FolderOpen,
                                 { if (location.available) visit(location.tree, location.name) else if (Uri.parse(location.tree).scheme == "file") requestAccess() else picker.launch(Uri.parse(location.tree)) }, trailing = {
                                     Box {
-                                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Location options") }
+                                        IconButton({ menu = true }, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for ${location.name}") }
                                         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "Storage location") {
                                             if (Uri.parse(location.tree).scheme == "file") FolioMenuItem({ Text("Storage access settings") }, { menu = false; requestAccess() })
                                             else {
@@ -326,7 +325,7 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                 if (query.isNotBlank() || pdfOnly) "No matching files" else if (hiddenFolders) "No visible files" else "This folder is empty",
                                 if (hiddenFolders) "Turn on Show hidden folders to include dot-prefixed folders."
                                 else if (query.isNotBlank() || pdfOnly) "Try another name or turn off the file filter."
-                                else "Create a folder here, or bring files in using your tablet’s file manager.") {
+                                else "Create a folder here, or add files using your tablet's file manager.") {
                                     if (query.isNotBlank() || pdfOnly) TextButton({ query = ""; pdfOnly = false }, shapes = ButtonDefaults.shapes()) { Text("Show all files") }
                             }
                         }
@@ -361,18 +360,19 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
                                     }
                                 }) {
                             Surface(shape = FolioShapes.large, color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-                                modifier = Modifier.fillMaxWidth().semantics { if (selecting && !file.directory) this.selected = selected }.combinedClickable(enabled = !changing,
-                                    onClickLabel = if (file.directory) "Open ${file.name}" else if (selecting) "Select ${file.name}" else "Open ${file.name}",
+                                // In selection mode a file row is one checkbox target; the Checkbox inside only shows the state.
+                                modifier = Modifier.fillMaxWidth().then(if (selecting && !file.directory) Modifier.toggleable(selected, enabled = !changing, role = Role.Checkbox) { toggle(file) }
+                                    else Modifier.combinedClickable(enabled = !changing,
+                                    onClickLabel = "Open ${file.name}",
                                     onClick = {
                                         when {
-                                            selecting && !file.directory -> toggle(file)
                                             file.directory -> { pathUris = pathUris + file.uri.toString(); pathNames = pathNames + file.name; query = ""; clearSelection() }
                                             (file.pdf || file.folio || file.name.endsWith(".zip", true)) && !file.virtual -> importFile = file
                                             else -> launchFile(file)
                                         }
-                                    }, onLongClick = { if (!file.directory) { selecting = true; toggle(file) } })) {
+                                    }, onLongClick = { if (!file.directory) { selecting = true; toggle(file) } }))) {
                                 ListItem(headlineContent = { Text(file.name, maxLines = 2, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    leadingContent = { if (selecting && !file.directory) Checkbox(selected, { toggle(file) }, Modifier.semanticsLabel("Select ${file.name}"), enabled = !changing) else Icon(if (file.directory) FolioIcons.Folder else if (file.pdf) FolioIcons.Pdf else if (file.folio) FolioIcons.Book else FolioIcons.File, null, tint = MaterialTheme.colorScheme.primary) },
+                                    leadingContent = { if (selecting && !file.directory) Checkbox(selected, null, enabled = !changing) else Icon(if (file.directory) FolioIcons.Folder else if (file.pdf) FolioIcons.Pdf else if (file.folio) FolioIcons.Book else FolioIcons.File, null, tint = MaterialTheme.colorScheme.primary) },
                                     trailingContent = { if (!selecting) Box {
                                         IconButton({ menu = true }, enabled = !changing, shapes = IconButtonDefaults.shapes()) { Icon(FolioIcons.MoreVertical, "Options for ${file.name}") }
                                         FolioMenuPopover(menu, { menu = false }, modifier = Modifier.guardUiTouches(), title = "File actions") {
@@ -416,8 +416,8 @@ private data class DeviceLocation(val tree: String, val name: String, val availa
     rename?.let { file -> NameDialog("Rename ${if (file.directory) "folder" else "file"}", "Keep the file extension so other apps can open it.", file.name, "Save", { rename = null }) { name ->
         if (validName(name)) { rename = null; mutate("Renamed") { files.rename(file, name.trim()) } }
     } }
-    delete?.let { file -> ExplorerConfirm("Delete “${file.name}”?", if (file.directory) "This deletes this device folder and its contents. This cannot be undone in Folio." else "This deletes the original file from this location. This cannot be undone in Folio.", "Delete", { delete = null }) { delete = null; mutate("Deleted") { files.delete(file) } } }
-    forget?.let { location -> ExplorerConfirm("Disconnect “${location.name}”?", "It will disappear from Explorer. Files stay on your tablet, and you can connect the folder again.", "Disconnect", { forget = null }) {
+    delete?.let { file -> ExplorerConfirm("Delete “${file.name}”?", if (file.directory) "This deletes the folder and its contents. It can't be undone in Folio." else "This deletes the original file from this location. It can't be undone in Folio.", "Delete", { delete = null }) { delete = null; mutate("Deleted") { files.delete(file) } } }
+    forget?.let { location -> ExplorerConfirm("Disconnect “${location.name}”?", "Removes this shortcut from Files. Your files stay on the device, and you can reconnect anytime.", "Disconnect", { forget = null }) {
         // Other Folio features may hold a grant to the same tree, so don't revoke shared permissions.
         rememberTrees(trees.filterNot { it == location.tree }); forget = null
         if (activeTree == location.tree) { activeTree = null; pathUris = emptyList(); pathNames = emptyList(); query = ""; clearSelection() }

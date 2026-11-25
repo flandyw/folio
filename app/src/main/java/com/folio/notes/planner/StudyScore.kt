@@ -47,6 +47,8 @@ object StudyScore {
 
     private fun twoPapers(subject: String) =
         studyKey(subject) in setOf("general mathematics", "mathematical methods", "specialist mathematics")
+    /** Subjects whose exam weight is split across Exam 1 and Exam 2 and fixed, ignoring the typed exam weight. */
+    fun hasExamSplit(subject: String) = twoPapers(subject)
     fun defaultExamWeight(subject: String) = if (twoPapers(subject)) 60.0 else 50.0
 
     private val aliases = mapOf("english eal" to "english as an additional language", "english esl" to "english as an additional language",
@@ -153,8 +155,10 @@ object StudyScore {
         }
     }
 
+    /** The raw study scores VTAC scaling covers. */
+    val SCALED_RAW = 20.0..50.0
     fun interpolate(raw: Double, points: List<Pair<Double, Double>>): Double? {
-        if (!raw.isFinite() || raw < 20 || raw > 50 || points.size < 2) return null
+        if (!raw.isFinite() || raw !in SCALED_RAW || points.size < 2) return null
         val ordered = points.sortedBy { it.first }
         ordered.find { it.first == raw }?.let { return it.second }
         val upper = ordered.indexOfFirst { it.first > raw }

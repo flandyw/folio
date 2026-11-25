@@ -189,8 +189,8 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
         }
     }
 
-    if (addingTask || editingTask != null) TaskDialog(editingTask, day, subjects, { addingTask = false; editingTask = null }, onDelete = editingTask?.let { t ->
-        { scope.launch { saveLearning(Planner.edit(learning, "tasks", t.optString("id")) { it.put("archivedAt", isoTime()) }) } } }) { title, minutes, subject, date, detail, status ->
+    if (addingTask || editingTask != null) TaskDialog(editingTask, day, subjects, { addingTask = false; editingTask = null }, onArchive = editingTask?.let { t -> {
+        if (saveLearning(Planner.edit(learning, "tasks", t.optString("id")) { it.put("archivedAt", isoTime()) })) null else "Could not archive the task. Try again." } }) { title, minutes, subject, date, detail, status ->
         val source = editingTask
         val next = if (source == null) Planner.append(learning, "tasks", listOf(JSONObject().put("id", UUID.randomUUID().toString()).put("kind", "custom").put("title", title)
             .apply { if (subject.isNotBlank()) put("subject", subject) }.put("detail", detail).put("durationMinutes", minutes).put("plannedFor", date).put("status", "planned")
@@ -200,7 +200,7 @@ private fun dayTitle(date: LocalDate, today: LocalDate): String {
         if (saveLearning(next)) { selectDay(LocalDate.parse(date)); null } else "Could not save the task. Try again."
     }
     if (addingEvent || editingEvent != null) EventDialog(editingEvent, day, names, { addingEvent = false; editingEvent = null },
-        onDelete = editingEvent?.let { e -> { scope.launch { saveEvent(e.optString("id"), null) } } }) { title, type, date, start, end, endDate, location, subjectId ->
+        onDelete = editingEvent?.let { e -> { if (saveEvent(e.optString("id"), null)) null else "Could not delete the event. Try again." } }) { title, type, date, start, end, endDate, location, subjectId ->
         val event = Calendar.saveEvent(editingEvent, title, type, LocalDate.parse(date), start, end,
             endDate.takeIf { it.isNotBlank() }?.let(LocalDate::parse), location, subjectId)
         if (saveEvent(event.getString("id"), event)) { selectDay(LocalDate.parse(date)); null } else "Could not save the event. Try again."
@@ -446,7 +446,7 @@ private const val CELL_LINES = 3
     }
 }
 
-@Composable internal fun TaskDialog(source: JSONObject?, day: LocalDate, subjects: List<String>, onDismiss: () -> Unit, onDelete: (() -> Unit)?,
+@Composable internal fun TaskDialog(source: JSONObject?, day: LocalDate, subjects: List<String>, onDismiss: () -> Unit, onArchive: (suspend () -> String?)?,
     onSave: suspend (String, Int, String, String, String, String) -> String?) {
     var title by rememberSaveable { mutableStateOf(source?.optString("title").orEmpty()) }
     var minutes by rememberSaveable { mutableStateOf(source?.optInt("durationMinutes")?.toString() ?: "30") }
@@ -462,7 +462,7 @@ private const val CELL_LINES = 3
             runCatching { LocalDate.parse(date.trim()) }.isFailure -> "Enter the date as YYYY-MM-DD."
             else -> onSave(title.trim(), m, subject.trim(), date.trim(), detail.trim(), status)
         }
-    }) {
+    }, onArchive?.let { FormAction("Archive task", null, it) }) {
         Field("Task", title) { title = it }
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         Row2 {
@@ -471,11 +471,10 @@ private const val CELL_LINES = 3
         }
         Field("Notes", detail) { detail = it }
         if (source != null) ChoiceField("Status", status, listOf("planned", "completed", "skipped"), { status = it })
-        onDelete?.let { TextButton(it, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete task") } }
     }
 }
 
-@Composable internal fun EventDialog(source: JSONObject?, day: LocalDate, subjects: Map<String, String>, onDismiss: () -> Unit, onDelete: (() -> Unit)?,
+@Composable internal fun EventDialog(source: JSONObject?, day: LocalDate, subjects: Map<String, String>, onDismiss: () -> Unit, onDelete: (suspend () -> String?)?,
     onSave: suspend (String, String, String, String, String, String, String, String) -> String?) {
     val startDate = source?.text("startTime")?.let(Calendar::dateLabel).orEmpty()
     val finishDate = source?.text("endTime")?.let(Calendar::dateLabel).orEmpty()
@@ -493,7 +492,7 @@ private const val CELL_LINES = 3
     }
     FormPanel(if (source == null) "Add event" else "Edit event", onDismiss, onSave = {
         Calendar.validateEvent(title, date.trim(), start.trim(), end.trim(), endDate.trim()) ?: onSave(title, type, date.trim(), start.trim(), end.trim(), endDate.trim(), location, subjectId)
-    }) {
+    }, onDelete?.let { FormAction("Delete event", "Delete “${source?.text("title").orEmpty()}”?", it) }) {
         Field("Title", title) { title = it }
         ChoiceField("Type", Calendar.typeLabel(type), Calendar.EVENT_TYPES.map { it.second }, { label -> type = Calendar.EVENT_TYPES.first { it.second == label }.first })
         ChoiceField("Subject (optional)", subjectOptions[subjectId] ?: "None", listOf("None") + subjectOptions.values,
@@ -505,7 +504,6 @@ private const val CELL_LINES = 3
         }
         DateField("End date (multi-day, optional)", endDate) { endDate = it }
         Field("Location", location) { location = it }
-        onDelete?.let { TextButton(it, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete event") } }
     }
 }
 

@@ -185,7 +185,7 @@ internal fun FocalPlanEditor(entry: FocalStudyEntry, subjects: List<FocalSubject
         confirmButton = { TextButton({ onDelete?.invoke(); confirmDelete = false; onDismiss() }) { Text("Delete") } },
         dismissButton = { TextButton({ confirmDelete = false }) { Text("Keep plan") } })
     if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, modifier = Modifier.guardUiTouches(),
-        title = { Text("Discard your changes?") }, text = { Text("Your edits to this plan haven’t been saved.") },
+        title = { Text("Discard your changes?") }, text = { Text("Your edits to this plan haven't been saved.") },
         confirmButton = { TextButton({ confirmClose = false; onDismiss() }) { Text("Discard") } },
         dismissButton = { TextButton({ confirmClose = false }) { Text("Keep editing") } })
 }

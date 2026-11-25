@@ -29,7 +29,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.folio.notes.editor.sticky.StickyNotes
 import com.folio.notes.input.guardUiTouches
-import com.folio.notes.library.semanticsLabel
+import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.NotePage
 import com.folio.notes.settings.largeEditorControls
 import com.folio.notes.ui.FolioPopoverSurface

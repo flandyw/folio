@@ -134,7 +134,7 @@ import kotlinx.coroutines.withContext
                 }
                 results.isNotEmpty() -> {
                     Text(
-                        "${results.size} ${if (results.size == 1) "page matches" else "pages match"} — most matches first.",
+                        "${results.size} ${if (results.size == 1) "page matches" else "pages match"} (most matches first).",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {

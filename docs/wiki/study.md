@@ -4,32 +4,43 @@
 
 ## VCAA papers and marking
 
-The VCAA destination provides a searchable catalog of exam resources. Select a paper to download and import it as a PDF-backed notebook; Folio fills available subject, year, paper and marks metadata. Downloads are restricted to the VCAA host. Imported papers use the same editor and notebook storage as other PDFs.
+The **VCAA** destination provides a searchable catalogue of exam papers. Pick a paper to download and import it as a PDF-backed notebook with subject, year, paper, and marks metadata pre-filled. Downloads are restricted to the VCAA host, and imported papers use the same editor and storage as any other PDF notebook.
 
-Open **Saved filters** to name and save a subject, year, and/or paper type on this device. Applying a shortcut replaces the current search and filters with those saved choices; it does not download or import any papers. You can remove shortcuts from the same panel.
+Open **Saved filters** to name and save a subject, year, or paper type on this device. Applying a saved filter replaces your current search and filters without downloading or importing papers; you can remove saved filters from the same panel.
 
-Marking tools provide mark areas, mark stamps, comments, numbered flags and a feedback sheet. A mark area can span PDF pages: it is one linked award, even though it has a region on each page. Marking decorations and comments are ordinary page content, so edits participate in undo. See [document transactions](../document-transactions.md) for cross-page rules.
+**Marking tools** add mark areas, mark stamps, comments, numbered flags, and a feedback sheet. A mark area can span PDF pages as a single linked award across multiple page regions. Marking annotations are ordinary page items and participate in undo. See [Document transactions](../document-transactions.md) for cross-page rules.
 
-Long-response workflows support linked drafts and marked copies, pinned questions, plans, comparison and feedback. Notebook sittings can record exam timing and writing activity.
+Long-response workflows support linked drafts and marked copies, pinned questions, plans, side-by-side comparison, and feedback. Notebook sittings can also record exam timing and writing activity.
 
 ## Mistakes and review
 
-Mistakes is Folio's ExamTrack review experience, connected to Focal for account-owned review data. Review a question using **Write** or **Type**; switching preserves both kinds of working. Compare the answer with the correction, then rate the review. Typed responses support lists and maths, save through the document writer and can be previewed before comparison. A save failure must be resolved before rating.
+**Mistakes** is Folio's spaced-repetition review flow, backed by Focal for account-owned review data. Work through a question using **Write** or **Type** (switching preserves both forms of working), then compare with the correction and rate your review.
 
-Practice working stays in device-local practice notebooks and travels in notebook backups; review ratings use Focal sync. Review pacing and scheduling have their own rules. Optional **Record in Study timer** records a review queue as a study session with intervals for question visits. See [mistake responses](../mistake-responses.md), [review pacing](../mistake-review-pacing.md) and [Focal sync](../focal-sync.md).
+- Typed responses support lists and KaTeX maths, save through the document writer, and can be previewed before comparison. A save error must be resolved before rating.
+- Practice working lives in device-local practice notebooks (included in notebook backups), while review ratings sync with Focal.
+- Enable **Record in Study timer** to log a review queue as a study session with per-question intervals.
+
+See [Mistake responses](../mistake-responses.md), [Review pacing](../mistake-review-pacing.md), and [Focal sync](../focal-sync.md).
 
 ## Study timer and timeline
 
-Study supports standalone and notebook-linked sessions, plans, reflections and history. The timeline displays a day and allows logging or planning blocks, moving and resizing them, splitting and selecting sessions to merge. Compatible sessions can be merged; synced merges require connectivity and reject unsynced sessions. A completed synced timed session from today may be continued when eligible. A timer running on another device can be shown and controlled when this device is not timing anything.
+**Study** supports standalone and notebook-linked sessions, plans, reflections, and history. The day timeline lets you log or plan blocks, move and resize them, split them, and merge compatible sessions.
 
-Offline work is queued through the Study manager and reconciled with Focal when available. Some locally recorded, never-synced timer intervals cannot be reshaped. See [study sessions](../study-sessions.md) for recovery, merge limits and device checks.
+- Synced merges require a network connection and reject unsynced sessions.
+- Eligible synced timed sessions completed today can be continued.
+- If a timer is running on another device and this device is idle, Folio shows and controls it.
+- Offline work queues in the Study manager and reconciles with Focal once connected. Some locally recorded, never-synced timer intervals cannot be reshaped.
+
+See [Study sessions](../study-sessions.md) for recovery, merge limits, and device checks.
 
 ## Progress and planner
 
-Progress presents recorded exam results, question marks, confidence, topic insights and available VCAA distribution comparisons. Estimates and correlations depend on the recorded data; they are planning aids, not guarantees.
-
-Planner has Calendar, SACs, Stoplight, Goals, Score and Grades tabs. Calendar combines events, tasks, timetable information, study and review markers. Score includes study-score and ATAR estimation; Grades uses bundled VCAA distribution data. Planner works with Focal rows and does not include every Focal feature. The [planner guide](../planner.md) lists the supported data, unported features and sync checks.
+- **Progress** surfaces recorded exam results, question marks, confidence ratings, topic insights, and VCAA grade distributions. Estimates and correlations reflect your recorded data and are planning aids, not guarantees.
+- **Planner** includes **Calendar**, **SACs**, **Stoplight**, **Goals**, **Score**, and **Grades** tabs. Calendar merges events, tasks, timetable entries, study sessions, and review markers; Score estimates study scores and ATAR; Grades uses bundled VCAA distributions. Planner syncs with Focal rows and covers a focused subset of Focal features. See [Planner](../planner.md) for supported data, unported features, and sync checks.
 
 ## For maintainers
 
-`vcaa/` provides the catalog; `marking/` and `exam/` cover feedback and sittings. Review and its cache/sync live in `mistakes/`; Study in `study/`; Progress and Planner in `progress/` and `planner/`. `math/` provides shared offline formula rendering. Focal's account and synchronization boundaries are covered in [Focal sync](../focal-sync.md).
+- `vcaa/` owns the paper catalogue; `marking/` and `exam/` cover feedback and sittings.
+- `mistakes/` owns review, cache, and sync; `study/` owns sessions and the timeline; `progress/` and `planner/` own analytics and planning.
+- `math/` provides shared offline KaTeX rendering.
+- Account and sync boundaries are documented in [Focal sync](../focal-sync.md).
