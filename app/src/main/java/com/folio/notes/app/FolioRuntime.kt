@@ -335,7 +335,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     internal fun currentCheckpoint(noteId: String, pageId: String): PageCheckpoint? = documentEngine.currentCheckpoint(noteId, pageId)
 
-    internal fun allPublishedHistory(): Map<String, PageJournal.History> = documentEngine.allPublishedHistory()
     fun strokes(strokes: List<Stroke>): Unit = documentEngine.strokes(strokes)
     fun strokes(pageId: String, strokes: List<Stroke>): Unit = documentEngine.strokes(pageId, strokes)
     fun appendStroke(pageId: String, beforeStrokes: List<Stroke>, stroke: Stroke, afterStrokes: List<Stroke>): Unit = documentEngine.appendStroke(pageId, beforeStrokes, stroke, afterStrokes)
