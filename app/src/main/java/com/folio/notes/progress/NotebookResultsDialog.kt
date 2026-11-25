@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.folio.notes.ui.semanticsLabel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.folio.notes.FolioApplication
 import com.folio.notes.exam.ExamAttempt
@@ -140,7 +141,8 @@ private data class ResultDraft(val id: String, val source: String, val notebookI
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
                     Column(Modifier.fillMaxWidth().padding(FolioSpacing.dp12), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(d.include, { c -> update(d.id) { it.copy(include = c) } }, enabled = !busy)
+                            Checkbox(d.include, { c -> update(d.id) { it.copy(include = c) } }, enabled = !busy,
+                                modifier = Modifier.semanticsLabel("Include ${d.title.ifBlank { "Untitled" }}"))
                             Column(Modifier.weight(1f)) {
                                 Text(d.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 val f = d.facts

@@ -12,6 +12,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
@@ -824,13 +826,14 @@ enum class LibrarySection { LIBRARY, FILES, VCAA, TRASH }
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp16)) {
                     CoverPicker(note.cover, { model.setCover(note, it) }, note.title, document = note.pages.any { it.pdfIndex != null })
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(note.pageCover, role = Role.Switch) { model.setPageCover(note, it) },
+                        verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("First page as cover", style = MaterialTheme.typography.titleSmall)
                             Text(if (note.pageCover) "The shelf shows the first page itself" else "The shelf shows this cover",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(note.pageCover, { model.setPageCover(note, it) })
+                        Switch(note.pageCover, null)
                     }
                 }
             },

@@ -5,12 +5,15 @@ import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
@@ -234,7 +237,8 @@ internal fun LazyGridScope.insightsItems(exams: List<LoggedExam>, allMistakes: L
     FolioPanel("Provider difficulty", onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             Text("Harder providers go above VCAA, easier below. This is a conservative planning adjustment, capped at 8 percentage points.")
-            Row(verticalAlignment = Alignment.CenterVertically) { Switch(enabled, { enabled = it }, modifier = Modifier.semanticsLabel("Apply provider difficulty alignment")); Text("Apply alignment", Modifier.padding(start = FolioSpacing.dp12)) }
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(enabled, role = Role.Switch) { enabled = it }.semanticsLabel("Apply provider difficulty alignment"),
+                verticalAlignment = Alignment.CenterVertically) { Switch(enabled, null); Text("Apply alignment", Modifier.padding(start = FolioSpacing.dp12)) }
             ChoiceField("Strength", strength, listOf("light", "balanced", "strong"), { strength = it })
             Text("Light: 1 point/rank · Balanced: 1.5 · Strong: 2", style = MaterialTheme.typography.bodySmall)
             providers.forEachIndexed { index, provider -> Row(verticalAlignment = Alignment.CenterVertically) {
