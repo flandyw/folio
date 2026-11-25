@@ -349,15 +349,6 @@ internal class DocumentEngine(private val runtime: FolioRuntime) {
         }
     }
 
-    fun setPageBookmarked(noteId: String, pageId: String, bookmarked: Boolean) {
-        with(runtime) {
-            val note = _state.value.notes.notebook(noteId) ?: return
-            val page = note.pages.page(pageId) ?: return
-            if (page.bookmarked == bookmarked) return
-            updateNote(note.withPage(page.copy(bookmarked = bookmarked)))
-        }
-    }
-
     fun setPageRedoFlag(noteId: String, pageId: String, flagged: Boolean) {
         with(runtime) {
             val note = _state.value.notes.notebook(noteId) ?: return
