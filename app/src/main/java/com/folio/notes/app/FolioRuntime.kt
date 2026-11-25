@@ -342,7 +342,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal suspend fun awaitChatGptMath(comments: List<String>): Unit = editorTextController.awaitChatGptMath(comments)
     internal fun applyChatGptFeedback(feedback: ChatGptFeedback): Boolean = editorTextController.applyChatGptFeedback(feedback)
     fun texts(pageId: String, texts: List<TextBox>): Unit = editorTextController.texts(pageId, texts)
-    fun addText(box: TextBox): Unit = editorTextController.addText(box)
     fun commitText(pageId: String, box: TextBox): Unit = editorTextController.commitText(pageId, box)
     fun removeText(id: String): Unit = editorTextController.removeText(id)
     fun duplicateText(id: String, draft: TextBox? = null): Unit = editorTextController.duplicateText(id, draft)
