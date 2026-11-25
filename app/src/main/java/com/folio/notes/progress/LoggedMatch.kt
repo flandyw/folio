@@ -9,9 +9,9 @@ import kotlin.math.abs
  * rules can be exercised without a device and re-run on every keystroke while a result is being edited.
  */
 data class ResultFacts(val subject: String, val provider: String, val title: String, val year: Int?, val paper: String,
-    val score: Double?, val max: Double?, val date: LocalDate?, val notebookId: String? = null) {
+    val score: Double?, val max: Double?, val date: LocalDate?, val notebookId: String? = null, val paperType: PaperType? = PaperType.parse(paper)) {
     companion object {
-        fun of(e: LoggedExam) = ResultFacts(e.subject, e.provider, e.title, e.examYear, e.paper, e.rawScore, e.rawMax, e.date, e.notebookId)
+        fun of(e: LoggedExam) = ResultFacts(e.subject, e.provider, e.title, e.examYear, e.paper, e.rawScore, e.rawMax, e.date, e.notebookId, e.paperType)
     }
 }
 
@@ -63,14 +63,17 @@ object LoggedMatcher {
         if (sameSubject) { total += W_SUBJECT; reasons += "same subject" }
         if (candidate.title.isNotBlank() && normalised(candidate.title) == normalised(other.title)) { total += W_TITLE; reasons += "same title" }
         if (candidate.year != null && candidate.year == other.year) { total += W_YEAR; reasons += "same year" }
-        if (comparisonName(candidate.paper) == comparisonName(other.paper)) { total += W_PAPER; reasons += "same paper" }
+        val differentPapers = candidate.paperType != null && other.paperType != null && candidate.paperType != other.paperType
+        val samePaper = if (candidate.paperType != null && other.paperType != null) !differentPapers
+            else comparisonName(candidate.paper) == comparisonName(other.paper)
+        if (samePaper) { total += W_PAPER; reasons += "same paper" }
         // A blank provider is unknown rather than different.
         if (candidate.provider.isBlank() || other.provider.isBlank() || comparisonName(candidate.provider) == comparisonName(other.provider)) total += W_PROVIDER
         else reasons += "different provider"
         // Without identical marks or the notebook link, agreeing metadata alone never makes a strong claim:
         // sitting the same paper twice on different days is legitimate practice, not a duplicate.
         val anchored = sameMarks || (candidate.notebookId != null && candidate.notebookId == other.notebookId)
-        val capped = if (!sameSubject) minOf(total, 0.30) else if (!anchored) minOf(total, 0.70) else total
+        val capped = if (!sameSubject || differentPapers) minOf(total, 0.30) else if (!anchored) minOf(total, 0.70) else total
         return LoggedMatch(existing, capped.coerceIn(0.0, 1.0), reasons)
     }
 

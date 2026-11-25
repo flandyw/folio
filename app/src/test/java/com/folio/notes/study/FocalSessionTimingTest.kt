@@ -25,6 +25,17 @@ class FocalSessionTimingTest {
         assertEquals(a.copy(remotePayload = null), b.copy(remotePayload = null))
     }
 
+    @Test fun sacKeepsItsKindAcrossDecodeAndCommands() {
+        val canonical = row(listOf(segment("2026-11-10T09:00:00Z", "2026-11-10T09:30:00Z")))
+            .put("kind", "sac").put("phase", "writing").put("metadata", JSONObject().put("unit", 4))
+        val sac = requireNotNull(focalEntryFromCanonical("s", canonical, "c", "u"))
+        assertEquals("SAC", sac.sittingLabel)
+        val command = focalStudyCommand(sac, "save_progress", 4, "device")
+        assertEquals("sac", command.getString("kind"))
+        assertEquals("writing", command.getString("phase"))
+        assertEquals(4, command.getJSONObject("metadata").getInt("unit"))
+    }
+
     @Test fun runningPausedCompletedAndPlannedMatch() {
         val first = segment("2026-11-10T09:00:00Z", "2026-11-10T09:30:00Z")
         val running = row(listOf(first, segment("2026-11-10T10:00:00Z", null)))

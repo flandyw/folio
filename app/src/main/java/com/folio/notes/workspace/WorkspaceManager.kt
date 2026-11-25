@@ -328,26 +328,6 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         }
     }
 
-    fun searchCompanionPdf(query: String) {
-        with(runtime) {
-            val noteId = _state.value.companion?.notebookId ?: return
-            if (query.isBlank()) { _state.update { it.copy(companionPdfSearch = PdfSearchState()) }; return }
-            _state.update { it.copy(companionPdfSearch = PdfSearchState(query = query, searching = true, searched = true)) }
-            scope.launch {
-                val pages = try { repository.pdfs.pdfPageTexts(noteId) } catch (_: Exception) { emptyList() }
-                val hits = withContext(Dispatchers.Default) { PdfSearch.search(pages, query) }
-                val current = _state.value
-                // A search finishing after its pane closed, or after a newer query, belongs nowhere.
-                if (current.companion?.notebookId != noteId || current.companionPdfSearch.query != query) return@launch
-                _state.update { it.copy(companionPdfSearch = PdfSearchState(query = query, searched = true, results = hits)) }
-            }
-        }
-    }
-
-    fun clearCompanionPdfSearch() {
-        with(runtime) { _state.update { it.copy(companionPdfSearch = PdfSearchState()) } }
-    }
-
     fun updateCompanionViewport(viewport: WorkspaceViewport) {
         with(runtime) {
             _state.update { it.copy(companion = it.companion?.copy(viewport = viewport)) }
@@ -427,9 +407,6 @@ internal class WorkspaceManager(private val runtime: FolioRuntime) {
         }
     }
 
-    fun clearPdfSearch() {
-        with(runtime) { _state.update { it.copy(pdfSearch = PdfSearchState()) }; captureTab() }
-    }
     internal fun start() { with(runtime) {
         scope.launch {
             state

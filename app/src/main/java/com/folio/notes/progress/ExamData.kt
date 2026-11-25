@@ -16,6 +16,7 @@ data class LoggedExam(val id: String, val subject: String, val provider: String,
     val examYear: Int, val paper: String, val completedAt: String, val rawScore: Double,
     val rawMax: Double, val originalJson: String, val notebookId: String? = null) {
     val percentage get() = rawScore / rawMax * 100
+    val paperType get() = PaperType.fromWire(json.optString("paperType")) ?: PaperType.parse(paper)
     val json get() = JSONObject(originalJson)
     val date get() = examDate(completedAt)
     companion object {
@@ -32,6 +33,40 @@ data class LoggedExam(val id: String, val subject: String, val provider: String,
     }
 }
 
+enum class PaperType(val wire: String, val label: String) {
+    EXAM_1("exam1", "Exam 1"), EXAM_2("exam2", "Exam 2"), COMBINED("combined", "Combined");
+
+    companion object {
+        private const val paperPrefix = "(?:(?:exam(?:ination)?|paper)\\s*)?"
+        private val combined = Regex("\\bcombined\\b|\\b${paperPrefix}1\\s*(?:&|and|\\+|/)\\s*${paperPrefix}2\\b", RegexOption.IGNORE_CASE)
+        private val numbered = Regex("\\b${paperPrefix}([12])\\b", RegexOption.IGNORE_CASE)
+        fun fromWire(value: String) = entries.find { it.wire == value }
+        fun parse(paper: String): PaperType? {
+            if (combined.containsMatchIn(paper)) return COMBINED
+            return when (numbered.find(paper)?.groupValues?.get(1)) {
+                "1" -> EXAM_1
+                "2" -> EXAM_2
+                else -> null
+            }
+        }
+    }
+}
+
+internal fun JSONObject.putPaperType(type: PaperType?): JSONObject = apply {
+    if (type == null) remove("paperType") else put("paperType", type.wire)
+}
+
+internal fun paperMarkWarning(subject: String, type: PaperType?, total: Double?): String? {
+    if (total == null || comparisonName(subject) !in setOf("mathematical methods", "mathematical methods cas", "specialist mathematics")) return null
+    val expected = when (type) {
+        PaperType.EXAM_1 -> listOf(40)
+        PaperType.EXAM_2 -> listOf(80)
+        PaperType.COMBINED -> listOf(120, 160)
+        null -> return null
+    }
+    return if (expected.any { it.toDouble() == total }) null else "${type.label} is usually marked out of ${expected.joinToString(" or ")}."
+}
+
 fun examDate(value: String): LocalDate? = runCatching { LocalDate.parse(value) }.getOrNull()
     ?: runCatching { Instant.parse(value).atZone(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
 
@@ -43,7 +78,6 @@ private val nhtWord = Regex("\\bnht\\b", RegexOption.IGNORE_CASE)
 private val nhtTitle = Regex("^\\d{4}\\s+(?:VCE\\s+)?(.+?)\\s+(?:written\\s+)?exam(?:ination)?(?:\\s+[1-9])?$", RegexOption.IGNORE_CASE)
 private val paperNumber = Regex("\\b(?:exam(?:ination)?|paper)\\s*([1-9])\\b|\\b([1-9])\\s+(?:exam(?:ination)?|paper)\\b", RegexOption.IGNORE_CASE)
 private val nhtPath = Regex("(?:^|[-/])nht(?:[-/]|$)", RegexOption.IGNORE_CASE)
-private val digits = Regex("\\d+")
 private val nhtProvider = Regex("\\b(nht|northern hemisphere)\\b", RegexOption.IGNORE_CASE)
 private val providerPatterns = listOf("iTute" to "\\bitute\\b", "MAV" to "\\bmav\\b|mathematical association of victoria", "Kilbaha" to "\\bkilbaha\\b",
     "VCAA" to "\\bvcaa\\b|victorian curriculum and assessment authority", "NEAP" to "\\bneap\\b", "Insight" to "\\binsight\\b",
@@ -95,12 +129,17 @@ fun distributionStats(reference: ExamReference): DistributionStats {
     return DistributionStats(mean, median, variance)
 }
 
-fun referenceFor(exam: LoggedExam, references: List<ExamReference>, year: Int = exam.examYear): ExamReference? {
-    val subject = comparisonName(exam.subject); val paper = comparisonName(exam.paper)
-    val candidates = references.filter { it.year == year && comparisonName(it.subject) == subject }
-    return candidates.find { comparisonName(it.paper) == paper }
-        ?: candidates.singleOrNull()
-        ?: references.find { it.id == exam.json.optString("referenceId") && it.year == year }
+fun referenceFor(exam: LoggedExam, references: List<ExamReference>, year: Int = exam.examYear): ExamReference? =
+    referenceForPaper(exam.subject, exam.paper, exam.paperType, exam.json.optString("referenceId"), references, year)
+
+internal fun referenceForPaper(subject: String, paper: String, type: PaperType?, referenceId: String,
+    references: List<ExamReference>, year: Int): ExamReference? {
+    val candidates = references.filter { it.year == year && comparisonName(it.subject) == comparisonName(subject) }
+    val matching = if (type == null) candidates else candidates.filter { PaperType.parse(it.paper) == type }
+    return matching.find { it.id == referenceId }
+        ?: matching.find { comparisonName(it.paper) == comparisonName(paper) }
+        ?: matching.singleOrNull()
+        ?: candidates.singleOrNull()?.takeIf { type != PaperType.COMBINED && PaperType.parse(it.paper) == null }
 }
 
 data class ExamResource(val label: String, val url: String, val kind: String, val year: Int?)
@@ -113,17 +152,17 @@ data class OfficialExam(val study: OfficialStudy, val resource: ExamResource) {
     val paper by lazy { paperNumber.find(resource.label)?.let { match -> "Exam ${match.groupValues[1].ifBlank { match.groupValues[2] }}" } ?: "Exam" }
     val provider by lazy { if (nhtPath.containsMatchIn("${study.pageUrl} ${resource.url}")) "VCAA NHT" else "VCAA" }
     fun logged(attempts: List<LoggedExam>): LoggedExam? {
-        val subjectKey = comparisonName(subject); val providerKey = comparisonName(provider); val paperKey = comparisonName(paper)
+        val subjectKey = comparisonName(subject); val providerKey = comparisonName(provider); val type = PaperType.parse(paper)
         return attempts.filter { it.examYear == year &&
             comparisonName(it.subject) == subjectKey && comparisonName(it.provider) == providerKey &&
-            (paper == "Exam" || comparisonName(it.paper) == paperKey) }.maxByOrNull { it.completedAt }
+            (type == null || it.paperType == type) }.maxByOrNull { it.completedAt }
     }
     fun draft(): JSONObject = JSONObject().put("subject", subject).put("provider", provider)
         .put("examYear", year).put("paper", paper).put("rawMax", knownExamMarks(subject, paper) ?: 100)
 }
 
 fun knownExamMarks(subject: String, paper: String): Int? {
-    val n = digits.find(paper)?.value?.toIntOrNull()
+    val n = when (PaperType.parse(paper)) { PaperType.EXAM_1 -> 1; PaperType.EXAM_2 -> 2; else -> null }
     return when (comparisonName(subject)) {
         "mathematical methods", "mathematical methods cas", "specialist mathematics" -> when (n) { 1 -> 40; 2 -> 80; else -> null }
         "general mathematics" -> when (n) { 1 -> 40; 2 -> 60; else -> null }
@@ -209,7 +248,8 @@ fun notebookExam(note: Notebook, a: ExamAttempt): LoggedExam? {
     val raw = JSONObject().put("id", a.id).put("subject", subject).put("provider", note.exam.company)
         .put("title", focalExamName(note.exam.company, year, subject).ifBlank { note.title })
         .put("examYear", year)
-        .put("paper", note.exam.type?.label ?: "Exam").put("completedAt", day.toString())
+        .put("paper", note.exam.type?.label ?: "Exam")
+        .put("completedAt", day.toString())
         .put("rawScore", a.score).put("rawMax", max).put("createdAt", isoTime(a.date))
         .put("updatedAt", isoTime(a.date)).put("referenceId", JSONObject.NULL).put("folioNotebookId", note.id)
     a.secondsTaken?.let { raw.put("timing", JSONObject().put("actualWritingSeconds", it)

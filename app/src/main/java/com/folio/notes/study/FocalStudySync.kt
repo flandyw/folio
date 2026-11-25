@@ -224,7 +224,7 @@ internal fun focalBlocksJson(blocks: List<FocalStudyInterval>): JSONArray = JSON
 private fun focalEntryPhase(entry: FocalStudyEntry): String =
     entry.examPhaseBeforePause?.takeIf { entry.paused && it in setOf("reading", "writing") }
         ?: entry.examPhase?.takeIf { it in setOf("reading", "writing") }
-        ?: if (entry.kind == "exam") "writing" else "focus"
+        ?: if (entry.timedSitting) "writing" else "focus"
 
 private fun focalLegacyMetadata(raw: JSONObject?): JSONObject {
     if (raw == null) return JSONObject()
@@ -261,12 +261,12 @@ internal fun focalStudyCommand(
         details.keys().forEach { key -> metadata.put(key, details.get(key)) }
     }
     val folio = metadata.optJSONObject("folio") ?: JSONObject().also { metadata.put("folio", it) }
-    folio.put("kind", if (entry.kind == "exam") "exam" else "focus")
+    folio.put("kind", if (entry.timedSitting) entry.kind else "focus")
         .put("notebook_id", entry.notebookId ?: JSONObject.NULL)
         .put("notebook_title", entry.notebookTitle ?: JSONObject.NULL)
     val phase = entry.examPhaseBeforePause?.takeIf { it in setOf("reading", "writing") }
         ?: entry.examPhase?.takeIf { it in setOf("reading", "writing") }
-        ?: if (entry.kind == "exam") "writing" else "focus"
+        ?: if (entry.timedSitting) "writing" else "focus"
     folio.put("phase_before_pause", if (entry.paused) phase else JSONObject.NULL)
     if (entry.completed && entry.intervals.isEmpty() && entry.activeMillis > 0L)
         folio.put("reported_active_ms", entry.activeMillis)
@@ -275,7 +275,7 @@ internal fun focalStudyCommand(
     if (entry.confidence == null) reflection.remove("confidence") else reflection.put("confidence", entry.confidence)
     return JSONObject().put("mutation_id", mutationId).put("session_id", entry.id)
         .put("expected_revision", expectedRevision).put("action", action).put("device_id", deviceId)
-        .put("app", "folio").put("kind", if (entry.kind == "exam") "exam" else "focus")
+        .put("app", "folio").put("kind", if (entry.timedSitting) entry.kind else "focus")
         .put("phase", phase).put("title", entry.title)
         .put("subject_id", entry.subjectId ?: JSONObject.NULL).put("metadata", metadata)
         .also { command ->
@@ -451,7 +451,7 @@ internal fun focalEntryFromCanonical(id: String, payload: JSONObject, changeId: 
     FocalStudyEntry(
         id = id, changeId = changeId, notebookId = folio?.optString("notebook_id")?.takeIf { it.isNotBlank() && it != "null" },
         title = payload.optString("title", "Study session"), subjectId = payload.optString("subject_id").takeIf { it.isNotBlank() && it != "null" },
-        kind = if (kind in setOf("exam", "sac")) "exam" else "study", startedAt = started, endedAt = ended,
+        kind = if (kind == "exam" || kind == "sac") kind else "study", startedAt = started, endedAt = ended,
         activeMillis = (focalAccumulatedActiveMs(payload)
             ?: folio?.optLong("reported_active_ms", 0L) ?: 0L).coerceAtLeast(0L),
         notes = reflection?.optString("notes").orEmpty(), confidence = reflection?.optInt("confidence")?.takeIf { it in 1..5 },

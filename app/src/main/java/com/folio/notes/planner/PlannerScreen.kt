@@ -139,7 +139,8 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
                     onMistakes, { tab = "SACs" }, onStudy)
                 "SACs" -> SacTab(sacs, subjects, enabled, ::saveSacs)
                 "Stoplight" -> StoplightTab(learning, subjects, enabled, ::saveLearning)
-                "Goals" -> GoalsTab(learning, subjects, exams, state.cache.value("atarEstimates") as? JSONArray, enabled, ::saveLearning)
+                "Goals" -> GoalsTab(learning, subjects, exams, state.cache.value("atarEstimates") as? JSONArray,
+                    state.catalog.references, enabled, ::saveLearning)
                 "Grades" -> GradesTab(state.catalog.references, exams)
                 else -> ScoreTab(exams, sacs, state.catalog.references, (state.cache.value("atarEstimates") as? JSONArray)?.objects().orEmpty(), enabled, ::saveAtar)
             }
@@ -149,26 +150,40 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 
 // ---- Shared form chrome -----------------------------------------------------------------------
 
-/** Title, scrolling fields, an error line and Cancel / Save; [onSave] returns an error message or null once saved. */
-@Composable internal fun FormPanel(title: String, onDismiss: () -> Unit, onSave: suspend () -> String?, fields: @Composable ColumnScope.() -> Unit) {
+/** A destructive action on the record being edited ([confirm] asks first when set); it runs like Save and the panel closes only once it is durable. */
+internal class FormAction(val label: String, val confirm: String?, val run: suspend () -> String?)
+
+/** Title, scrolling fields, an error line and Cancel / Save; [onSave] (and [action]) return an error message or null once saved. */
+@Composable internal fun FormPanel(title: String, onDismiss: () -> Unit, onSave: suspend () -> String?, action: FormAction? = null, fields: @Composable ColumnScope.() -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var confirming by remember { mutableStateOf(false) }
+    val flight = remember { SingleFlight { busy = it } }
     val scope = rememberCoroutineScope()
+    fun submit(work: suspend () -> String?) { scope.launch { flight.run { error = work(); if (error == null) onDismiss() } } }
     FolioPanel(title, onDismiss, canDismiss = { !busy }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(FolioSpacing.dp24),
             verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
             fields()
+            action?.let { a -> TextButton({ if (a.confirm == null) submit(a.run) else confirming = true }, enabled = !busy,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(a.label) } }
             error?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         }
         FlowRow(Modifier.fillMaxWidth().padding(FolioSpacing.dp16), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {
             TextButton(onDismiss, enabled = !busy) { Text("Cancel") }
-            Button({ busy = true; scope.launch { error = onSave(); busy = false; if (error == null) onDismiss() } }, enabled = !busy) { Text(if (busy) "Saving…" else "Save") }
+            Button({ submit(onSave) }, enabled = !busy) { Text(if (busy) "Saving…" else "Save") }
         }
     }
+    if (confirming && action != null) AlertDialog(onDismissRequest = { confirming = false }, title = { Text(action.confirm.orEmpty()) },
+        text = { Text("This can't be undone in Folio.") },
+        confirmButton = { TextButton({ confirming = false; submit(action.run) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(action.label) } },
+        dismissButton = { TextButton({ confirming = false }) { Text("Keep") } })
 }
 
-@Composable internal fun Field(label: String, value: String, modifier: Modifier = Modifier, number: Boolean = false, onChange: (String) -> Unit) =
-    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true,
+@Composable internal fun Field(label: String, value: String, modifier: Modifier = Modifier, number: Boolean = false, error: String? = null,
+    supporting: String? = null, readOnly: Boolean = false, onChange: (String) -> Unit) =
+    OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true, readOnly = readOnly, isError = error != null,
+        supportingText = (error ?: supporting)?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text,
             capitalization = if (number) KeyboardCapitalization.None else KeyboardCapitalization.Sentences))
 
@@ -235,8 +250,6 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 @Composable private fun SacTab(sacs: List<JSONObject>, subjects: List<String>, enabled: Boolean, save: suspend (List<JSONObject>) -> Boolean) {
     var editing by remember { mutableStateOf<JSONObject?>(null) }
     var adding by rememberSaveable { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf<JSONObject?>(null) }
-    val scope = rememberCoroutineScope()
     val stats = remember(sacs) { Planner.stats(sacs) }
     val bySubject = remember(sacs) { Planner.bySubject(sacs) }
     val results = remember(sacs) { sacs.filter(Planner::isCompleted).sortedBy { it.optString("scheduledAt") }
@@ -281,17 +294,12 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     if (adding || editing != null) {
         val source = editing
         SacDialog(source, subjects, onDismiss = { adding = false; editing = null },
-            onDelete = source?.let { { deleting = it; editing = null; adding = false } }) { saved ->
+            onDelete = source?.let { sac -> {
+                if (save(sacs.filter { it.optString("id") != sac.optString("id") })) null else "Could not delete the SAC. Try again." } }) { saved ->
             val id = saved.optString("id")
             if (save(if (sacs.any { it.optString("id") == id }) sacs.map { if (it.optString("id") == id) saved else it } else sacs + saved)) null
             else "Could not save the SAC. Try again."
         }
-    }
-    deleting?.let { sac ->
-        AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Delete SAC?") }, text = { Text(sac.optString("title")) },
-            confirmButton = { TextButton({ scope.launch { save(sacs.filter { it.optString("id") != sac.optString("id") }); deleting = null } },
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") } },
-            dismissButton = { TextButton({ deleting = null }) { Text("Keep") } })
     }
 }
 
@@ -302,7 +310,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     }
 }
 
-@Composable private fun SacDialog(source: JSONObject?, subjects: List<String>, onDismiss: () -> Unit, onDelete: (() -> Unit)?, onSave: suspend (JSONObject) -> String?) {
+@Composable private fun SacDialog(source: JSONObject?, subjects: List<String>, onDismiss: () -> Unit, onDelete: (suspend () -> String?)?, onSave: suspend (JSONObject) -> String?) {
     fun str(key: String) = Planner.sacFormText(source, key)
     var subject by rememberSaveable { mutableStateOf(str("subject")) }
     var provider by rememberSaveable { mutableStateOf(str("provider").ifEmpty { "School" }) }
@@ -316,7 +324,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     FormPanel(if (source == null) "Plan or log SAC" else "Edit SAC", onDismiss, onSave = {
         val (sac, error) = Planner.sacFromForm(source, subject, provider, title, unit, date, minutes, score, max, weighting)
         sac?.let { onSave(it) } ?: error
-    }) {
+    }, onDelete?.let { FormAction("Delete SAC", "Delete “${source?.optString("title").orEmpty()}”?", it) }) {
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         Field("School or provider", provider) { provider = it }
         Field("SAC title", title) { title = it }
@@ -333,7 +341,6 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             Field("Out of", max, Modifier.weight(1f), true) { max = it }
         }
         Text("Leave the mark blank for an upcoming SAC.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        onDelete?.let { TextButton(it, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete SAC") } }
     }
 }
 
@@ -439,11 +446,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var copied by remember(subject.trim()) { mutableStateOf(false) }
-    FormPanel("Import checklist", onDismiss, onSave = {
-        if (subject.isBlank()) "Choose a subject."
-        else runCatching { Planner.parseImport(reply) }.fold({ it.takeIf { l -> l.isNotEmpty() }?.let { l -> onImport(subject.trim(), l) } ?: "No items found in that reply." },
-            { it.message ?: "That reply is not valid JSON." })
-    }) {
+    FormPanel("Import checklist", onDismiss, onSave = { Planner.importChecklist(subject, reply, onImport) }) {
         Text("Give any chatbot your study design with this prompt, then paste its JSON reply. Re-importing keeps your ratings.", style = MaterialTheme.typography.bodyMedium)
         ChoiceField("Subject", subject, subjects, { subject = it }, true)
         OutlinedButton({ scope.launch { clipboard.setClipEntry(androidx.compose.ui.platform.ClipEntry(ClipData.newPlainText("Stoplight prompt", Planner.importPrompt(subject.trim())))); copied = true } },
@@ -455,14 +458,17 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 // ---- Goals --------------------------------------------------------------------------------------
 
 @Composable private fun GoalsTab(learning: JSONObject, subjects: List<String>, exams: List<com.folio.notes.progress.LoggedExam>, atar: JSONArray?,
-    enabled: Boolean, save: suspend (JSONObject) -> Boolean) {
+    references: List<com.folio.notes.progress.ExamReference>, enabled: Boolean, save: suspend (JSONObject) -> Boolean) {
+    val vtac by rememberVtacData()
     var editing by remember { mutableStateOf<JSONObject?>(null) }
     var adding by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val active = remember(learning) { Planner.goals(learning, false) }
     val archived = remember(learning) { Planner.goals(learning, true) }
     val today = LocalDate.now().toString()
-    val progressOf = remember(active, exams, atar) { active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar) } }
+    val progressOf = remember(active, exams, atar, references, vtac) {
+        active.associate { it.optString("id") to Planner.goalProgress(it, exams, atar, references, vtac) }
+    }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
         verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
         if (active.isNotEmpty()) item {
@@ -476,7 +482,7 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
         } }
         else item { Button({ adding = true }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Icon(FolioIcons.Plus, null); Spacer(Modifier.width(FolioSpacing.dp8)); Text("Set a goal") } }
         items(active, key = { it.optString("id") }) { goal ->
-            val progress = progressOf[goal.optString("id")] ?: Planner.goalProgress(goal, exams, atar)
+            val progress = progressOf.getValue(goal.optString("id"))
             val reached = progress.current != null && progress.current >= goal.getDouble("target")
             val expired = !reached && goal.optString("deadline") < today
             PlannerCard {
@@ -546,21 +552,25 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
 /** The bundled 275 KB VTAC table, decoded once per process instead of on every visit to the Score tab. */
 @Volatile private var vtacCache: StudyScore.VtacData? = null
 
-@Composable private fun ScoreTab(exams: List<com.folio.notes.progress.LoggedExam>, sacs: List<JSONObject>, references: List<com.folio.notes.progress.ExamReference>,
-    saved: List<JSONObject>, enabled: Boolean, save: suspend (List<JSONObject>) -> Boolean) {
+@Composable private fun rememberVtacData(): State<StudyScore.VtacData?> {
     val context = LocalContext.current
-    val vtac by produceState(vtacCache) {
+    return produceState(vtacCache) {
         if (value == null) value = withContext(Dispatchers.IO) { runCatching { StudyScore.VtacData.decode(context.assets.open("planner/vtac-scaling.json").bufferedReader().use { it.readText() }) }.getOrNull() }
             ?.also { vtacCache = it }
     }
+}
+
+@Composable private fun ScoreTab(exams: List<com.folio.notes.progress.LoggedExam>, sacs: List<JSONObject>, references: List<com.folio.notes.progress.ExamReference>,
+    saved: List<JSONObject>, enabled: Boolean, save: suspend (List<JSONObject>) -> Boolean) {
+    val vtac by rememberVtacData()
     val subjects = remember(exams) { exams.map { it.subject }.distinct().sorted() }
     var picked by rememberSaveable { mutableStateOf("") }
     val subject = if (picked in subjects) picked else subjects.firstOrNull().orEmpty()
     var sacText by rememberSaveable(subject) { mutableStateOf("") }
     var weightText by rememberSaveable(subject) { mutableStateOf(StudyScore.defaultExamWeight(subject).toInt().toString()) }
-    val prediction = remember(subject, exams, references, sacText, weightText) {
-        if (subject.isEmpty()) null else StudyScore.predict(subject, exams, references, sacText.toDoubleOrNull(),
-            weightText.toDoubleOrNull() ?: StudyScore.defaultExamWeight(subject))
+    val inputs = remember(subject, sacText, weightText) { scoreInputs(subject, sacText, weightText) }
+    val prediction = remember(subject, exams, references, inputs) {
+        if (subject.isEmpty() || !inputs.valid) null else StudyScore.predict(subject, exams, references, inputs.sacPercentile, inputs.examWeight!!)
     }
     val scaled = remember(prediction, vtac) { prediction?.let { p -> vtac?.let { StudyScore.scaled(p.studyScore.toDouble(), subject, it) } } }
     LazyColumn(Modifier.fillMaxSize().guardUiTouches(), contentPadding = PaddingValues(FolioDestinationInset, FolioSpacing.dp12, FolioDestinationInset, 120.dp),
@@ -570,14 +580,17 @@ private fun mark(value: Double) = value.toString().removeSuffix(".0")
             item { SectionHeader("Study score", "From your logged papers and each paper's VCAA grade distribution") }
             item { ChoiceField("Subject", subject, subjects, { picked = it }) }
             item { Row2 {
-                Field("SAC percentile (optional)", sacText, Modifier.weight(1f), true) { sacText = it }
-                Field("Exam weight %", weightText, Modifier.weight(1f), true) { weightText = it }
+                Field("SAC percentile (optional)", sacText, Modifier.weight(1f), true, inputs.sacError) { sacText = it }
+                if (inputs.fixedWeight) Field("Exam weight %", inputs.examWeight!!.toInt().toString(), Modifier.weight(1f), true, readOnly = true,
+                    supporting = "Fixed: Exam 1 and Exam 2 are weighted separately below.") {}
+                else Field("Exam weight %", weightText, Modifier.weight(1f), true, inputs.weightError) { weightText = it }
             } }
             if (sacs.any { it.optString("subject").equals(subject, true) && Planner.isCompleted(it) }) item {
                 Text("Your SAC marks are percentages of the marks, not statewide percentiles; enter a percentile only if you know where you sit in your cohort.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (prediction == null) item { EmptyHint("None of your $subject papers match a VCAA grade distribution yet.") }
+            if (!inputs.valid) item { EmptyHint("Fix the highlighted field to see a prediction.") }
+            else if (prediction == null) item { EmptyHint("None of your $subject papers match a VCAA grade distribution yet.") }
             else item {
                 Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
                 ProgressHero {
@@ -621,30 +634,31 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
     val predictions = remember(exams, references) { exams.map { it.subject }.distinct().mapNotNull { s -> StudyScore.predict(s, exams, references)?.let { StudyScore.studyKey(s) to it.studyScore.toDouble() } }.toMap() }
     val scope = rememberCoroutineScope()
     fun update(next: List<JSONObject>) { rowsRaw = JSONArray(next).toString() }
-    val results = remember(rows, studies, predictions) {
-        rows.mapNotNull { row ->
-            val ref = studies.find { it.code == row.optString("code") } ?: return@mapNotNull null
-            val predicted = predictions[StudyScore.studyKey(ref.studyName)]
-            val raw = if (row.optBoolean("usePrediction") && predicted != null) predicted else row.optString("raw").toDoubleOrNull() ?: return@mapNotNull null
-            StudyScore.interpolate(raw, ref.points)?.let { StudyScore.Result(row.optString("id"), ref.code, ref.studyName, raw, it) }
-        }
-    }
+    val checks = remember(rows, year, studies, predictions) { rows.map { checkAtarRow(it, year, studies, predictions) } }
+    val results = remember(checks) { checks.mapNotNull { it.result } }
     val estimate = remember(results, year) { StudyScore.estimateAtar(results, year, data) }
+    var saving by remember { mutableStateOf(false) }
+    val saveFlight = remember { SingleFlight { saving = it } }
+    var savedOk by remember(estimate) { mutableStateOf<Boolean?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp12)) {
-        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Predicted raw scores are used when you have them; otherwise enter one.")
+        SectionHeader("ATAR estimate", "Add at least four Unit 3/4 studies including an English-group study. Choose a Focal prediction or enter a raw score from 20 to 50.")
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
             val ref = studies.find { it.code == row.optString("code") }
-            val predicted = ref?.let { predictions[StudyScore.studyKey(it.studyName)] }
+            val predicted = ref?.let { study ->
+                predictions[StudyScore.studyKey(study.studyName)]?.takeIf { StudyScore.interpolate(it, study.points) != null }
+            }
             PlannerCard {
                 ChoiceField("Study", ref?.studyName.orEmpty(), studies.map { it.studyName }, { name ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
-                if (predicted != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                if (ref != null) Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(row.optBoolean("usePrediction"), modifier = Modifier.semantics { contentDescription = "Use predicted score for ${ref?.studyName.orEmpty()} ($predicted)" }, onCheckedChange = { on -> update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("usePrediction", on) else r }) })
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Use predicted score ($predicted)")
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (predicted == null) "Use predicted score when available" else "Use predicted score ($predicted)")
                 }
-                if (predicted == null || !row.optBoolean("usePrediction")) Field("Raw study score", row.optString("raw"), number = true) { v ->
+                if (!row.optBoolean("usePrediction") || predicted == null) Field("Raw study score", row.optString("raw"), number = true) { v ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("raw", v) else r }) }
+                checks[index].problem?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = if (checks[index].incomplete) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
                 TextButton({ update(rows.filterIndexed { i, _ -> i != index }) }) { Text("Remove") }
             }
         }
@@ -659,13 +673,18 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
             PlannerCard {
                 val top = maxOf(1.0, e.primary.maxOfOrNull { it.contribution } ?: 1.0)
                 e.primary.forEach { com.folio.notes.progress.MeterRow(it.result.studyName, "%.1f".format(it.contribution), (it.contribution / top).toFloat(),
-                    supporting = "${it.role} · raw ${"%.0f".format(it.result.raw)}") }
+                    supporting = "${it.role} · raw ${it.result.raw.toString().removeSuffix(".0")}") }
                 e.increments.forEach { com.folio.notes.progress.MeterRow(it.result.studyName, "+%.2f".format(it.contribution), (it.contribution / top).toFloat(),
                     MaterialTheme.colorScheme.tertiary, "Increment (10%)") }
-                Button({ scope.launch { save(listOf(JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("year", year).put("rows", JSONArray(rows))
-                    .put("atarLabel", e.label).put("aggregate", e.aggregate).put("savedAt", com.folio.notes.mistakes.isoTime())) + saved) } }, enabled = enabled, shapes = ButtonDefaults.shapes()) { Text("Save estimate") }
+                if (results.size < rows.size) Text("${countOf(rows.size - results.size, "study", "studies")} not counted: see the note on each.", style = MaterialTheme.typography.bodySmall)
+                Button({ scope.launch { saveFlight.run { savedOk = save(listOf(JSONObject().put("id", java.util.UUID.randomUUID().toString()).put("year", year).put("rows", JSONArray(rows))
+                    .put("atarLabel", e.label).put("aggregate", e.aggregate).put("savedAt", com.folio.notes.mistakes.isoTime())) + saved) } } },
+                    enabled = enabled && !saving, shapes = ButtonDefaults.shapes()) { Text(if (saving) "Saving…" else "Save estimate") }
+                savedOk?.let { ok -> Text(if (ok) "Estimate saved." else "Could not save the estimate. Try again.", Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    style = MaterialTheme.typography.bodySmall, color = if (ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
             }
-        } ?: if (rows.isNotEmpty()) Text("Not enough valid studies yet: need four, including English.", style = MaterialTheme.typography.bodySmall) else Unit
+        } ?: if (rows.isNotEmpty()) Text("Not enough counted studies yet: ${results.size} of ${rows.size} counted; an estimate needs four, including an English-group study.",
+            style = MaterialTheme.typography.bodySmall) else Unit
         if (saved.isNotEmpty()) {
             val history = saved.reversed().mapNotNull { s -> s.optString("atarLabel").toDoubleOrNull()?.let { "${s.optString("savedAt").take(10)} · ${s.optInt("year")} scaling" to it } }
             if (history.size >= 2) ScoreTrend("ATAR over time", history, "Your saved estimates, oldest first", icon = FolioIcons.Chart)

@@ -31,7 +31,7 @@ internal fun HistoryCard(entry: FocalStudyEntry, subject: String?, color: Color,
                 ?: MaterialTheme.colorScheme.outline, CircleShape))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp2)) {
                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                val details = listOf(if (entry.kind == "exam") "Exam" else null, subject ?: "No subject",
+                val details = listOf(entry.sittingLabel, subject ?: "No subject",
                     entry.notebookTitle, "${time.format(Date(entry.startedAt))} – ${time.format(Date(entry.endedAt))}")
                     .filterNot { it.isNullOrBlank() }.joinToString(" · ")
                 Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

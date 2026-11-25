@@ -173,10 +173,14 @@ class FocalStudyManager(context: Context) {
         val rows = data.optJSONArray("entries") ?: JSONArray()
         val entries = (0 until rows.length()).mapNotNull { index -> runCatching {
             val row = rows.getJSONObject(index)
+            val payload = row.optString("remotePayload").ifBlank { null }
+            val kind = row.getString("kind")
+            val cachedSac = kind == "exam" && payload != null &&
+                runCatching { JSONObject(payload).optString("kind") == "sac" }.getOrDefault(false)
             FocalStudyEntry(
                 id = row.getString("id"), changeId = row.getString("changeId"),
                 notebookId = row.optString("notebookId").ifBlank { null }, title = row.getString("title"),
-                subjectId = row.optString("subjectId").ifBlank { null }, kind = row.getString("kind"),
+                subjectId = row.optString("subjectId").ifBlank { null }, kind = if (cachedSac) "sac" else kind,
                 startedAt = row.getLong("startedAt"), endedAt = row.getLong("endedAt"),
                 activeMillis = row.getLong("activeMillis"), notes = row.optString("notes"),
                 confidence = row.optInt("confidence").takeIf { it in 1..5 },
@@ -188,7 +192,7 @@ class FocalStudyManager(context: Context) {
                     }.getOrDefault(false) }, deleted = row.optBoolean("deleted"),
                 paused = row.optBoolean("paused"), examPhase = row.optString("examPhase").lowercase().ifBlank { null },
                 examPhaseBeforePause = row.optString("examPhaseBeforePause").lowercase().ifBlank { null },
-                remotePayload = row.optString("remotePayload").ifBlank { null },
+                remotePayload = payload,
                 planDraft = row.optString("planDraft").ifBlank { null },
                 metadata = row.optString("metadata").ifBlank { null },
                 notebookTitle = row.optString("notebookTitle").ifBlank { null },

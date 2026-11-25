@@ -344,7 +344,7 @@ internal class ExamSessionManager(private val runtime: FolioRuntime) {
                     val current = _state.value.timer
                     val started = current.startedAt ?: return@collect
                     if (!current.active) return@collect
-                    val entry = shared.entries.firstOrNull { it.kind == "exam" && it.startedAt == started && it.synced &&
+                    val entry = shared.entries.firstOrNull { it.timedSitting && it.startedAt == started && it.synced && it.notebookId == timerNotebookId &&
                         (it.userId == null || it.userId == shared.userId) }
                         ?: return@collect
                     val now = timerNow()
