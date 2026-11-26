@@ -162,15 +162,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
 
     internal fun queue(op: WriteOp, scheduleAutoBackup: Boolean = true): Unit = documentWriteCoordinator.queue(op, scheduleAutoBackup)
 
-    internal suspend fun collectWrites(batch: ArrayList<WriteOp>): Unit = documentWriteCoordinator.collectWrites(batch)
-
-    internal suspend fun executeWriteOps(batch: List<WriteOp>): Unit = documentWriteCoordinator.executeWriteOps(batch)
-
-    internal suspend fun runWrites(batch: List<WriteOp>): Unit = documentWriteCoordinator.runWrites(batch)
-
-    internal fun queueIndexCheckpoint(noteId: String): Unit = documentWriteCoordinator.queueIndexCheckpoint(noteId)
-
-    internal suspend fun compactPendingPages(): Unit = documentWriteCoordinator.compactPendingPages()
     internal suspend fun awaitQueuedWrites(): Unit = documentWriteCoordinator.awaitQueuedWrites()
     internal fun updateNote(note: Notebook): Unit = notebookCatalog.updateNote(note)
 
@@ -490,8 +481,6 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
             const val MAX_UNDO = PageJournal.HISTORY_LIMIT
         const val MAX_STRUCTURE_UNDO = 30
         const val CHATGPT_NOTE_WIDTH = 320f
-            const val WRITE_BATCH_WINDOW_MS = 24L
-            const val MAX_WRITE_BATCH = 64
             const val PASTE_OFFSET = 22f
         const val TIMER_START_KEY = "examTimer.startedAt"
         const val TIMER_WRITING_KEY = "examTimer.writingSeconds"
