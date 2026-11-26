@@ -1,6 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, kotlinx.coroutines.FlowPreview::class)
 package com.folio.notes.editor.dialogs
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectableGroup
 import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
@@ -45,16 +49,17 @@ import com.folio.notes.ui.FolioSpacing
                 }
                 Switch(savePaperDefault, { savePaperDefault = it }, modifier = Modifier.semanticsLabel("Use as notebook default"))
             }
-            listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.SPLIT_RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
+            Column(Modifier.selectableGroup()) { listOf(Paper.MATH_GRID, Paper.GRAPH, Paper.GRID, Paper.DOTS, Paper.PLAIN, Paper.RULED, Paper.SPLIT_RULED, Paper.MC_SHEET, Paper.TIAN_GRID, Paper.MI_GRID).forEach { p ->
                 val selectedPaper = chosenPaper == p
                 Surface(
+                    selected = selectedPaper,
                     onClick = { chosenPaper = p },
                     shape = FolioShapes.large,
                     color = if (selectedPaper) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp2)
+                    modifier = Modifier.fillMaxWidth().padding(vertical = FolioSpacing.dp2).semantics { role = Role.RadioButton }
                 ) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = FolioSpacing.dp8, vertical = FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selectedPaper, { chosenPaper = p })
+                        RadioButton(selectedPaper, null)
                         Column(Modifier.padding(start = FolioSpacing.dp8).weight(1f)) {
                             Text(editorPaperLabel(p), style = MaterialTheme.typography.bodyMedium)
                             val hint = when (p) {
@@ -68,10 +73,10 @@ import com.folio.notes.ui.FolioSpacing
                             }
                             if (hint != null) Text(hint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        if (selectedPaper) Icon(FolioIcons.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+                        if (selectedPaper) Icon(FolioIcons.Check, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
-            }
+            } }
         }
     }
 

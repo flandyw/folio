@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.app
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
 import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -122,7 +124,7 @@ import com.folio.notes.ui.FolioSpacing
             }
             if (appearanceExpanded) {
                 CoverPicker(cover, { cover = it }, title)
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.toggleable(pageCover, role = Role.Switch) { pageCover = it }, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("First page as cover", style = MaterialTheme.typography.titleSmall)
                         Text(
@@ -130,7 +132,7 @@ import com.folio.notes.ui.FolioSpacing
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(pageCover, { pageCover = it })
+                    Switch(pageCover, null)
                 }
             }
             Text("Paper style", style = MaterialTheme.typography.labelLarge)

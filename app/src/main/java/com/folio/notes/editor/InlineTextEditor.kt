@@ -1,5 +1,7 @@
 package com.folio.notes.editor
 
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import com.folio.notes.ui.FolioIcons
 import android.content.Context
 import android.graphics.Paint
@@ -246,12 +248,13 @@ private class PageTextField(context: Context) : EditText(context) {
                 TextFormatButton(FolioIcons.Bold, "Bold", box.bold) { onChange(box.copy(bold = !box.bold)) }
                 TextFormatButton(FolioIcons.Italic, "Italic", box.italic) { onChange(box.copy(italic = !box.italic)) }
                 TextFormatButton(FolioIcons.Underline, "Underline", box.underline) { onChange(box.copy(underline = !box.underline)) }
-                TextFormatButton(FolioIcons.Minus, "Smaller text", false, box.size > TextBox.MIN_SIZE) { onChange(box.copy(size = (box.size - 2f).coerceAtLeast(TextBox.MIN_SIZE))) }
+                TextFormatButton(FolioIcons.Minus, "Smaller text", null, box.size > TextBox.MIN_SIZE) { onChange(box.copy(size = (box.size - 2f).coerceAtLeast(TextBox.MIN_SIZE))) }
                 Text("${box.size.roundToInt()} pt", style = MaterialTheme.typography.labelMedium)
-                TextFormatButton(FolioIcons.Plus, "Larger text", false, box.size < TextBox.MAX_SIZE) { onChange(box.copy(size = (box.size + 2f).coerceAtMost(TextBox.MAX_SIZE))) }
-                TextFormatButton(FolioIcons.Tune, "More text formatting", expanded) { expanded = !expanded }
-                TextFormatButton(FolioIcons.Copy, "Duplicate text box", false, box.text.isNotBlank(), onDuplicate)
-                TextFormatButton(FolioIcons.Delete, "Delete text box", false, onClick = onDelete)
+                TextFormatButton(FolioIcons.Plus, "Larger text", null, box.size < TextBox.MAX_SIZE) { onChange(box.copy(size = (box.size + 2f).coerceAtMost(TextBox.MAX_SIZE))) }
+                TextFormatButton(FolioIcons.Tune, "More text formatting", null, highlighted = expanded,
+                    modifier = Modifier.semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }) { expanded = !expanded }
+                TextFormatButton(FolioIcons.Copy, "Duplicate text box", null, box.text.isNotBlank(), onClick = onDuplicate)
+                TextFormatButton(FolioIcons.Delete, "Delete text box", null, onClick = onDelete)
             }
             if (expanded) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = FolioSpacing.dp4), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -271,10 +274,14 @@ private class PageTextField(context: Context) : EditText(context) {
     }
 }
 
-@Composable private fun TextFormatButton(icon: ImageVector, label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    IconButton(onClick, Modifier.size(40.dp), enabled = enabled,
+/** [selected] is null for a plain command, so only stateful buttons announce a selected state. */
+@Composable private fun TextFormatButton(
+    icon: ImageVector, label: String, selected: Boolean?, enabled: Boolean = true,
+    highlighted: Boolean = selected == true, modifier: Modifier = Modifier, onClick: () -> Unit
+) {
+    IconButton(onClick, modifier.size(40.dp).then(if (selected != null) Modifier.semantics { this.selected = selected } else Modifier), enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
+            containerColor = if (highlighted) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
         Icon(icon, label, Modifier.size(20.dp))
     }
 }

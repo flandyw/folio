@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.selection
 
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +21,6 @@ import com.folio.notes.ink.recognition.HandwritingTidyPanel
 import com.folio.notes.ink.recognition.InkConversionDraft
 import com.folio.notes.ink.recognition.InkConversionPreview
 import com.folio.notes.ink.shapes.ShapeCleanupPanel
-import com.folio.notes.ui.semanticsLabel
 import com.folio.notes.model.Notebook
 import com.folio.notes.model.displayTitle
 import com.folio.notes.ui.FolioPanel
@@ -85,7 +87,7 @@ import kotlinx.coroutines.launch
     if (resizing) FolioPanel("Resize document selection", { resizing = false }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${(resizeFactor * 100).toInt()}%")
-            Slider(resizeFactor, { resizeFactor = it }, valueRange = .2f..3f, modifier = Modifier.semanticsLabel("Selection size"))
+            Slider(resizeFactor, { resizeFactor = it }, valueRange = .2f..3f, modifier = Modifier.semantics { contentDescription = "Selection size"; stateDescription = "${(resizeFactor * 100).toInt()}%" })
             FilledTonalButton({ if (input.transformSelection(resizeFactor, 0f)) resizing = false }, Modifier.fillMaxWidth()) { Text("Apply") }
         }
     }

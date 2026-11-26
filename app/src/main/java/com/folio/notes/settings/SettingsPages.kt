@@ -465,7 +465,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
                     // without moving the colours that follow it onto other notebooks.
                     custom.forEachIndexed { index, color ->
                         val newest = index == custom.lastIndex
-                        ColorSwatch(color, false, if (newest) "Remove cover colour ${AccentTones.hex(color)}" else "Cover colour ${AccentTones.hex(color)}",
+                        ColorSwatch(color, null, if (newest) "Remove cover colour ${AccentTones.hex(color)}" else "Cover colour ${AccentTones.hex(color)}",
                             if (newest) ({ palette.remove(color) }) else ({ }))
                     }
                 }
@@ -483,7 +483,7 @@ private fun percent(value: Float) = "${(value * 100).roundToInt()}%"
             SettingsBlock {
                 SettingsBlockTitle("Suggested colours", "Tap to add one to your cover colours.")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                    suggestions.forEach { color -> ColorSwatch(color, false, "Add cover colour ${AccentTones.hex(color)}", { palette.add(color) }) }
+                    suggestions.forEach { color -> ColorSwatch(color, null, "Add cover colour ${AccentTones.hex(color)}", { palette.add(color) }) }
                 }
             }
         }
