@@ -81,8 +81,8 @@ internal class FolioRuntime(internal val application: FolioApplication, internal
     internal val prefs = application.getSharedPreferences("preferences", 0)
     internal val positionPrefs get() = workspaceManager.positionPrefs
     internal val companionPositionPrefs get() = workspaceManager.companionPositionPrefs
-    val repository = (application as FolioApplication).repository
-    val thumbnails = (application as FolioApplication).thumbnails
+    val repository = application.repository
+    val thumbnails = application.thumbnails
     // SavedStateHandle covers recreation; preferences bring the tabs back on a fresh launch.
     internal val restoredTabs = WorkspaceSessionCodec.decode(savedState["workspaceTabs"] ?: prefs.getString("workspaceTabs", null))
     internal val _state = DocumentStateStore(FolioState(tabs = restoredTabs,
