@@ -90,7 +90,7 @@ import kotlinx.coroutines.withContext
 }
 
 @Composable private fun OptionRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.toggleable(checked, role = Role.Switch, onValueChange = onChange), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.heightIn(min = 48.dp).toggleable(checked, role = Role.Switch, onValueChange = onChange), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Switch(checked, null)
     }

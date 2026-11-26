@@ -124,7 +124,7 @@ import com.folio.notes.ui.FolioSpacing
             }
             if (appearanceExpanded) {
                 CoverPicker(cover, { cover = it }, title)
-                Row(Modifier.toggleable(pageCover, role = Role.Switch) { pageCover = it }, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.heightIn(min = 48.dp).toggleable(pageCover, role = Role.Switch) { pageCover = it }, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("First page as cover", style = MaterialTheme.typography.titleSmall)
                         Text(

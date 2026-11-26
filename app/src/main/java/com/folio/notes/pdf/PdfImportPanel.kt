@@ -104,7 +104,7 @@ internal fun PdfImportDialog(
                     ImportDestination(folder, state.folders, { destination = it }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                     if (model.aiImportCheckAvailable) {
                         var aiCheck by remember { mutableStateOf(model.aiImportCheck) }
-                        Row(Modifier.fillMaxWidth().toggleable(aiCheck, role = Role.Switch) { aiCheck = it; model.setAiImportCheck(it) }.padding(horizontal = 24.dp),
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(aiCheck, role = Role.Switch) { aiCheck = it; model.setAiImportCheck(it) }.padding(horizontal = 24.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text("Double-check with ${model.chatGpt.name}", style = MaterialTheme.typography.titleSmall)
