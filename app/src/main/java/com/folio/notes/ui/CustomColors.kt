@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.ui
 
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import android.content.SharedPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -143,20 +145,20 @@ class CoverPaletteState(private val prefs: SharedPreferences) {
     }
 }
 
-/** A round swatch that shows the accent and its check mark. Disabled swatches stay visible but fade, so a palette that ignores the accent still shows what is stored. */
+/** A round swatch that shows the accent and its check mark; [selected] is null for a swatch that runs a command rather than choosing. Disabled swatches stay visible but fade, so a palette that ignores the accent still shows what is stored. */
 @Composable
-fun ColorSwatch(color: Color, selected: Boolean, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun ColorSwatch(color: Color, selected: Boolean?, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val check = AccentTones.lightnessOf(color) > 0.6f
     Surface(
         onClick = onClick,
         enabled = enabled,
         shape = CircleShape,
         color = color,
-        modifier = modifier.size(40.dp).alpha(if (enabled) 1f else .38f).semantics { contentDescription = label },
-        border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null,
+        modifier = modifier.size(40.dp).alpha(if (enabled) 1f else .38f).semantics { contentDescription = label; if (selected != null) this.selected = selected },
+        border = if (selected == true) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface) else null,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            if (selected) Icon(FolioIcons.Check, contentDescription = null, Modifier.size(20.dp), tint = if (check) Color(0xFF2E302B) else Color.White)
+            if (selected == true) Icon(FolioIcons.Check, contentDescription = null, Modifier.size(20.dp), tint = if (check) Color(0xFF2E302B) else Color.White)
         }
     }
 }
@@ -199,11 +201,11 @@ fun ColorChooser(
             }
         }
         Text("Hue", style = MaterialTheme.typography.labelLarge)
-        Slider(hue, { hue = it }, valueRange = 0f..360f, modifier = Modifier.semantics { contentDescription = "Hue" })
+        Slider(hue, { hue = it }, valueRange = 0f..360f, modifier = Modifier.semantics { contentDescription = "Hue"; stateDescription = "${hue.roundToInt()}°" })
         Text("Saturation", style = MaterialTheme.typography.labelLarge)
-        Slider(saturation, { saturation = it }, valueRange = 0f..1f, modifier = Modifier.semantics { contentDescription = "Saturation" })
+        Slider(saturation, { saturation = it }, valueRange = 0f..1f, modifier = Modifier.semantics { contentDescription = "Saturation"; stateDescription = "${(saturation * 100).roundToInt()}%" })
         Text("Lightness", style = MaterialTheme.typography.labelLarge)
-        Slider(lightness, { lightness = it }, valueRange = ACCENT_L_MIN..ACCENT_L_MAX, modifier = Modifier.semantics { contentDescription = "Lightness" })
+        Slider(lightness, { lightness = it }, valueRange = ACCENT_L_MIN..ACCENT_L_MAX, modifier = Modifier.semantics { contentDescription = "Lightness"; stateDescription = "${(lightness * 100).roundToInt()}%" })
         OutlinedTextField(
             value = hex,
             onValueChange = { entered ->

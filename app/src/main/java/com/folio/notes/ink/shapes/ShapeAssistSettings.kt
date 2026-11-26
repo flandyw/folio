@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.ink.shapes
 
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -64,7 +66,7 @@ import kotlin.math.*
             Text("${delay} ms", style = MaterialTheme.typography.labelMedium)
             Slider(delay.toFloat(), { prefs.edit().putLong(AppPrefs.SHAPE_HOLD_MS, AppPrefs.shapeHoldMs(it.toLong())).apply() },
                 valueRange = AppPrefs.SHAPE_HOLD_MIN_MS.toFloat()..AppPrefs.SHAPE_HOLD_MAX_MS.toFloat(), steps = 23,
-                modifier = Modifier.semanticsLabel("Shape hold delay"))
+                modifier = Modifier.semantics { contentDescription = "Shape hold delay"; stateDescription = "$delay ms" })
             ShapeAssistOptionControls(options, { prefs.edit().putString(AppPrefs.SHAPE_ASSIST_OPTIONS, it.encode()).apply() })
         }
         Text("Already drew a diagram? Lasso it and choose Tidy up shapes to preview and clean it, even with hold-to-shape off.",

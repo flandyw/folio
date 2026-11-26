@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.editor.toolbar
 
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import com.folio.notes.ui.FolioIcons
 import android.content.SharedPreferences
 import androidx.compose.animation.core.animateFloatAsState
@@ -190,7 +193,8 @@ internal class PopoverPositionProvider(private val margin: Int, private val gap:
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
             Text(valueText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Slider(value.coerceIn(range), onChange, valueRange = range, enabled = enabled, onValueChangeFinished = onFinished, modifier = Modifier.semanticsLabel(description))
+        Slider(value.coerceIn(range), onChange, valueRange = range, enabled = enabled, onValueChangeFinished = onFinished,
+            modifier = Modifier.semantics { contentDescription = description; stateDescription = valueText })
     }
 }
 

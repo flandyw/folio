@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package com.folio.notes.pdf
 
+import androidx.compose.foundation.selection.toggleable
 import com.folio.notes.ui.FolioIcons
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
@@ -103,14 +104,14 @@ internal fun PdfImportDialog(
                     ImportDestination(folder, state.folders, { destination = it }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                     if (model.aiImportCheckAvailable) {
                         var aiCheck by remember { mutableStateOf(model.aiImportCheck) }
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(aiCheck, role = Role.Switch) { aiCheck = it; model.setAiImportCheck(it) }.padding(horizontal = 24.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text("Double-check with ${model.chatGpt.name}", style = MaterialTheme.typography.titleSmall)
                                 Text("Sends the cover text of uncertain files. You'll get a notification if Folio is closed.",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(aiCheck, { aiCheck = it; model.setAiImportCheck(it) })
+                            Switch(aiCheck, null)
                         }
                         if (aiCheck) com.folio.notes.chatgpt.ClassifierModelControls(model.chatGpt, Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                     }
