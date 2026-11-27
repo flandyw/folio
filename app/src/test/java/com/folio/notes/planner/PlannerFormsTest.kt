@@ -41,11 +41,11 @@ class PlannerFormsTest {
     }
 
     @Test fun splitExamsFixTheWeightWhateverIsTyped() {
-        for (subject in listOf("Mathematical Methods", "Specialist Mathematics", "mathematical methods CAS", "General Mathematics")) {
+        for (subject in listOf("Mathematical Methods", "Specialist Mathematics", "mathematical methods CAS")) {
             val inputs = scoreInputs(subject, "", "nonsense")
             assertTrue(subject, inputs.fixedWeight); assertTrue(subject, inputs.valid); assertEquals(60.0, inputs.examWeight!!, 0.0)
         }
-        assertFalse(scoreInputs("Biology", "", "50").fixedWeight)
+        assertFalse(scoreInputs("General Mathematics", "", "50").fixedWeight)
     }
 
     private val english = StudyScore.Scaling("EN", "English", 2025, "", listOf(20.0 to 22.0, 50.0 to 50.0))

@@ -631,7 +631,7 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
     var rowsRaw by rememberSaveable { mutableStateOf("[]") }
     val rows = remember(rowsRaw) { JSONArray(rowsRaw).objects() }
     val studies = remember(data, year) { data.scaling.filter { it.year == year }.sortedBy { it.studyName } }
-    val predictions = remember(exams, references) { exams.map { it.subject }.distinct().mapNotNull { s -> StudyScore.predict(s, exams, references)?.let { StudyScore.studyKey(s) to it.studyScore.toDouble() } }.toMap() }
+    val predictions = remember(exams, references) { StudyScore.atarPredictions(exams, references) }
     val scope = rememberCoroutineScope()
     fun update(next: List<JSONObject>) { rowsRaw = JSONArray(next).toString() }
     val checks = remember(rows, year, studies, predictions) { rows.map { checkAtarRow(it, year, studies, predictions) } }
@@ -645,15 +645,13 @@ private fun LazyListScope.atarItems(data: StudyScore.VtacData, exams: List<com.f
         ChoiceField("Scaling year", year.toString(), years.map { it.toString() }, { year = it.toInt() })
         rows.forEachIndexed { index, row ->
             val ref = studies.find { it.code == row.optString("code") }
-            val predicted = ref?.let { study ->
-                predictions[StudyScore.studyKey(study.studyName)]?.takeIf { StudyScore.interpolate(it, study.points) != null }
-            }
+            val predicted = ref?.let { predictions[StudyScore.studyKey(it.studyName)] }
             PlannerCard {
                 ChoiceField("Study", ref?.studyName.orEmpty(), studies.map { it.studyName }, { name ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("code", studies.first { it.studyName == name }.code) else r }) })
-                if (ref != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                if (predicted != null) Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(row.optBoolean("usePrediction"), modifier = Modifier.semantics { contentDescription = "Use predicted score for ${ref?.studyName.orEmpty()} ($predicted)" }, onCheckedChange = { on -> update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("usePrediction", on) else r }) })
-                    Spacer(Modifier.width(FolioSpacing.dp8)); Text(if (predicted == null) "Use predicted score when available" else "Use predicted score ($predicted)")
+                    Spacer(Modifier.width(FolioSpacing.dp8)); Text("Use predicted score ($predicted)")
                 }
                 if (!row.optBoolean("usePrediction") || predicted == null) Field("Raw study score", row.optString("raw"), number = true) { v ->
                     update(rows.mapIndexed { i, r -> if (i == index) JSONObject(r.toString()).put("raw", v) else r }) }
