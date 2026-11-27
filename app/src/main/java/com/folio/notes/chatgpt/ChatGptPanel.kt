@@ -19,6 +19,7 @@ import com.folio.notes.model.hiddenFromLibrary
 import com.folio.notes.ui.FolioPanel
 import com.folio.notes.ui.FolioShapes
 import com.folio.notes.ui.FolioSpacing
+import com.folio.notes.ui.semanticsLabel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -148,7 +149,7 @@ import kotlinx.coroutines.launch
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Hints only · let me solve it", Modifier.weight(1f))
-                                    Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy)
+                                    Switch(hintsOnly, { hintsOnly = it }, enabled = !state.busy, modifier = Modifier.semanticsLabel("Hints only, let me solve it"))
                                 }
                                 ChatGptNotice(FolioIcons.Lock, "Only the selected pages and your request are shared with ${(account?.provider ?: AiProvider.CHATGPT).sharedWith} when you choose Review pages.")
                             }
