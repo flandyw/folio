@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +23,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
@@ -337,14 +342,14 @@ internal class PageMenuActions(
             MenuAction(FolioIcons.ToFront, "Bring to front", onClick = onFront),
             onClearInk?.let { MenuAction(FolioIcons.ClearInk, "Clear sticky note drawing", onClick = it) },
             MenuAction(FolioIcons.Delete, "Delete sticky note", destructive = true, onClick = onDelete))) {
-        if (colours) Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp8),
+        if (colours) Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp8).selectableGroup(),
             horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8), verticalAlignment = Alignment.CenterVertically) {
             StickyNotes.papers.forEachIndexed { index, value ->
                 val selected = StickyNotes.fill(value) == StickyNotes.fill(paper)
-                Surface(onClick = { onPaper(value) }, shape = CircleShape, color = Color(StickyNotes.fill(value)),
+                Surface(selected = selected, onClick = { onPaper(value) }, shape = CircleShape, color = Color(StickyNotes.fill(value)),
                     border = BorderStroke(if (selected) 3.dp else 1.dp,
                         if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.size(32.dp).semanticsLabel("Paper colour ${index + 1}" + if (selected) ", selected" else "")) {
+                    modifier = Modifier.size(32.dp).semantics { contentDescription = "Paper colour ${index + 1}"; role = Role.RadioButton }) {
                     if (selected) Box(contentAlignment = Alignment.Center) {
                         Icon(FolioIcons.Check, null, Modifier.size(16.dp), tint = Color(0xFF2B3440))
                     }
@@ -358,7 +363,7 @@ internal class PageMenuActions(
             Row(Modifier.padding(start = FolioSpacing.dp12, end = FolioSpacing.dp12, bottom = FolioSpacing.dp8).width(260.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Slider(shown, { shown = it }, valueRange = StickyNotes.TEXT_SIZE_MIN..StickyNotes.TEXT_SIZE_MAX,
-                    onValueChangeFinished = { onTextSize(shown) }, modifier = Modifier.weight(1f).semanticsLabel("Sticky note text size"))
+                    onValueChangeFinished = { onTextSize(shown) }, modifier = Modifier.weight(1f).semantics { contentDescription = "Sticky note text size"; stateDescription = "${shown.roundToInt()} points" })
                 Text("${shown.roundToInt()} pt", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
         }

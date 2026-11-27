@@ -10,8 +10,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.folio.notes.editor.toolbar.InkColorDot
 import com.folio.notes.ink.InkGeometry
@@ -51,7 +53,7 @@ import kotlin.math.roundToInt
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
                 Text("Thickness", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(70.dp))
-                Slider(scale, { scale = it }, valueRange = 0.5f..3f, modifier = Modifier.weight(1f).semanticsLabel("Selection thickness"))
+                Slider(scale, { scale = it }, valueRange = 0.5f..3f, modifier = Modifier.weight(1f).semantics { contentDescription = "Selection thickness"; stateDescription = String.format(java.util.Locale.ROOT, "%.1f times", scale) })
                 Text(String.format(java.util.Locale.ROOT, "%.1fx", scale), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
             }
             if (hasShape) {
@@ -85,7 +87,7 @@ import kotlin.math.roundToInt
                 Switch(fade, { fade = it }, modifier = Modifier.semanticsLabel("Change selection opacity"))
             }
             if (fade) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8)) {
-                Slider(opacity, { opacity = it }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f).semanticsLabel("Selection opacity"))
+                Slider(opacity, { opacity = it }, valueRange = 0.15f..1f, modifier = Modifier.weight(1f).semantics { contentDescription = "Selection opacity"; stateDescription = "${(opacity * 100).roundToInt()}%" })
                 Text("${(opacity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
             }
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(FolioSpacing.dp8, Alignment.End)) {

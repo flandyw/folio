@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.folio.notes.mistakes.ExamTrackMistake
 import com.folio.notes.mistakes.MistakeScheduler
@@ -53,7 +54,7 @@ internal fun MistakeReviewControls(preferences: MistakeReviewPreferences, mistak
                 if (routineDays.isEmpty()) Text("No practice days chosen: Today will just say practise whenever it suits you.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("${com.folio.notes.model.countOf(routineTarget.roundToInt(), "card")} per session")
-                Slider(routineTarget, { routineTarget = it }, enabled = !busy, valueRange = 1f..20f, steps = 18, modifier = Modifier.semantics { contentDescription = "Cards per practice session" })
+                Slider(routineTarget, { routineTarget = it }, enabled = !busy, valueRange = 1f..20f, steps = 18, modifier = Modifier.semantics { contentDescription = "Cards per practice session"; stateDescription = "${com.folio.notes.model.countOf(routineTarget.roundToInt(), "card")} per session" })
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Subtle effects & confetti", Modifier.weight(1f)); Switch(effects, { effects = it }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Subtle effects and confetti" }) }
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Quiet sound effects", Modifier.weight(1f)); Switch(sound, { sound = it }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Quiet sound effects" }) }
                 HorizontalDivider()
@@ -61,7 +62,7 @@ internal fun MistakeReviewControls(preferences: MistakeReviewPreferences, mistak
                 Text("Successful review spacing · ${"%.1f".format(spacing)}×")
                 Slider(spacing, { spacing = it }, enabled = !busy, valueRange = .5f..3f, steps = 24, modifier = Modifier.semantics { contentDescription = "Successful review spacing" })
                 Text("Retry after a miss · ${retryLabel(retry)}")
-                Slider(retry, { retry = it }, enabled = !busy, valueRange = (1f / 6)..168f, modifier = Modifier.semantics { contentDescription = "Retry hours after a miss" })
+                Slider(retry, { retry = it }, enabled = !busy, valueRange = (1f / 6)..168f, modifier = Modifier.semantics { contentDescription = "Retry after a miss"; stateDescription = retryLabel(retry) })
                 Text("Longest interval · ${maximum.roundToInt()} days")
                 Slider(maximum, { maximum = it }, enabled = !busy, valueRange = 7f..365f, modifier = Modifier.semantics { contentDescription = "Longest interval in days" })
                 TextButton({ spacing = 1.5f; retry = 24f; maximum = 180f }, enabled = !busy) { Text("Use relaxed defaults") }

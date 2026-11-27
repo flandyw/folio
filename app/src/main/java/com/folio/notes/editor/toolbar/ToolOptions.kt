@@ -17,6 +17,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.folio.notes.app.AppPrefs
@@ -401,8 +404,8 @@ object EditorQuickPrefs {
     val haptics = LocalHapticFeedback.current
     Box(
         modifier.size(touch).clip(CircleShape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick?.let { action -> { haptics.performHapticFeedback(HapticFeedbackType.LongPress); action() } })
-            .semanticsLabel("$label #${InkColors.hex(color)}${if (selected) ", selected" else ""}"),
+            .combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick?.let { action -> { haptics.performHapticFeedback(HapticFeedbackType.LongPress); action() } })
+            .semantics { contentDescription = "$label #${InkColors.hex(color)}"; this.selected = selected },
         contentAlignment = Alignment.Center
     ) {
         Box(

@@ -3,6 +3,7 @@
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.folio.notes.mistakes.review
 
+import androidx.compose.ui.semantics.stateDescription
 import com.folio.notes.ui.FolioIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -455,15 +456,20 @@ import kotlinx.coroutines.launch
                                 title = { Text("Question display") },
                                 text = {
                                     Column {
-                                        Text("Question space · ${((if (wide) landscapeShare else portraitShare) * 100).toInt()}%")
-                                        Slider(value = MistakeSplit.coerce(if (wide) landscapeShare else portraitShare),
+                                        val share = MistakeSplit.coerce(if (wide) landscapeShare else portraitShare)
+                                        val sharePercent = "${(share * 100).toInt()}%"
+                                        val textPercent = "${(textScale * 100).toInt()}%"
+                                        Text("Question space · $sharePercent")
+                                        Slider(value = share,
                                             onValueChange = { if (wide) landscapeShare = it else portraitShare = it },
                                             onValueChangeFinished = { releaseShare() },
-                                            valueRange = MistakeSplit.MIN..MistakeSplit.MAX)
-                                        Text("Text size · ${(textScale * 100).toInt()}%")
+                                            valueRange = MistakeSplit.MIN..MistakeSplit.MAX,
+                                            modifier = Modifier.semantics { contentDescription = "Question space"; stateDescription = sharePercent })
+                                        Text("Text size · $textPercent")
                                         Slider(value = textScale, onValueChange = { textScale = it },
                                             onValueChangeFinished = { preferences.edit().putFloat("mistakeTextScale", textScale).apply() },
-                                            valueRange = .75f..2f, steps = 4)
+                                            valueRange = .75f..2f, steps = 4,
+                                            modifier = Modifier.semantics { contentDescription = "Question text size"; stateDescription = textPercent })
                                     }
                                 },
                                 confirmButton = { TextButton({ adjustLayout = false }) { Text("Done") } }
